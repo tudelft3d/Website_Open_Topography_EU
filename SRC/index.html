@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenEUTopography</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <style>
+    html, body { height:100%; margin:0; font-family:'Roboto',sans-serif; background:#cce6ff; }
+    #map { width:100%; height:100%; }
+    #sidebar { position:fixed; top:0; right:0; width:320px; height:100%; background:#f8f9fa; padding:16px; box-shadow:-2px 0 5px rgba(0,0,0,0.2); overflow-y:auto; transform:translateX(100%); transition:transform .3s ease; z-index:1000; }
+    #sidebar.visible { transform:translateX(0); }
+    #closeBtn { position:absolute; top:8px; right:8px; background:none; border:none; font-size:24px; cursor:pointer; }
+    #logo-bar { position:fixed; bottom:12px; left:12px; display:flex; gap:10px; background:rgba(255,255,255,0.85); padding:6px 10px; border-radius:6px; box-shadow:0 0 4px rgba(0,0,0,0.15); z-index:1001; }
+    #logo-bar img { height:32px; max-width:100px; cursor:pointer; }
+    #info h4 { color:#003399; font-size:1.1em; margin-top:20px; }
+    #info ul { padding-left:20px; margin-bottom:16px; }
+    #info li { margin-bottom:6px; }
+    #introModal { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center; z-index:2000; }
+    #introModal.visible { display:flex; }
+    #introModalContent { background:#fff; padding:24px; max-width:500px; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.2); text-align:left; }
+    #introModalContent button { margin-top:16px; float:right; padding:6px 12px; font-size:14px; }
+    #top-controls { position:fixed; top:12px; left:12px; z-index:1002; background:rgba(50,50,50,0.8); padding:12px; border-radius:6px; color:white; width:260px; }
+    #countrySearch { width:100%; padding:6px; margin-bottom:8px; border:none; border-radius:4px; }
+    #usageInstructions { font-size:13px; text-align:center; }
+  </style>
+</head>
+<body>
+  <!-- Intro Popup -->
+  <div id="introModal">
+    <div id="introModalContent">
+      <h3>Welcome to the European Topography Elevation Searcher</h3>
+      <p>This interactive map allows you to explore publicly available Digital elevation models and point cloud datasets across European countries. Click on a country to view detailed metadata, acquisition information, and links to downloadable sources.</p>
+      <p>The website is based on <a href="https://example.com/rapport.pdf" target="_blank"><em>point cloud dialects in europe, inventarisation of point cloud datasets in europe for a uniform framework</em></a> by <a href="https://www.linkedin.com/in/dheide/" target="_blank">D.H. van der Heide</a>.</p>
+      <button onclick="toggleIntro()">Got it</button>
+    </div>
+  </div>
+  <!-- Search Bar -->
+  <div id="top-controls">
+    <input list="countryList" id="countrySearch" placeholder="Search for a country...">
+    <datalist id="countryList"></datalist>
+    <div id="usageInstructions">Search or click to view dataset information.</div>
+  </div>
+  <!-- Map Container -->
+  <div id="map"></div>
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <button id="closeBtn">&times;</button>
+    <h2>Country Information</h2>
+    <div id="info">Click a country on the map.</div>
+  </div>
+  <!-- Logos -->
+  <div id="logo-bar">
+    <a href="https://www.tudelft.nl/en/" target="_blank"><img src="images/logo_tudelft.png" alt="TU Delft"/></a>
+    <a href="https://www.eurosdr.net/" target="_blank"><img src="images/logo_eurosdr.png" alt="EuroSDR"/></a>
+    <a href="https://www.rijkswaterstaat.nl/" target="_blank"><img src="images/logo_rws.png" alt="Rijkswaterstaat"/></a>
+  </div>
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Toggle intro modal
+    function toggleIntro() { document.getElementById('introModal').classList.toggle('visible'); }
+    window.addEventListener('load', toggleIntro);
+    // Initialize map & panes
+    const map = L.map('map',{minZoom:5,maxZoom:10}).setView([50,5],5);
+    map.createPane('polygonsPane'); map.getPane('polygonsPane').style.zIndex = 400;
+    map.createPane('pointsPane'); map.getPane('pointsPane').style.zIndex = 500;
+    // Basemap
+    L.tileLayer.wms('https://image.discomap.eea.europa.eu/arcgis/services/GioLand/HRIM_HR_TrueColour_2018/ImageServer/WMSServer',{layers:'HRIM_HR_TrueColour_2018',format:'image/png',transparent:true,attribution:'Copernicus HR Imagery - EEA'}).addTo(map);
+    // Sidebar controls
+    const sidebar=document.getElementById('sidebar'), infoBox=document.getElementById('info');
+    document.getElementById('closeBtn').onclick = ()=> sidebar.classList.remove('visible');
+    let textTemplates={}, lastLayer=null, geoJsonLayer, pointLayer;
+    // Load templates
+    fetch('text/text_template.json').then(r=>r.json()).then(d=>textTemplates=d).catch(console.error);
+    // Helper to replace template tags
+    function injectData(t,p){ return t.replace(/{{type}}/g,p.Type||'N/A').replace(/{{national}}/g,p.National||'N/A').replace(/{{urban}}/g,p.Urban||'N/A').replace(/{{avg_dens}}/g,p.Avg_dens||'N/A').replace(/{{planimetric}}/g,p.Planimetric||'N/A').replace(/{{altimetric}}/g,p.Altimetric||'N/A').replace(/{{year}}/g,p.Year||'N/A').replace(/{{climate}}/g,p.Climate||'N/A').replace(/{{link}}/g,p.Link||'#'); }
+    // On feature click
+    function onFeatureClick(p,layer){
+      if(lastLayer) lastLayer.setStyle(lastLayer.defaultStyle);
+      layer.setStyle({color:'red',weight:4,fill:true,fillColor:'yellow',fillOpacity:0.8}); lastLayer=layer;
+      geoJsonLayer.eachLayer(l=>{ if(l!==layer) l.setStyle({color:'#003399',weight:2,fill:true,fillColor:l.defaultStyle.fillColor,fillOpacity:0.6}); });
+      // Sidebar content
+      const base=textTemplates[p.Name]||'';
+      const mainText=base?`<p>${injectData(base,p)}</p>`:'<p>No info available.</p>';
+      const dataHtml=`
+        <h4>Acquisition & Coverage</h4>
+        <ul>
+          <li><strong>Datasets available Type:</strong> ${p.Data||'N/A'}</li>
+          <li><strong>Acquisition Type:</strong> ${p.Type||'N/A'}</li>
+        </ul>
+        <h4>Accuracy</h4>
+        <ul>
+          <li><strong>Planimetric Accuracy:</strong> ${p.Planimetric||'N/A'} m</li>
+          <li><strong>Altimetric Accuracy:</strong> ${p.Altimetric||'N/A'} m</li>
+          <li><strong>Low point density:</strong> ${p.National||'N/A'}</li>
+          <li><strong>High point density:</strong> ${p.Urban||'N/A'}</li>
+        </ul>
+        <h4>Additional Information</h4>
+        <ul>
+          <li><strong>Year of Acquisition:</strong> ${p.Year||'N/A'}</li>
+          <li><strong>Climate Considered:</strong> ${p.Climate||'N/A'}</li>
+          <li><strong>Data Access:</strong> <a href="${p.Link||'#'}" target="_blank">View dataroom</a></li>
+        </ul>`;
+      infoBox.innerHTML=`<h3>${p.Name}</h3>${mainText}${dataHtml}`;
+      sidebar.classList.add('visible');
+    }
+    // Search and load data
+    const searchInput=document.getElementById('countrySearch'), dataList=document.getElementById('countryList');
+    fetch('data/map_data.geojson').then(r=>r.json()).then(data=>{
+      data.features.map(f=>f.properties.Name).sort().forEach(n=>{let o=document.createElement('option');o.value=n;dataList.append(o);});
+      geoJsonLayer=L.geoJson(data,{ pane:'polygonsPane', style:feat=>({color:'#333',weight:2,fill:true,fillColor:feat.properties.Data==null?'#d3d3d3':'#003399',fillOpacity:0.4}), onEachFeature:(f,l)=>{ l.defaultStyle={...l.options}; l.bindTooltip(f.properties.Name); l.on('mouseover',()=>l.openTooltip()); l.on('mouseout',()=>l.closeTooltip()); l.on('click',()=>onFeatureClick(f.properties,l)); } }).addTo(map);
+      // After polygons, load points after delay
+      // After polygons, load points immediately
+      fetch('data/region_map_data.geojson')
+        .then(r => r.json())
+        .then(pd => {
+          pointLayer = L.geoJson(pd, {
+            pane: 'pointsPane',
+            pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, color: '#fff', weight: 1, fillColor: '#ffa500', fillOpacity: 0.8 }),
+            onEachFeature: (f, l) => {
+              l.defaultStyle = { radius: 6, color: '#fff', weight: 1, fillColor: '#ffa500', fillOpacity: 0.8 };
+              l.bindTooltip(f.properties.Name);
+              l.on('mouseover', () => l.openTooltip());
+              l.on('mouseout', () => l.closeTooltip());
+              l.on('click', () => onFeatureClick(f.properties, l));
+            }
+          }).addTo(map);
+          // Ensure points above
+          pointLayer.bringToFront();
+        })
+        .catch(console.error);
+    }).catch(console.error);
+    // Dropdown search
+    searchInput.onchange=()=>{ const val=searchInput.value; geoJsonLayer.eachLayer(l=>{ if(l.feature.properties.Name===val){ onFeatureClick(l.feature.properties,l); map.fitBounds(l.getBounds()); } }); pointLayer.eachLayer(l=>{ if(l.feature.properties.Name===val){ onFeatureClick(l.feature.properties,l); map.setView(l.getLatLng(),8); } }); };
+  </script>
+</body>
+</html>
