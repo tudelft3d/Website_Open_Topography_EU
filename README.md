@@ -33,3 +33,9 @@ Run unit tests with:
 ```bash
 make test
 ```
+
+## Deployment
+
+Site updates are published via GitHub Actions. On each push to `main`,
+the workflow defined in `.github/workflows/gh-pages.yml` runs `make test`
+and then deploys the contents of `SRC/` to the `gh-pages` branch.
