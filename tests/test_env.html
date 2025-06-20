@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <title>OpenEUTopography</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- MapLibre CSS -->
+  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet">
+  <style>
+    html, body { height:100%; margin:0; font-family:'Roboto',sans-serif; background:#cce6ff; }
+    #map { position:absolute; top:0; bottom:0; width:100%; }
+    #sidebar { position:fixed; top:0; right:0; width:320px; height:100%; background:#f8f9fa; padding:16px;
+               box-shadow:-2px 0 5px rgba(0,0,0,0.2); overflow-y:auto;
+               transform:translateX(100%); transition:transform .3s ease; z-index:1000; }
+    #sidebar.visible { transform:translateX(0); }
+    #closeBtn { position:absolute; top:8px; right:8px; background:none; border:none; font-size:24px; cursor:pointer; }
+    #logo-bar { position:fixed; bottom:12px; left:12px; display:flex; gap:10px;
+                background:rgba(255,255,255,0.85); padding:6px 10px; border-radius:6px; box-shadow:0 0 4px rgba(0,0,0,0.15);
+                z-index:1001; }
+    #logo-bar img { height:32px; max-width:100px; cursor:pointer; }
+    #info h4 { color:#003399; font-size:1.1em; margin-top:20px; }
+    #info ul { padding-left:20px; margin-bottom:16px; }
+    #info li { margin-bottom:6px; }
+    #introModal { position:fixed; top:0; left:0; width:100vw; height:100vh;
+                  background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center; z-index:2000; }
+    #introModal.visible { display:flex; }
+    #introModalContent { background:#fff; padding:24px; max-width:500px; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.2); text-align:left; }
+    #introModalContent button { margin-top:16px; float:right; padding:6px 12px; font-size:14px; }
+    #top-controls { position:fixed; top:12px; left:12px; z-index:1002; background:rgba(50,50,50,0.8);
+                    padding:12px; border-radius:6px; color:white; width:260px; }
+    #countrySearch { width:100%; padding:6px; margin-bottom:8px; border:none; border-radius:4px; }
+    #usageInstructions { font-size:13px; text-align:center; }
+  </style>
+</head>
+<body>
+  <!-- Intro Popup -->
+  <div id="introModal">
+    <div id="introModalContent">
+      <h3>Welcome to the European Topography Elevation Searcher</h3>
+      <p>Explore DEM’s en point clouds per Europees land. Klik op een land of zoek er één op.</p>
+      <button onclick="toggleIntro()">Got it</button>
+    </div>
+  </div>
+
+  <!-- Search Bar -->
+  <div id="top-controls">
+    <input list="countryList" id="countrySearch" placeholder="Search for a country or region...">
+    <datalist id="countryList"></datalist>
+    <div id="usageInstructions">Search or click to view dataset information.</div>
+  </div>
+
+  <!-- Map Container -->
+  <div id="map"></div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <button id="closeBtn">&times;</button>
+    <h2>Information</h2>
+    <div id="info">Click a country on the map.</div>
+  </div>
+
+  <!-- Logos -->
+  <div id="logo-bar">
+    <a href="https://www.tudelft.nl/en/" target="_blank"><img src="images/logo_tudelft.png" alt="TU Delft"/></a>
+    <a href="https://www.eurosdr.net/" target="_blank"><img src="images/logo_eurosdr.png" alt="EuroSDR"/></a>
+    <a href="https://www.rijkswaterstaat.nl/" target="_blank"><img src="images/logo_rws.png" alt="Rijkswaterstaat"/></a>
+  </div>
+
+  <!-- MapLibre & Turf.js -->
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+  <script>
+    // Intro modal
+    function toggleIntro() {
+      document.getElementById('introModal').classList.toggle('visible');
+    }
+    window.addEventListener('load', toggleIntro);
+
+    // Sidebar refs
+    const sidebar  = document.getElementById('sidebar'),
+          infoBox  = document.getElementById('info'),
+          closeBtn = document.getElementById('closeBtn');
+    closeBtn.onclick = () => sidebar.classList.remove('visible');
+
+    // Data holders
+    let countriesData = null;
+    let regionsData   = null;
+
+    // Back button HTML
+    const backBtnHtml = '<button id="backBtn">◀ Back to countries</button>';
+
+    // Load text templates
+    let textTemplates = {};
+    fetch('text/text_template.json')
+      .then(r => r.json())
+      .then(d => textTemplates = d)
+      .catch(console.error);
+
+    // Inject template tags
+    function injectData(t, p) {
+      return t.replace(/{{type}}/g, p.Type||'N/A')
+              .replace(/{{national}}/g, p.National||'N/A')
+              .replace(/{{urban}}/g, p.Urban||'N/A')
+              .replace(/{{avg_dens}}/g, p.Avg_dens||'N/A')
+              .replace(/{{planimetric}}/g, p.Planimetric||'N/A')
+              .replace(/{{altimetric}}/g, p.Altimetric||'N/A')
+              .replace(/{{year}}/g, p.Year||'N/A')
+              .replace(/{{climate}}/g, p.Climate||'N/A')
+              .replace(/{{link}}/g, p.Link||'#');
+    }
+
+    // Show info in sidebar
+    function showInfo(props, titleField, regionMode=false) {
+      const title = regionMode ? props.RegionName : props.Name;
+      const base = textTemplates[title] || '';
+      const mainText = base ? `<p>${injectData(base, props)}</p>` : '<p>No info available.</p>';
+      const dataHtml = `
+        <h4>Acquisition & Coverage</h4>
+        <ul>
+          <li><strong>Datasets:</strong> ${props.Data||'N/A'}</li>
+          <li><strong>Acquisition Type:</strong> ${props.Type||'N/A'}</li>
+        </ul>
+        <h4>Accuracy</h4>
+        <ul>
+          <li><strong>Planimetric:</strong> ${props.Planimetric||'N/A'} m</li>
+          <li><strong>Altimetric:</strong> ${props.Altimetric||'N/A'} m</li>
+          <li><strong>Low density:</strong> ${props.National||'N/A'}</li>
+          <li><strong>High density:</strong> ${props.Urban||'N/A'}</li>
+        </ul>
+        <h4>Additional Information</h4>
+        <ul>
+          <li><strong>Year:</strong> ${props.Year||'N/A'}</li>
+          <li><strong>Climate:</strong> ${props.Climate||'N/A'}</li>
+          <li><strong>Access:</strong> <a href="${props.Link||'#'}" target="_blank">View dataroom</a></li>
+        </ul>`;
+      infoBox.innerHTML = `<h3>${title}</h3>${mainText}${dataHtml}`;
+      sidebar.classList.add('visible');
+    }
+
+    // Reset to country view
+    function resetToCountries() {
+      // verwijder regio-layers
+      if (map.getLayer('region-fill'))   map.removeLayer('region-fill');
+      if (map.getLayer('region-border')) map.removeLayer('region-border');
+      if (map.getSource('regions'))      map.removeSource('regions');
+      regionsData = null;
+
+      // restore raster + landen-layers
+      map.setPaintProperty('osm',          'raster-opacity', 1);
+      map.setLayoutProperty('country-fill','visibility',     'visible');
+      map.setLayoutProperty('country-border','visibility',   'visible');
+      map.setPaintProperty('country-fill','fill-opacity',   0.4);
+      map.setPaintProperty('country-3d',  'fill-extrusion-height', 0);
+
+      // restore country-lijst
+      const list = document.getElementById('regionList');
+      list.id = 'countryList';
+      const input = document.getElementById('countrySearch');
+      input.list = 'countryList';
+      list.innerHTML = '';
+      countriesData.features
+        .map(f => f.properties.Name)
+        .sort()
+        .forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          list.append(opt);
+        });
+
+      // verwijder back-knop
+      const btn = document.getElementById('backBtn');
+      if (btn) btn.remove();
+
+      // reset camera & sidebar
+      map.easeTo({ center:[5,50], zoom:5, pitch:0, bearing:0, duration:1000 });
+      sidebar.classList.remove('visible');
+    }
+
+    // Initialize MapLibre
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256
+          }
+        },
+        layers: [{ id:'osm', type:'raster', source:'osm', paint:{ 'raster-opacity':1 } }]
+      },
+      center: [5,50],
+      zoom: 5,
+      pitch: 0,
+      bearing: 0,
+      minZoom: 5,
+      maxZoom: 10
+    });
+
+    // Laad landen
+    map.on('load', () => {
+      fetch('data/map_data.geojson')
+        .then(r => r.json())
+        .then(data => {
+          countriesData = data;
+          // vul countryList
+          data.features.map(f => f.properties.Name).sort().forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            document.getElementById('countryList').append(opt);
+          });
+          // source + layers
+          map.addSource('countries',{ type:'geojson', data });
+          map.addLayer({ id:'country-fill', type:'fill', source:'countries',
+                         paint:{ 'fill-color':'#003399','fill-opacity':0.4 } });
+          map.addLayer({ id:'country-border', type:'line', source:'countries',
+                         paint:{ 'line-color':'#333','line-width':2 } });
+          map.addLayer({ id:'country-3d', type:'fill-extrusion', source:'countries',
+                         paint:{ 'fill-extrusion-color':'#888','fill-extrusion-height':0,'fill-extrusion-opacity':0.6 } });
+
+          // country click ➔ zoom/tilt/extrude + load regio
+          map.on('click','country-fill', e => {
+            const feat  = e.features[0],
+                  props = feat.properties,
+                  bbox  = turf.bbox(feat),
+                  slug  = props.Name.toLowerCase().replace(/\s+/g,'_');
+
+            // zoom + tilt + extrude
+            map.fitBounds([[bbox[0],bbox[1]],[bbox[2],bbox[3]]],
+                          { padding:20, duration:1000 });
+            map.once('moveend', () => {
+              map.easeTo({ pitch:45, bearing:0, zoom:map.getZoom(), duration:1000 });
+            });
+            map.setPaintProperty('country-3d','fill-extrusion-height',50000);
+            showInfo(props,'Name',false);
+
+            // maak achtergrond half transparant
+            map.setPaintProperty('osm','raster-opacity',0.3);
+            // neem landen-layers weg zodra regio geladen
+            function hideCountries() {
+              map.setLayoutProperty('country-fill','visibility','none');
+              map.setLayoutProperty('country-border','visibility','none');
+              map.setPaintProperty('country-3d','fill-extrusion-height',0);
+            }
+
+            // laad dit land z’n regio-bestand
+            fetch(`data/region_map_data_${slug}.geojson`)
+              .then(r => r.json())
+              .then(regData => {
+                regionsData = regData;
+                hideCountries();
+
+                // voeg regio-source + layers toe
+                if (!map.getSource('regions')) {
+                  map.addSource('regions',{ type:'geojson', data:regData });
+                  map.addLayer({ id:'region-fill', type:'fill', source:'regions',
+                                 paint:{ 'fill-color':'#ffa500','fill-opacity':0.5 } },'country-3d');
+                  map.addLayer({ id:'region-border', type:'line', source:'regions',
+                                 paint:{ 'line-color':'#333','line-width':2 } },'region-fill');
+                } else {
+                  map.getSource('regions').setData(regData);
+                }
+
+                // klikbaar maken van regio
+                map.on('click','region-fill', e => {
+                  showInfo(e.features[0].properties,'RegionName',true);
+                });
+                map.on('mouseenter','region-fill', ()=> map.getCanvas().style.cursor='pointer');
+                map.on('mouseleave','region-fill', ()=> map.getCanvas().style.cursor='');
+
+                // swap datalist
+                const list = document.getElementById('countryList');
+                list.id = 'regionList';
+                document.getElementById('countrySearch').list = 'regionList';
+                list.innerHTML = '';
+                regData.features.map(f => f.properties.RegionName).sort().forEach(name => {
+                  const opt = document.createElement('option');
+                  opt.value = name;
+                  list.append(opt);
+                });
+
+                // voeg back-knop toe
+                document.getElementById('sidebar')
+                        .insertAdjacentHTML('afterbegin', backBtnHtml);
+                document.getElementById('backBtn').onclick = resetToCountries;
+              })
+              .catch(() => {
+                // geen region_map_data_<land>.geojson → alleen grens van het land
+                hideCountries();
+                map.setPaintProperty('country-border','line-color','#ff0000'); // accentueer grens
+                // back-knop
+                document.getElementById('sidebar')
+                        .insertAdjacentHTML('afterbegin', backBtnHtml);
+                document.getElementById('backBtn').onclick = resetToCountries;
+              });
+          });
+
+          // hover pointer voor landen
+          map.on('mouseenter','country-fill', ()=> map.getCanvas().style.cursor='pointer');
+          map.on('mouseleave','country-fill', ()=> map.getCanvas().style.cursor='');
+
+        }).catch(console.error);
+    });
+
+    // Search box change: land of regio selecteren
+    document.getElementById('countrySearch')
+      .addEventListener('change', function() {
+        const name = this.value;
+        if (regionsData) {
+          // regio mode
+          const feat = regionsData.features.find(f => f.properties.RegionName === name);
+          if (feat) {
+            const bbox = turf.bbox(feat);
+            map.fitBounds([[bbox[0],bbox[1]],[bbox[2],bbox[3]]],
+                          { padding:20, duration:1000 });
+            map.once('moveend', () => {
+              map.easeTo({ pitch:45, bearing:0, zoom:map.getZoom(), duration:1000 });
+            });
+            showInfo(feat.properties,'RegionName',true);
+          }
+        } else if (countriesData) {
+          // land mode (hergebruik country-click logic)
+          const feat = countriesData.features.find(f => f.properties.Name === name);
+          if (feat) {
+            map.fire('click','country-fill',{ features:[feat] });
+          }
+        }
+      });
+  </script>
+</body>
+</html>
