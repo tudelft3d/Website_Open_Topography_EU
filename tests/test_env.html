@@ -5,94 +5,109 @@
   <title>OpenEUTopography</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet"/>
-  <link href="https://fonts.googleapis.com/css2?family=Roboto&display=swap" rel="stylesheet"/>
   <style>
-    /* Basis styling en loader */
     html, body { height:100%; margin:0; font-family:'Roboto',sans-serif; background:#cce6ff; }
-    body.loading #map, body.loading #top-controls, body.loading #logo-bar, body.loading #toc { visibility:hidden; }
-    #loader { position:fixed; top:0; left:0; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; background:#fff; z-index:4000; font-size:1.2em; }
-
-    /* Table of Contents pane */
-    #toc {
-      position:fixed; top:12px; left:12px; width:280px;
-      background:rgba(0,0,0,0.7); color:#fff;
-      padding:16px; border-radius:8px;
-      box-shadow:0 4px 20px rgba(0,0,0,0.3);
-      z-index:1002;
-    }
-    #toc h2 { margin-top:0; font-size:1.4em; }
-    #toc input { width:100%; padding:0px; margin-bottom:8px; border:none; border-radius:4px; }
-    #toc .instruction { font-size:0.85em; margin-bottom:12px; opacity:0.8; }
-    #toc ul { list-style:none; padding:0; margin:0; }
+    #toc { position:fixed; top:12px; left:12px; width:280px; background:rgba(0,0,0,0.7); color:#fff; padding:16px; border-radius:8px; z-index:1002; }
+    #toc input { width:100%; border-radius:4px; }
+    #toc ul { list-style:none; padding:0; margin:0; display:none; }
+    #toc ul.visible { display:block; }
     #toc li { padding:8px 0; cursor:pointer; }
     #toc li:hover { text-decoration:underline; }
-
-    /* Map container */
     #map { position:absolute; top:0; bottom:0; width:100%; }
-
-    /* Sidebar voor dataset info */
-    #sidebar { position:fixed; top:0; right:0; width:320px; height:100%; background:#f8f9fa;
-      padding:16px; box-shadow:-2px 0 5px rgba(0,0,0,0.2); overflow-y:auto;
-      transform:translateX(100%); transition:transform .3s ease; z-index:1001;
+    /* Sidebar met transparantie en afgeronde hoeken */
+    #sidebar {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      bottom: 12px;
+      width: 320px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 16px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      overflow-y: auto;
+      display: none;
+      z-index: 1001;
     }
-    #sidebar.visible { transform:translateX(0); }
-    #closeBtn { position:absolute; top:8px; right:8px; background:none; border:none; font-size:24px; cursor:pointer; }
+    #sidebar.visible { display: block; }
+    #sidebar h3, #sidebar p, #sidebar ul, #sidebar li { color: #fff; }
+    #closeBtn { position:absolute; top:8px; right:8px; background:none; border:none; font-size:24px; cursor:pointer; color:#fff; }
 
-    /* Logo-balk onderin */
-    #logo-bar { position:fixed; bottom:12px; left:12px; display:flex; gap:10px;
-      background:rgba(255,255,255,0.85); padding:6px 10px; border-radius:6px;
-      box-shadow:0 0 4px rgba(0,0,0,0.15); z-index:1001;
-    }
-    #logo-bar img { height:32px; max-width:100px; cursor:pointer; }
-
-    /* Introductie modal */
-    #introModal { position:fixed; top:0; left:0; width:100vw; height:100vh;
-      background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center;
-      z-index:2000;
-    }
+    /* Welkomst-popup */
+    #introModal { position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); display:none; justify-content:center; align-items:center; z-index:2000; }
     #introModal.visible { display:flex; }
-    #introModalContent { background:#fff; padding:24px; max-width:500px; border-radius:8px;
-      box-shadow:0 4px 20px rgba(0,0,0,0.2); text-align:left;
-    }
+    #introModalContent { background:#fff; padding:24px; max-width:500px; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.2); text-align:left; }
     #introBtn { display:none; pointer-events:none; margin-top:16px; float:right; padding:6px 12px; font-size:14px; }
+#logo-bar {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.7);     /* zelfde kleur als sidebar */
+  padding: 16px;                       /* iets meer ruimte */
+  border-radius: 8px;                  /* afgeronde hoeken gelijk aan sidebar */
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 1001;
+}
 
-    /* Bovenste controls voor dropdown/regioknoppen */
-    #top-controls { position:fixed; top:12px; left:312px; z-index:1002;
-      background:rgba(50,50,50,0.8); padding:12px; border-radius:6px; color:white;
-      width:260px; display:flex; flex-direction:column; gap:6px;
-    }
-    #countrySelect { width:100%; padding:6px; border:none; border-radius:4px; }
-    #optionList { display:none; flex-direction:column; gap:6px; margin-top:8px; }
-    .option-btn { background:#fff; color:#333; border:1px solid #333;
-      padding:6px 12px; border-radius:4px; cursor:pointer; text-align:left;
-    }
-    .option-btn:hover { background:#e0e0e0; }
-    #usageInstructions { font-size:13px; text-align:center; margin-top:8px; }
+#logo-bar img {
+  height: 40px;    /* twee keer zo groot als 32px */
+  max-width: 200px;/* optioneel: zorg dat ze niet extreem breed worden */
+  cursor: pointer;
+}
+.toc-icon {
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+.toc-icon:hover {
+  opacity: 1;
+}
+/* Reuse je bestaande modal-classes */
+.modal {
+  position: fixed; top:0; left:0; width:100vw; height:100vh;
+  background: rgba(0,0,0,0.5); display:none;
+  justify-content:center; align-items:center; z-index:3000;
+}
+.modal-content {
+  background:#fff; padding:20px; border-radius:8px;
+  max-width:400px; width:90%; position:relative;
+}
+.modal-content .close {
+  position:absolute; top:10px; right:10px;
+  border:none; background:none; font-size:24px;
+  cursor:pointer;
+}
 
-    /* Informatie sectie in sidebar */
-    #info h4 { color:#003399; font-size:1.1em; margin-top:20px; }
-    #info ul { padding-left:20px; margin-bottom:16px; }
-    #info li { margin-bottom:6px; }
   </style>
 </head>
-<body class="loading">
-  <div id="loader">Loading…</div>
-
-  <!-- Table of Contents panel -->
-  <div id="toc">
-    <h2>Table of Contents</h2>
-    <!-- Zoekveld voor landen filter -->
-    <input id="tocSearch" placeholder="Select or edit a country dataset to view" />
-    <div class="instruction">Select or edit a country dataset to view</div>
-    <ul id="tocList">
-      <li data-section="country">Country Selection</li>
-      <li data-section="map">Map View</li>
-      <li data-section="info">Information Panel</li>
-      <li data-section="pointcloud">Pointcloud Dataset</li>
-    </ul>
+<body>
+<div id="toc">
+  <h2>Table of Contents</h2>
+  <input id="tocSearch" placeholder="Select or edit a country dataset to view" autocomplete="off"/>
+  
+  <!-- Vier pictogrammen -->
+  <div id="iconPlaces" style="margin-top:12px; display:flex; gap:12px; justify-content:center;">
+    <img src="icons/icon1.svg" alt="Icon 1" id="icon1" class="toc-icon"/>
+    <img src="icons/icon2.svg" alt="Icon 2" id="icon2" class="toc-icon"/>
+    <img src="icons/icon3.svg" alt="Icon 3" id="icon3" class="toc-icon"/>
+    <img src="icons/icon4.svg" alt="Icon 4" id="icon4" class="toc-icon"/>
   </div>
 
-  <!-- Introductie modal -->
+  <ul id="tocList"></ul>
+</div>
+
+<!-- Modals voor de vier pictogrammen -->
+<div id="iconModal" class="modal">
+  <div class="modal-content">
+    <button id="iconClose" class="close">&times;</button>
+    <div id="iconInfo"></div>
+  </div>
+</div>
+
   <div id="introModal">
     <div id="introModalContent">
       <h3>Welcome to the European Topography Elevation Searcher</h3>
@@ -101,47 +116,36 @@
     </div>
   </div>
 
-  <!-- Dropdown en regioknoppen -->
-
-
-  <!-- Map container -->
   <div id="map"></div>
-
-  <!-- Sidebar voor datasetinformatie -->
   <div id="sidebar">
     <button id="closeBtn">&times;</button>
-    <h2>Information</h2>
     <div id="info">Selecteer eerst een land.</div>
   </div>
-
-  <!-- Partnerlogo's -->
+ <!-- Logos -->
   <div id="logo-bar">
     <a href="https://www.tudelft.nl/en/" target="_blank"><img src="images/logo_tudelft.png" alt="TU Delft"/></a>
     <a href="https://www.eurosdr.net/" target="_blank"><img src="images/logo_eurosdr.png" alt="EuroSDR"/></a>
     <a href="https://www.rijkswaterstaat.nl/" target="_blank"><img src="images/logo_rws.png" alt="Rijkswaterstaat"/></a>
   </div>
-
   <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
   <script>
-    // Data containers en timer
-    let countriesData = null;
-    let regionsData = null;
-    let textTemplates = {};
-    let timer;
+    // Data containers
+    let countriesData, textTemplates, regionsData;
+    let selectedCountryFeature = null, selectedRegionFeatureId = null;
 
-    // Toggle intro modal
+    // Helpers voor sidebar en injecties
+    const tocSearch = document.getElementById('tocSearch'),
+          tocList   = document.getElementById('tocList'),
+          sidebar   = document.getElementById('sidebar'),
+          infoBox   = document.getElementById('info'),
+          closeBtn  = document.getElementById('closeBtn');
+    closeBtn.onclick = resetToCountries;
+
     function toggleIntro() {
       document.getElementById('introModal').classList.toggle('visible');
     }
 
-    // Sidebar referenties
-    const sidebar = document.getElementById('sidebar');
-    const infoBox = document.getElementById('info');
-    const closeBtn = document.getElementById('closeBtn');
-    closeBtn.onclick = () => resetToCountries();
-
-    // Vervang placeholders in templates
     function injectData(template, props) {
       return template
         .replace(/{{type}}/g, props.Type || 'N/A')
@@ -155,88 +159,255 @@
         .replace(/{{link}}/g, props.Link || '#');
     }
 
-    // Toon informatie
-    function showInfo(props, _, regionMode = false) {
-      const title = regionMode ? props.RegionName : props.Name;
-      const base = textTemplates[title] || '';
-      const mainText = base ? `<p>${injectData(base, props)}</p>` : '<p>No info available.</p>';
-      const dataHtml = `<h4>Datasets:</h4><p>${props.Data || 'N/A'}</p>`;
-      infoBox.innerHTML = `<h3>${title}</h3>${mainText}${dataHtml}`;
+    // Sidebar inhoudsbouwer
+    function showInfo(p, _, regionMode = false) {
+      const base = textTemplates[p.Name] || '';
+      const mainText = base
+        ? `<p>${injectData(base, p)}</p>`
+        : '<p>No info available.</p>';
+      const dataHtml = `
+        <h4>Acquisition &amp; Coverage</h4>
+        <ul>
+          <li><strong>Datasets available Type:</strong> ${p.Data || 'N/A'}</li>
+          <li><strong>Acquisition Type:</strong> ${p.Type || 'N/A'}</li>
+        </ul>
+        <h4>Accuracy</h4>
+        <ul>
+          <li><strong>Planimetric Accuracy:</strong> ${p.Planimetric || 'N/A'} m</li>
+          <li><strong>Altimetric Accuracy:</strong> ${p.Altimetric || 'N/A'} m</li>
+          <li><strong>Low point density:</strong> ${p.National || 'N/A'}</li>
+          <li><strong>High point density:</strong> ${p.Urban || 'N/A'}</li>
+        </ul>
+        <h4>Additional Information</h4>
+        <ul>
+          <li><strong>Year of Acquisition:</strong> ${p.Year || 'N/A'}</li>
+          <li><strong>Climate Considered:</strong> ${p.Climate || 'N/A'}</li>
+          <li><strong>Data Access:</strong> <a href="${p.Link || '#'}" target="_blank">View dataroom</a></li>
+        </ul>
+      `;
+      infoBox.innerHTML = `<h3>${p.Name}</h3>${mainText}${dataHtml}`;
       sidebar.classList.add('visible');
     }
 
-    // Reset weergave
-    function resetToCountries() {
-      const backBtn = document.getElementById('backBtn'); if (backBtn) backBtn.remove();
-      if (map.getLayer('region-fill')) map.removeLayer('region-fill');
-      if (map.getLayer('region-border')) map.removeLayer('region-border');
-      if (map.getSource('regions')) map.removeSource('regions');
-      regionsData = null;
-      map.setPaintProperty('osm', 'raster-opacity', 1);
-      map.setLayoutProperty('country-fill', 'visibility', 'visible');
-      map.setLayoutProperty('country-border', 'visibility', 'visible');
-      map.setPaintProperty('country-fill', 'fill-opacity', 0.4);
-      document.getElementById('optionList').style.display = 'none';
-      document.getElementById('countrySelect').style.display = 'block';
-      map.easeTo({ center: [5,50], zoom:5, pitch:0, bearing:0, duration:1000 });
-      sidebar.classList.remove('visible');
-    }
+    // TOC update
+    function updateTOCList() {
+      const q = tocSearch.value.trim().toLowerCase();
+      tocList.innerHTML = '';
 
-    // Behandel selectie
-    function handleCountrySelect(feature) {
-      const p = feature.properties;
-      const bbox = turf.bbox(feature);
-      map.fitBounds([[bbox[0],bbox[1]],[bbox[2],bbox[3]]],{ padding:20, duration:1000 });
-      map.once('moveend',()=>map.easeTo({ pitch:0, bearing:0, zoom:map.getZoom(), duration:1000 }));
-      showInfo(p,'Name',false);
-      map.setPaintProperty('osm','raster-opacity',0.3);
-      fetch(`data/region_map_data_${p.Name.toLowerCase().replace(/\s+/g,'_')}.geojson`)
-        .then(r=>r.json()).then(rd=>{
-          regionsData=rd;
-          document.getElementById('countrySelect').style.display='none';
-          const opts=document.getElementById('optionList'); opts.innerHTML='';
-          const btnC=document.createElement('button'); btnC.textContent=p.Name; btnC.className='option-btn'; btnC.onclick=()=>showInfo(p,'Name',false);
-          opts.append(btnC);
-          rd.features.map(f=>f.properties.RegionName).sort().forEach(rn=>{ const btn=document.createElement('button'); btn.textContent=rn; btn.className='option-btn'; btn.onclick=()=>showInfo(rd.features.find(x=>x.properties.RegionName===rn).properties,'RegionName',true); opts.append(btn); });
-          opts.style.display='flex';
-          const ex=document.getElementById('backBtn'); if(ex)ex.remove();
-          document.getElementById('sidebar').insertAdjacentHTML('afterbegin','<button id="backBtn">◀ Back to countries</button>');
-          document.getElementById('backBtn').onclick=resetToCountries;
-        }).catch(()=>{ const ex=document.getElementById('backBtn'); if(ex)ex.remove(); document.getElementById('sidebar').insertAdjacentHTML('afterbegin','<button id="backBtn">◀ Back to countries</button>'); document.getElementById('backBtn').onclick=resetToCountries; });
-    }
+      // Regio-modus
+      if (selectedCountryFeature && regionsData) {
+        tocList.classList.add('visible');
+        // Country entry
+        const countryLi = document.createElement('li');
+        countryLi.textContent = selectedCountryFeature.properties.Name;
+        countryLi.onclick = () => {
+          // reset regio-highlight
+          if (selectedRegionFeatureId !== null) {
+            map.removeFeatureState({ source:'regions' });
+            selectedRegionFeatureId = null;
+          }
+          zoomTo(selectedCountryFeature, 45);
+          showInfo(selectedCountryFeature.properties, false);
+        };
+        tocList.append(countryLi);
+        // Regio entries
+        regionsData.features.forEach((f, idx) => {
+          f.id = idx;
+          const li = document.createElement('li');
+          li.textContent = f.properties.Name;
+          li.onclick = () => selectRegion(idx, f.properties);
+          tocList.append(li);
+        });
+        return;
+      }
 
-    // Initialiseer kaart
-    function initMap(){ window.map=new maplibregl.Map({ container:'map', style:{ version:8, sources:{ osm:{ type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256 }}, layers:[{ id:'osm', type:'raster', source:'osm', paint:{ 'raster-opacity':1 }}]}, center:[5,50], zoom:5, pitch:0, bearing:0, minZoom:5, maxZoom:10 });
-      map.on('load',()=>{
-        map.addSource('countries',{ type:'geojson', data:countriesData });
-        map.addLayer({ id:'country-fill', type:'fill', source:'countries', paint:{ 'fill-color':'#003399','fill-opacity':0.4 }});
-        map.addLayer({ id:'country-border', type:'line', source:'countries', paint:{ 'line-color':'#333','line-width':2 }});
-        const sel=document.getElementById('countrySelect'); sel.innerHTML=''; countriesData.features.map(f=>f.properties.Name).sort().forEach(n=>sel.add(new Option(n,n)));
-        sel.addEventListener('change',function(){ const feat=countriesData.features.find(f=>f.properties.Name===this.value); if(feat)handleCountrySelect(feat); });
-        map.on('click','country-fill',e=>handleCountrySelect(e.features[0]));
-        map.on('mouseenter','country-fill',()=>map.getCanvas().style.cursor='pointer');
-        map.on('mouseleave','country-fill',()=>map.getCanvas().style.cursor='');
+      // Landenlijst bij zoeken
+      if (!q) {
+        tocList.classList.remove('visible');
+        return;
+      }
+      tocList.classList.add('visible');
+      const matches = countriesData.features
+        .filter(f => f.properties.Name && !f.properties.RegionName)
+        .map(f => f.properties.Name)
+        .filter(n => n.toLowerCase().includes(q))
+        .sort();
+      if (!matches.length) {
+        tocList.innerHTML = '<li><em>No matches</em></li>';
+        return;
+      }
+      matches.forEach(name => {
+        const li = document.createElement('li');
+        li.textContent = name;
+        li.onclick = () => {
+          const feat = countriesData.features.find(f => f.properties.Name === name && !f.properties.RegionName);
+          handleCountrySelect(feat);
+        };
+        tocList.append(li);
       });
     }
 
-    // Table of Contents klik handlers
-    document.getElementById('tocList').addEventListener('click', e=>{
-      if(e.target.tagName==='LI'){
-        const section=e.target.getAttribute('data-section');
-        switch(section){
-          case 'country': document.getElementById('countrySelect').focus(); break;
-          case 'map': resetToCountries(); break;
-          case 'info': sidebar.classList.add('visible'); break;
-          case 'pointcloud': if(regionsData) handleCountrySelect({ properties: { Name: countriesData.features[0].properties.Name } }); break;
-        }
-      }
-    });
+    // Landselectie
+    function handleCountrySelect(feature) {
+      if (selectedCountryFeature && selectedCountryFeature.properties.Name === feature.properties.Name) return;
+      tocSearch.value = '';
+      selectedCountryFeature = feature;
+      selectedRegionFeatureId = null;
+      fetch(`data/region_map_data_${feature.properties.Name.toLowerCase().replace(/\s+/g,'_')}.geojson`)
+        .then(r => r.json())
+        .then(rd => {
+          regionsData = rd;
+          updateTOCList();
+          showRegionsOnMap(rd);
+          zoomTo(feature, 45);
+          showInfo(feature.properties, false);
+        })
+        .catch(() => {
+          regionsData = {type:'FeatureCollection',features:[]};
+          updateTOCList();
+          showInfo(feature.properties, false);
+        });
+    }
 
-    // Data en templates laden
+    // Toon regio-laag
+    function showRegionsOnMap(rd) {
+      if (map.getLayer('region-fill')) map.removeLayer('region-fill');
+      if (map.getLayer('region-border')) map.removeLayer('region-border');
+      if (map.getSource('regions'))  map.removeSource('regions');
+
+      map.addSource('regions',{ type:'geojson', data: rd });
+      map.addLayer({
+        id:'region-fill', type:'fill', source:'regions',
+        paint:{
+          'fill-color':['case',
+            ['boolean',['feature-state','selected'],false],'#ffe900',
+            '#66aaff'
+          ],
+          'fill-opacity':0.5
+        }
+      });
+      map.addLayer({
+        id:'region-border', type:'line', source:'regions',
+        paint:{ 'line-color':'#003399','line-width':2 }
+      });
+
+      map.on('click','region-fill', e=>{
+        const feature = e.features[0];
+        selectRegion(feature.id, feature.properties);
+      });
+      map.on('mouseenter','region-fill', ()=> map.getCanvas().style.cursor='pointer');
+      map.on('mouseleave','region-fill', ()=> map.getCanvas().style.cursor='');
+    }
+
+    // Regioselectie
+    function selectRegion(idx, props) {
+      if (selectedRegionFeatureId !== null) {
+        map.setFeatureState({ source:'regions', id:selectedRegionFeatureId },{ selected:false });
+      }
+      selectedRegionFeatureId = idx;
+      map.setFeatureState({ source:'regions', id:idx },{ selected:true });
+
+      const center = map.getCenter(), zoom = map.getZoom();
+      map.easeTo({ center, zoom, pitch:45, bearing:0, duration:500 });
+      showInfo(props, true);
+    }
+
+    // Reset naar landen
+    function resetToCountries() {
+      selectedCountryFeature = null;
+      regionsData = null;
+      if (selectedRegionFeatureId !== null) {
+        map.removeFeatureState({ source:'regions' });
+        selectedRegionFeatureId = null;
+      }
+      if (map.getLayer('region-fill')) map.removeLayer('region-fill');
+      if (map.getLayer('region-border')) map.removeLayer('region-border');
+      if (map.getSource('regions'))  map.removeSource('regions');
+      tocSearch.value = '';
+      updateTOCList();
+      sidebar.classList.remove('visible');
+      map.easeTo({ center:[5,50], zoom:5, pitch:0, bearing:0, duration:1000 });
+    }
+
+    // Zoom helper
+    function zoomTo(feature, pitch) {
+      const bbox = turf.bbox(feature);
+      map.fitBounds([[bbox[0],bbox[1]],[bbox[2],bbox[3]]],{
+        padding:20, duration:1000, pitch, bearing:0
+      });
+    }
+
+    // Init kaart
+    function initMap() {
+      window.map = new maplibregl.Map({
+        container:'map',
+        style:{ version:8,
+          sources:{ osm:{ type:'raster',
+            tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256
+          }},
+          layers:[{ id:'osm', type:'raster', source:'osm', paint:{'raster-opacity':1}}]
+        },
+        center:[5,50], zoom:5, pitch:0, bearing:0, minZoom:5, maxZoom:10
+      });
+      map.on('load', ()=>{
+        const onlyCountries = {
+          type:'FeatureCollection',
+          features:countriesData.features.filter(f=>f.properties.Name&&!f.properties.RegionName)
+        };
+        map.addSource('countries',{ type:'geojson', data:onlyCountries });
+        map.addLayer({ id:'country-fill', type:'fill', source:'countries', paint:{'fill-color':'#A8DCAB','fill-opacity':0.4}});
+        map.addLayer({ id:'country-border', type:'line', source:'countries', paint:{'line-color':'#333','line-width':2}});
+        map.on('click','country-fill', e=>handleCountrySelect(e.features[0]));
+        map.on('mouseenter','country-fill', ()=>map.getCanvas().style.cursor='pointer');
+        map.on('mouseleave','country-fill', ()=>map.getCanvas().style.cursor='');
+      });
+    }
+
+    // Init TOC-search
+    function initTOCSearch() {
+      tocSearch.addEventListener('input', updateTOCList);
+      updateTOCList();
+    }
+
+    // Laden data & templates
     Promise.all([
       fetch('data/map_data.geojson').then(r=>r.json()),
       fetch('text/text_template.json').then(r=>r.json())
-    ]).then(([cd,tt])=>{ countriesData=cd; textTemplates=tt; initMap(); document.getElementById('loader').remove(); document.body.classList.remove('loading'); toggleIntro(); timer=setTimeout(()=>{ const ib=document.getElementById('introBtn'); ib.disabled=false; ib.style.pointerEvents='auto'; ib.style.display='inline-block'; },10000); }).catch(e=>{ console.error(e); document.getElementById('loader').textContent='Fout bij laden data.'; });
+    ]).then(([cd, tt])=>{
+      countriesData = cd;
+      textTemplates = tt;
+      initMap();
+      initTOCSearch();
+      // welkomspopup
+      toggleIntro();
+      setTimeout(()=>{
+        const ib = document.getElementById('introBtn');
+        ib.disabled = false;
+        ib.style.pointerEvents = 'auto';
+        ib.style.display = 'inline-block';
+      },10000);
+    });
+
+
+    // Click‐handlers voor pictogrammen
+const iconMap = {
+  icon1: 'Dit is willekeurige tekst voor pictogram 1.',
+  icon2: 'Hier vind je achtergrondinformatie over optie 2.',
+  icon3: 'Tip: gebruik deze functie om …',
+  icon4: 'Extra data en links voor pictogram 4.'
+};
+
+Object.keys(iconMap).forEach(id => {
+  document.getElementById(id).onclick = () => {
+    document.getElementById('iconInfo').innerHTML = `<p>${iconMap[id]}</p>`;
+    document.getElementById('iconModal').style.display = 'flex';
+  };
+});
+
+document.getElementById('iconClose').onclick = () => {
+  document.getElementById('iconModal').style.display = 'none';
+};
+
   </script>
 </body>
 </html>
