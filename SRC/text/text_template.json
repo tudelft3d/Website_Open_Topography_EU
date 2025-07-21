@@ -15,7 +15,7 @@
   "Estonia": "",
   "Finland": "",
   "France": "",
-  "Germany": "",
+  "Germany": "In Germany, the availability of point cloud datasets is divided between the federal government and the Bundesländer (federal states), reflecting a distinction between national and regional scopes. Several datasets were identified in Germany that are available as open-access point cloud data. All elevation or point cloud datasets are acquired using the ETRS89 / UTM Zone 32 or 33 coordinate systems. For vertical reference, data acquired before 2017 use the DHHN92 height system, while data acquired from 2017 onwards use DHHN2016.",
   "Greece": "",
   "Hungary": "",
   "Iceland": "",
