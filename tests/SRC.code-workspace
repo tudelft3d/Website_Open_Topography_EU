@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../SRC"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "tests"
+	}
+}

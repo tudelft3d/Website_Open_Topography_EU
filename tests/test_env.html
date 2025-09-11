@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>EuropeTopography</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="images/logo_website.png">
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
     html, body { height: 100%; margin: 0; font-family: 'Roboto', sans-serif; background: #cce6ff; }
@@ -14,7 +15,36 @@
       box-shadow: 0 4px 20px rgba(0,0,0,0.3);
       overflow-y: auto; display: none; z-index: 1001;
     }
-    #toc {
+    
+    #logo-container {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 2000;
+    }
+
+    #logo {
+      height: 48px;
+      width: auto;
+    }
+
+#logo-bar {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 2000;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  background: rgba(0,0,0,0.7);
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+   #toc {
       position: fixed; top: 48px; 
       margin-top: 20px; left: 12px; width: 370px;
       background: rgba(0,0,0,0.8); color: #fff;
@@ -22,6 +52,33 @@
       z-index: 1002;
       box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
+    /* Logos inside the TOC */
+#toc-logos {
+display: flex;
+justify-content: flex-start;
+align-items: center;
+gap: 12px;
+margin-bottom: 16px;
+}
+
+
+#toc-logos img {
+height: 36px;
+width: auto;
+cursor: pointer;
+transition: transform 0.2s ease;
+}
+
+
+#toc-logos img#logo {
+height: 48px; /* bigger site logo */
+margin-right: 12px;
+}
+
+
+#toc-logos img:hover {
+transform: scale(1.1);
+}
     #toc h2 { font-size: 2.2rem; margin-bottom: 14px; }
     #toc input {
       width: 100%; border-radius: 8px; margin-bottom: 20px;
@@ -171,12 +228,63 @@
       background: none; border: none; color: #fff;
       font-size: 24px; cursor: pointer;
     }
+#map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
 
-    #tabs { display: flex; justify-content: center; gap: 12px; background: rgba(0,0,0,0.7); padding: 8px; position: fixed; top: 0; width: 100%; z-index: 1003; }
-    #tabs button { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; }
-    #tabs button.active { border-bottom: 2px solid #fff; }
-    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-    #logo-bar { position: fixed; bottom: 12px; left: 12px; display: flex; gap: 10px; background: rgba(0,0,0,0.7); padding: 16px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1001; }
+#tabs {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(0,0,0,0.7);
+  padding: 8px 16px;
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1003;
+  box-sizing: border-box;
+}
+
+#tab-logos,
+#tab-spacer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 200px; /* reserve same width left/right */
+}
+
+#tab-logos img {
+  height: 28px;
+  width: auto;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+#tab-logos img#logo {
+  height: 36px;
+}
+
+#tab-logos img:hover {
+  transform: scale(1.1);
+}
+
+#tab-buttons {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+#tabs button {
+  color: #fff;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+#tabs button.active {
+  border-bottom: 2px solid #fff;
+}
     .toc-category-btn { flex: 0 0 auto; padding: 4px 8px; margin: 2px; font-size: 0.8rem; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
     .toc-category-btn:hover { background: #666; }
     li { padding: 8px 0; cursor: pointer; }
@@ -184,20 +292,22 @@
   </style>
 </head>
 <body>
-  <div id="map"></div>
+    <!-- <div id="logo-container"> -->
+<div id="map"></div>
+
 
 <div id="toc" class="panel">
+<div id="toc-country" style="display:block;">
+<h2>National data overview</h2>
+<input id="tocSearch" placeholder="Search a country..." />
+<h3>Category search</h3>
+<div id="legendCategories" class="legend-categories"></div>
+<button id="overviewBtn" class="overview-btn">Overview view</button>
+<div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div>
+<ul id="countryList" class="country-list"></ul>
+</div>
 
-  <!-- Landen-TOC -->
-  <div id="toc-country" style="display:block;">
-    <h2>National data overview</h2>
-    <input id="tocSearch" placeholder="Search a country..." />
-    <h3>Category search</h3>
-    <div id="legendCategories" class="legend-categories"></div>
-    <button id="overviewBtn" class="overview-btn">Overview view</button>
-    <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div>
-    <ul id="countryList" class="country-list"></ul>
-  </div>
+
   <!-- Regio-TOC -->
   <div id="toc-region" style="display:none;">
     <h2>Regional data overview</h2>
@@ -221,24 +331,34 @@
     <div id="helpModalContent"><h3>Help Section</h3><p>…</p></div>
   </div>
 
-  <div id="tabs">
+
+<div id="tabs">
+  <div id="tab-logos">
+    <img src="images/logo_website.png" alt="EuropeTopography Logo" id="logo">
+    <a id="logo-tudelft" href="#"><img src="images/logo_tudelft.png" alt="TU Delft"></a>
+    <a id="logo-eurosdr" href="#"><img src="images/logo_eurosdr.png" alt="EuroSDR"></a>
+    <a id="logo-rws" href="#"><img src="images/logo_rws.png" alt="Rijkswaterstaat"></a>
+  </div>
+
+  <div id="tab-buttons">
     <button id="tab-toc" class="active">Table of Contents</button>
     <button id="tab-info">Information</button>
     <button id="tab-help">Help</button>
   </div>
 
+  <div id="tab-spacer"></div>
+</div>
+
+
   <div id="introModal" class="panel" style="left:0;top:0;width:100vw;height:100vh;justify-content:center;align-items:center;display:flex;flex-direction:column;">
     <div style="background:#fff;color:#000;padding:24px;border-radius:8px;max-width:500px;position:relative;">
       <h3>Welcome to the European Topography Elevation Searcher</h3>
-      <p>Selecteer een land uit de lijst om te starten.</p>
+      <p>Curated by Daan van der Heide, this platform serves as a visual exploration of topographic and point cloud datasets across Europe. </p>
+      <p> As part of my PhD research on the harmonization of 3D geospatial data in Europe, this site provides an overview of available national datasets and their acquisition characteristics.</p>
+
+      <p>Please note: this website is for browsing and reference purposes only. No datasets are hosted or available for direct download.</p>
       <button id="introBtn">Got it</button>
     </div>
-  </div>
-
-  <div id="logo-bar">
-    <a id="logo-tudelft" href="#"><img src="images/logo_tudelft.png" alt="TU Delft" style="height:40px;cursor:pointer;" /></a>
-    <a id="logo-eurosdr" href="#"><img src="images/logo_eurosdr.png" alt="EuroSDR" style="height:40px;cursor:pointer;" /></a>
-    <a id="logo-rws" href="#"><img src="images/logo_rws.png" alt="Rijkswaterstaat" style="height:40px;cursor:pointer;" /></a>
   </div>
 
   <div id="logoModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);justify-content:center;align-items:center;">
@@ -363,8 +483,9 @@ function overviewReset() {
       document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc'));
       Object.keys(logoMap).forEach(id => {
         document.getElementById(id).addEventListener('click', () => {
-          document.getElementById('logoModalContent').innerHTML = `<h3>${logoMap[id].title}</h3>${logoMap[id].content}`;
-          document.getElementById('logoModal').style.display = 'flex';
+      document.getElementById('logoModalContent').innerHTML =
+                          `<h3>${logoMap[id].title}</h3>${logoMap[id].content}`;
+            document.getElementById('logoModal').style.display = 'flex';
         });
       });
       document.getElementById('logoModalClose').addEventListener('click', () => document.getElementById('logoModal').style.display = 'none');
