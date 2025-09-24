@@ -2,12 +2,20 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
-  <title>EuropeTopography</title>
+  <title>European Topography</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/png" href="images/logo_website.png">
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
   <style>
     html, body { height: 100%; margin: 0; font-family: 'Roboto', sans-serif; background: #cce6ff; }
+    #toc,
+    #sidebar,
+    #helpModal,
+    #infoPanel {
+          top: 70px;   /* overal gelijk */
+}
+
+    
     .panel {
       position: fixed; top: 48px; right: 12px;
       background: rgba(0,0,0,0.7); color: #fff;
@@ -43,15 +51,82 @@
   border-radius: 8px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
+/* Fullscreen background overlay */
+#introModal {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
 
-   #toc {
-      position: fixed; top: 48px; 
-      margin-top: 20px; left: 12px; width: 370px;
-      background: rgba(0,0,0,0.8); color: #fff;
-      padding: 24px 20px 24px 24px; border-radius: 14px;
-      z-index: 1002;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-    }
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+
+  background: rgba(0,0,0,0.6);   /* semi-transparent backdrop */
+  z-index: 2000;
+}
+
+/* White content box inside the modal */
+#introModal .intro-content {
+  background: #fff;
+  color: #000;
+  padding: 24px;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;                     /* responsive width */
+  line-height: 1.5;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  overflow-y: auto;               /* scroll if text is too long */
+  max-height: 80vh;               /* prevent it from overflowing screen */
+}
+
+#introModal h3 {
+  margin-top: 0;
+}
+
+#introModal h4 {
+  margin-top: 1em;
+}
+
+#introModal button {
+  display: inline-block;          /* button only as wide as content */
+  margin: 16px auto 0 auto;       /* auto left/right centers it */
+  text-align: center;             /* make sure text stays centered */
+  padding: 10px 20px;
+  font-size: 1rem;
+  font-weight: bold;
+  background: #ffe900;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+
+#introModal button:hover {
+  background: #ffef33;
+}
+
+#toc {
+  position: fixed;
+
+  left: 12px;
+  width: 370px;
+
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 24px 20px 24px 24px;
+  border-radius: 14px;
+  z-index: 1002;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+
+  max-height: calc(90vh - 70px); /* limits height relative to window */
+  overflow-y: auto;              /* enables scrolling */
+  box-sizing: border-box;        /* padding stays inside width */
+}
+
     /* Logos inside the TOC */
 #toc-logos {
 display: flex;
@@ -75,11 +150,28 @@ height: 48px; /* bigger site logo */
 margin-right: 12px;
 }
 
+#helpModal {
+  width: 25%;
+  max-height: calc(90vh - 48px);
+  right: 12px;
+  top: 70px;
+
+  background: #fff;    /* <-- witte achtergrond */
+  color: #000;         /* tekst zwart maken */
+  padding: 24px;       /* wat lucht rondom */
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.3);
+}
+
 
 #toc-logos img:hover {
 transform: scale(1.1);
 }
-    #toc h2 { font-size: 2.2rem; margin-bottom: 14px; }
+#toc h2 { 
+  font-size: 2.2rem; 
+  margin-top: 0;        /* extra ruimte boven verwijderen */
+  margin-bottom: 14px; 
+}
     #toc input {
       width: 100%; border-radius: 8px; margin-bottom: 20px;
       padding: 12px; font-size:1.1rem;
@@ -94,40 +186,51 @@ transform: scale(1.1);
       color: #ffe900;
       letter-spacing: 0.02em;
     }
-    .legend-categories {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px 14px;
-      margin-bottom: 22px;
-    }
-    .legend-btn {
-      display: flex; align-items: center; gap: 8px;
-      font-size: 1.02rem; font-weight: 600;
-      padding: 8px 14px;
-      border-radius: 8px;
-      border: none;
-      cursor: pointer;
-      background: #242a34;
-      color: #fff;
-      outline: 2px solid transparent;
-      transition: background 0.15s, outline 0.15s;
-      min-width: 60px;
-    }
+.legend-categories {
+  display: flex;
+  flex-wrap: nowrap;       /* alle vier op één rij */
+  gap: 12px;               /* gelijke ruimte ertussen */
+  margin-bottom: 22px;
+}
+
+.legend-btn {
+  flex: 1;                     /* alle knoppen even breed */
+  display: flex;
+  flex-direction: column;      /* kleur boven, tekst eronder */
+  align-items: center;         /* alles gecentreerd */
+  justify-content: center;
+  gap: 6px;                    /* ruimte tussen kleur en tekst */
+
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 12px 0;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: #242a34;
+  color: #fff;
+  outline: 2px solid transparent;
+  transition: background 0.15s, outline 0.15s;
+}
+
     .legend-btn.active, .legend-btn:focus {
       background: #444;
       outline: 2px solid #ffe900;
     }
-    .legend-btn[data-color]::before {
-      content: "";
-      display: inline-block;
-      width: 18px; height: 18px;
-      border-radius: 5px;
-      background: var(--cat-color, #bbb);
-      border: 2px solid #fff;
-      margin-right: 6px;
-      vertical-align: middle;
-      box-shadow: 0 0 0 1px #111;
-    }
+.legend-btn[data-color]::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: var(--cat-color, #bbb);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #111;
+}
+
+.legend-btn:hover::before {
+  border-color: #ffe900; /* Rijkswaterstaat-geel */
+}
+
     .overview-btn {
       margin-left: auto;
       background: #ffe900; color: #333;
@@ -210,24 +313,9 @@ transform: scale(1.1);
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    #closeBtn {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: white;
-      padding: 0 0 0 16px;
-      line-height: 1;
-      flex: 0 0 auto;
-      position: static;
-      align-self: flex-start;
-    }
-    #helpModal { width: 45%; max-height: calc(90vh - 48px); }
-    #helpModalClose, #closeBtn, #logoModalClose {
-      position: absolute; top: 8px; right: 8px;
-      background: none; border: none; color: #fff;
-      font-size: 24px; cursor: pointer;
-    }
+
+
+
 #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
 
 #tabs {
@@ -259,7 +347,8 @@ transform: scale(1.1);
 }
 
 #tab-logos img#logo {
-  height: 36px;
+  height: 50px;
+  width: auto
 }
 
 #tab-logos img:hover {
@@ -281,6 +370,29 @@ transform: scale(1.1);
   font-size: 1rem;
   cursor: pointer;
 }
+.info-step {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+  align-items: flex-start;
+}
+
+.info-text {
+  flex: 1 1 55%;
+  min-width: 240px;
+}
+
+.info-gif {
+  flex: 1 1 40%;
+  text-align: center;
+}
+
+.info-gif img {
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
 
 #tabs button.active {
   border-bottom: 2px solid #fff;
@@ -288,7 +400,41 @@ transform: scale(1.1);
     .toc-category-btn { flex: 0 0 auto; padding: 4px 8px; margin: 2px; font-size: 0.8rem; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
     .toc-category-btn:hover { background: #666; }
     li { padding: 8px 0; cursor: pointer; }
-    li:hover { text-decoration: underline; }
+    li:hover { text-decoration: none; }
+  #infoPanel {
+  display: none;
+  position: fixed;        /* make sure it floats like the other panels */
+  left: 12px;
+               /* adjust this to move it lower */
+  width: 42vw;
+  min-width: 340px;
+  max-width: 860px;
+  max-height: calc(90vh - 90px);  /* match the new top value */
+  background: rgba(0,0,0,0.85);   /* match sidebar style if you want */
+  color: #fff;
+  padding: 24px;
+  border-radius: 12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.40);
+  overflow-y: auto;
+  z-index: 1002;
+  font-size: 1.1rem;
+  box-sizing: border-box;
+}
+li {
+  padding: 8px 0;
+  cursor: default;          /* geen klik-handje meer */
+  text-decoration: none;    /* geen underline */
+}
+
+li a {
+  cursor: pointer;
+  text-decoration: underline;
+  color: #fff; /* of je eigen kleur */
+}
+
+li a:hover {
+  text-decoration: underline; /* blijft klassiek link-gedrag */
+}
   </style>
 </head>
 <body>
@@ -298,7 +444,7 @@ transform: scale(1.1);
 
 <div id="toc" class="panel">
 <div id="toc-country" style="display:block;">
-<h2>National data overview</h2>
+<h2>Topographic data overview of Europe</h2>
 <input id="tocSearch" placeholder="Search a country..." />
 <h3>Category search</h3>
 <div id="legendCategories" class="legend-categories"></div>
@@ -310,7 +456,7 @@ transform: scale(1.1);
 
   <!-- Regio-TOC -->
   <div id="toc-region" style="display:none;">
-    <h2>Regional data overview</h2>
+    <h2>National level data overview</h2>
     <div id="regionFilterBtns" style="margin-bottom:14px;"></div>
     <div id="regionDividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div>
     <ul id="regionList" class="country-list"></ul>
@@ -321,20 +467,28 @@ transform: scale(1.1);
   <div id="sidebar" class="panel">
     <div id="sidebar-header">
       <h3 id="infoTitle"></h3>
-      <button id="closeBtn">&times;</button>
+
     </div>
-    <div id="info">Selecteer eerst een land.</div>
+    <div id="info">Select a country.</div>
   </div>
 
   <div id="helpModal" class="panel">
-    <button id="helpModalClose">&times;</button>
-    <div id="helpModalContent"><h3>Help Section</h3><p>…</p></div>
+    <!-- <button id="helpModalClose">&times;</button> -->
+    <div id="helpModalContent"><h3>Help us grow the European topography website</h3>
+      
+      <p>We aim to provide the most complete overview of available topographic datasets.</p>
+      <p>However, some data might still be missing or not yet included.</p>
+      <p> Your contribution helps us keep this overview accurate and up to date.</p>
+      <p>Do you know of data that should be added? 
+      <p>Let us know, and we will include it as soon as possible. Simply click the link to the form</p>
+      <a href="https://forms.gle/3NaWoRirKtWohpAC6">Click here to fill out the form</a>
+    </div>
   </div>
 
 
 <div id="tabs">
   <div id="tab-logos">
-    <img src="images/logo_website.png" alt="EuropeTopography Logo" id="logo">
+    <img src="images/logo.png" alt="EuropeTopography Logo" id="logo">
     <a id="logo-tudelft" href="#"><img src="images/logo_tudelft.png" alt="TU Delft"></a>
     <a id="logo-eurosdr" href="#"><img src="images/logo_eurosdr.png" alt="EuroSDR"></a>
     <a id="logo-rws" href="#"><img src="images/logo_rws.png" alt="Rijkswaterstaat"></a>
@@ -342,24 +496,42 @@ transform: scale(1.1);
 
   <div id="tab-buttons">
     <button id="tab-toc" class="active">Table of Contents</button>
-    <button id="tab-info">Information</button>
-    <button id="tab-help">Help</button>
+    <button id="tab-info">Help</button>
+    <button id="tab-help">Submit New Datasets </button>
   </div>
 
   <div id="tab-spacer"></div>
 </div>
 
 
-  <div id="introModal" class="panel" style="left:0;top:0;width:100vw;height:100vh;justify-content:center;align-items:center;display:flex;flex-direction:column;">
-    <div style="background:#fff;color:#000;padding:24px;border-radius:8px;max-width:500px;position:relative;">
-      <h3>Welcome to the European Topography Elevation Searcher</h3>
-      <p>Curated by Daan van der Heide, this platform serves as a visual exploration of topographic and point cloud datasets across Europe. </p>
-      <p> As part of my PhD research on the harmonization of 3D geospatial data in Europe, this site provides an overview of available national datasets and their acquisition characteristics.</p>
+<div id="introModal" class="panel">
+  <div class="intro-content">
+    <h3>Welcome to the European Topography Elevation Searcher</h3>
 
-      <p>Please note: this website is for browsing and reference purposes only. No datasets are hosted or available for direct download.</p>
-      <button id="introBtn">Got it</button>
-    </div>
+    <p>
+      This search facilitates the locations of the known point clouds and point cloud-based elevation models in Europe. 
+      Each dataset has been validated and checked to see if the data is open or intended to become open data. 
+      The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis.
+    </p>
+
+     <h4>Small print &amp; disclaimer</h4>
+    <p>
+      The linking to this search page implies no guarantee of availability, completeness, correctness, or fitness for any particular purpose. 
+      Remember this if you want data for your projects and/or products. 
+      The license indicated with the products is, to the best of my knowledge at the time of writing. 
+      Please confirm the applicable license with the source before integrating the data.
+    </p>
+
+    <p>
+      The European Topography Elevation webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find, 
+      was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. 
+      The Website is hosted by TU Delft and the 3D Geoinformation section of the Urbanisms department, 
+      which will be maintained until the completion of the PhD work.
+    </p>
+
+    <button id="introBtn">Got it</button>
   </div>
+</div>
 
   <div id="logoModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);justify-content:center;align-items:center;">
     <div style="background:white;padding:20px;border-radius:8px;max-width:400px;position:relative;">
@@ -367,6 +539,85 @@ transform: scale(1.1);
       <div id="logoModalContent"></div>
     </div>
   </div>
+<!-- Information Panel -->
+<div id="infoPanel" class="panel">
+  <h2>How to use EuropeTopography</h2>
+  <p>
+    This platform helps you explore national and regional topographic and point cloud datasets across Europe.
+    Follow the steps below — each section includes an explanation and an example GIF.
+  </p>
+
+  <div class="info-step">
+    <div class="info-text">
+      <h3>1. Move and Zoom the Map</h3>
+      <p>
+        Drag the map with your mouse to move, scroll to zoom in/out, or use pinch gestures on touch devices.
+        Hold <kbd>Shift</kbd> and drag to tilt and rotate the map.
+      </p>
+    </div>
+    <div class="info-gif">
+      <img src="images/gifs/move_zoom.gif" alt="GIF showing map navigation" />
+    </div>
+  </div>
+
+  <div class="info-step">
+    <div class="info-text">
+      <h3>2. Use the Table of Contents (TOC)</h3>
+      <p>
+        Open the left-hand panel to browse all available countries. 
+        You can filter with the search bar or click a category button to highlight only specific dataset types:
+      </p>
+      <ul>
+        <li><span style="color:#A7C1D9 font-weight:bold;">Region</span> – regional dataset</li>
+        <li><span style="color:#A9B689; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
+        <li><span style="color:#D4602A; font-weight:bold;">Digital Elevation Model</span> – raster Digital Elevation Models</li>
+        <li><span style="color:#ffcccc; font-weight:bold;">Geen info</span> – no open information</li>
+      </ul>
+    </div>
+    <div class="info-gif">
+      <img src="images/gifs/toc_search.gif" alt="GIF showing search in TOC" />
+    </div>
+  </div>
+
+  <div class="info-step">
+    <div class="info-text">
+      <h3>3. Select a Country</h3>
+      <p>
+        Click a country in the TOC list, or directly on the map. 
+        The map will highlight the country and show information in the right-hand panel. 
+        If regional data exists, a new panel with regions will appear.
+      </p>
+    </div>
+    <div class="info-gif">
+      <img src="images/gifs/select_country.gif" alt="GIF showing country selection" />
+    </div>
+  </div>
+
+  <div class="info-step">
+    <div class="info-text">
+      <h3>4. Explore Detailed Information</h3>
+      <p>
+        When you select a country or region, details will appear: dataset type, accuracy, acquisition year, 
+        and links to the provider. This lets you compare datasets across Europe.
+      </p>
+    </div>
+    <div class="info-gif">
+      <img src="images/gifs/info_panel.gif" alt="GIF showing information panel" />
+    </div>
+  </div>
+
+  <div class="info-step">
+    <div class="info-text">
+      <h3>5. Return to Overview</h3>
+      <p>
+        Use the <em>Overview view</em> button in the TOC to reset the map and return to the full European overview.
+      </p>
+    </div>
+    <div class="info-gif">
+      <img src="images/gifs/overview.gif" alt="GIF showing overview reset" />
+    </div>
+  </div>
+</div>
 
   <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
@@ -380,10 +631,10 @@ transform: scale(1.1);
         };
       }
       const categoryColors = {
-          Region:     '#ff9900',
-          Pointcloud: '#8FBC8B',
-          DEM:        '#dda0dd',
-          'Geen info':'#ffcccc'
+          Region:     '#A7C1D9',
+          Pointcloud: '#A9B689',
+          DEM:        '#D4602A',
+          'Geen info':'#8E8E93'
         };
       // State
       let countriesData, regionsData;
@@ -395,45 +646,37 @@ transform: scale(1.1);
   document.getElementById('toc-country').style.display = 'block';
   document.getElementById('toc-region').style.display = 'none';
 }
+
 function showRegionTOC() {
   document.getElementById('toc-country').style.display = 'none';
   document.getElementById('toc-region').style.display = 'block';
 }
 function overviewReset() {
-    // Reset alle state voor landen-overzicht
-    activeCategory = null;
-    selectedCountryFeature = null;
-    selectedRegionFeatureId = null;
-    regionsData = null;
-    document.getElementById('tocSearch').value = '';
-    document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active'));
+  activeCategory = null;
+  selectedCountryFeature = null;
+  selectedRegionFeatureId = null;
+  regionsData = null;
+  document.getElementById('tocSearch').value = '';
+  document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active'));
 
-    // Maak de juiste TOC zichtbaar
-    showCountryTOC();
+  showCountryTOC();
 
-    // Kaartlagen resetten
-    if (window.map) {
-        // Maak de land-lagen weer zichtbaar
-        if (map.getLayer('country-fill')) map.setLayoutProperty('country-fill', 'visibility', 'visible');
-        if (map.getLayer('country-border')) map.setLayoutProperty('country-border', 'visibility', 'visible');
-        // Regio-lagen weghalen als ze er zijn
-        if (map.getLayer('region-fill')) map.removeLayer('region-fill');
-        if (map.getLayer('region-border')) map.removeLayer('region-border');
-        if (map.getSource('regions')) map.removeSource('regions');
-        // Kaart weer naar overzicht
-        map.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 });
-    }
+  if (window.map) {
+    if (map.getLayer('country-fill')) map.setLayoutProperty('country-fill', 'visibility', 'visible');
+    if (map.getLayer('country-border')) map.setLayoutProperty('country-border', 'visibility', 'visible');
+    if (map.getLayer('region-fill')) map.removeLayer('region-fill');
+    if (map.getLayer('region-border')) map.removeLayer('region-border');
+    if (map.getSource('regions')) map.removeSource('regions');
+    map.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 });
+  }
 
-    // Sidebar sluiten
-    sidebar.style.display = 'none';
-
-    // Landenlijst opnieuw tonen
-    renderCountriesList();
+  sidebar.style.display = 'none';   // Sidebar sluiten bij reset
+  renderCountriesList();
 }
       const sidebar      = document.getElementById('sidebar');
       const infoBox      = document.getElementById('info');
       const infoTitleEl  = document.getElementById('infoTitle');
-      const closeBtn     = document.getElementById('closeBtn');
+      // const closeBtn     = document.getElementById('closeBtn');
       const introModal   = document.getElementById('introModal');
       const introBtn     = document.getElementById('introBtn');
 
@@ -447,11 +690,14 @@ function overviewReset() {
         info: document.getElementById('tab-info'),
         help: document.getElementById('tab-help')
       };
-      const panels       = {
+      const infoPanel = document.getElementById('infoPanel');
+
+      const panels = {
         toc:  document.getElementById('toc'),
-        info: sidebar,
+        info: infoPanel,   // <-- juiste panel koppelen
         help: document.getElementById('helpModal')
       };
+
       const logoMap = {
         'logo-tudelft': { title: 'TU Delft', content: '<p>Meer info: <a href="https://www.tudelft.nl/en/">tudelft.nl</a></p>' },
         'logo-eurosdr': { title: 'EuroSDR', content: '<p>Meer info: <a href="https://www.eurosdr.net/">eurosdr.net</a></p>' },
@@ -463,24 +709,11 @@ function overviewReset() {
       tocSearch.addEventListener('input', renderCountriesList);
       overviewBtn.onclick = overviewReset;
 
-
-      closeBtn.addEventListener('click', () => {
-    // Alleen de sidebar sluiten en regio-overzicht tonen
-    sidebar.style.display = 'none';
-    // Alleen als je in regio-modus bent, toon je de regio-TOC
-    if (selectedCountryFeature && regionsData) {
-        showRegionTOC();
-        renderRegionList();
-        // Eventueel kun je weer uitzoomen naar het hele land:
-        zoomTo(selectedCountryFeature, 45);
-    }
-});
-
       introBtn.addEventListener('click', () => introModal.style.display = 'none');
       tabs.toc.addEventListener('click', () => showTab('toc'));
       tabs.info.addEventListener('click', () => showTab('info'));
       tabs.help.addEventListener('click', () => showTab('help'));
-      document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc'));
+      // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc'));
       Object.keys(logoMap).forEach(id => {
         document.getElementById(id).addEventListener('click', () => {
       document.getElementById('logoModalContent').innerHTML =
@@ -495,6 +728,10 @@ function overviewReset() {
           panels[key].style.display = (key === name) ? 'block' : 'none';
           tabs[key].classList.toggle('active', key === name);
         });
+
+        if (name === 'help') {
+          sidebar.style.display = 'none';   // Sidebar verbergen bij help
+        }
       }
 
       // Load data
@@ -548,7 +785,7 @@ function renderCountriesList() {
   if (!q && !activeCategory) {
     countryListEl.innerHTML = '';
     dividerLine.style.display = 'none';
-    return;  // <<< Dus NIET alles tonen!
+    return; 
   }
 
   if (q) {
@@ -568,15 +805,25 @@ function renderCountriesList() {
 
   // Lijst vullen
   countryListEl.innerHTML = '';
-  countries.forEach((c, idx) => {
-    const li = document.createElement('li');
-    li.className = 'country-item';
-    li.textContent = c.properties.Name;
-    li.style.setProperty('--cat-color', categoryColors[c.properties.Data || 'Geen info']);
-    li.onclick = () => handleCountrySelect(c);
-    countryListEl.appendChild(li);
-    setTimeout(() => li.classList.add('show'), 70 + idx * 45);
-  });
+  
+countries.forEach((c, idx) => {
+  const li = document.createElement('li');
+  li.className = 'country-item';
+  li.style.setProperty('--cat-color', categoryColors[c.properties.Data || 'Geen info']);
+
+  const a = document.createElement('a');
+  a.href = '#';
+  a.textContent = c.properties.Name;
+  a.onclick = (e) => {
+    e.preventDefault();  // voorkomt springen
+    handleCountrySelect(c);
+  };
+
+  li.appendChild(a);
+  countryListEl.appendChild(li);
+
+  setTimeout(() => li.classList.add('show'), 70 + idx * 45);
+});
 }
 
 function renderRegionList() {
@@ -588,17 +835,23 @@ function renderRegionList() {
 
   const countryDataType = selectedCountryFeature?.properties?.Data || 'Geen info';
 
-  ['Country data', 'Pointcloud', 'DEM', 'Geen info'].forEach(cat => {
-    const btn = document.createElement('button');
-    btn.textContent = cat;
-    btn.className = 'legend-btn';
-    let color;
-    if (cat === 'Country data') {
-      color = categoryColors[countryDataType] || '#ffcccc';
-    } else {
-      color = categoryColors[cat];
-    }
-    btn.style.setProperty('--cat-color', color);
+['Country data', 'Pointcloud', 'DEM', 'Geen info'].forEach(cat => {
+  const btn = document.createElement('button');
+  btn.textContent = cat;
+  btn.className = 'legend-btn';
+  btn.setAttribute('data-color', cat);
+
+  let color;
+  if (cat === 'Country data') {
+    color = categoryColors[countryDataType] || '#8E8E93';
+  } else {
+    color = categoryColors[cat] || '#8E8E93';
+  }
+  btn.style.setProperty('--cat-color', color);
+
+  regionFilterBtns.appendChild(btn);
+
+
 
 btn.onclick = () => {
   [...regionFilterBtns.children].forEach(b => b.classList.remove('active'));
@@ -644,7 +897,7 @@ if (cat === 'Country data') {
     // alle regio's krijgen de kleur van het land
     const countryDataType = selectedCountryFeature?.properties?.Data || 'Geen info';
     const landColorMap = {};
-    filteredRegions.forEach(f => { landColorMap[f.properties.Data || 'Geen info'] = categoryColors[countryDataType] || '#ffcccc'; });
+    filteredRegions.forEach(f => { landColorMap[f.properties.Data || 'Geen info'] = categoryColors[countryDataType] || '#8E8E93'; });
     showRegionList(filteredRegions, landColorMap);
 } else {
     showRegionList(filteredRegions, categoryColors, cat);;
@@ -703,14 +956,12 @@ function handleCountrySelect(feature) {
     .then(rd => {
       regionsData = rd;
 
-      // Zoek region-feature met zelfde naam als het land
       let mainRegion = regionsData.features.find(
         f => (f.properties.Name || '').toLowerCase() === (feature.properties.Name || '').toLowerCase()
       );
 
       if (mainRegion) {
-        showInfo(mainRegion.properties, true); // Toon region-info in sidebar
-        // Highlight & zoom eventueel:
+        showInfo(mainRegion.properties, true);
         if (selectedRegionFeatureId !== null) {
           map.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false });
         }
@@ -723,19 +974,22 @@ function handleCountrySelect(feature) {
           });
         } catch (e) {}
       } else {
-        showInfo(feature.properties, false); // Geen region, toon land-info
+        showInfo(feature.properties, false);
       }
 
       renderRegionList();
       showRegionsOnMap(rd);
-      // zoomTo(feature, 45); // <-- optioneel, zoomt uit naar het hele land
     })
     .catch(() => {
       regionsData = { type: 'FeatureCollection', features: [] };
       renderRegionList();
       showInfo(feature.properties, false);
     });
+
+  // <<< Force TOC tab open when country is clicked
+  showTab('toc');
 }
+
 
 document.getElementById('regionOverviewBtn').onclick = overviewReset;
 function updateTOCForType(type) {
@@ -744,7 +998,7 @@ function updateTOCForType(type) {
         tocList.style.display = 'flex';
         tocList.style.flexWrap = 'wrap';
         tocList.style.gap = '4px';
-        const colorMap = { Region: '#ff9900', Pointcloud: '#8FBC8B', DEM: '#dda0dd', 'Geen info': '#ffcccc' };
+        const colorMap = { Region: '#A7C1D9', Pointcloud: '#A9B689', DEM: '#D4602A', 'Geen info': '#8E8E93' };
         const matches = countriesData.features
           .filter(f => type === 'Geen info' ? !f.properties.Data : f.properties.Data === type)
           .map(f => f.properties.Name)
@@ -823,7 +1077,7 @@ function initMap() {
           map.addSource('countries', { type: 'geojson', data: onlyCountries, generateId: true });
           map.addLayer({
             id: 'country-fill', type: 'fill', source: 'countries', paint:
-            { 'fill-color': ['case', ['boolean', ['feature-state', 'highlightAllGreen'], false], '#00ff00', ['==', ['get', 'Data'], 'Region'], '#ff9900', ['==', ['get', 'Data'], 'Pointcloud'], '#8FBC8B', ['==', ['get', 'Data'], 'DEM'], '#dda0dd', '#ffcccc'], 'fill-opacity': 0.6 }
+            { 'fill-color': ['case', ['boolean', ['feature-state', 'highlightAllGreen'], false], '#A7C1D9', ['==', ['get', 'Data'], 'Region'], '#A7C1D9', ['==', ['get', 'Data'], 'Pointcloud'], '#A9B689', ['==', ['get', 'Data'], 'DEM'], '#D4602A', '#8E8E93'], 'fill-opacity': 0.6 }
           });
           map.addLayer({ id: 'country-border', type: 'line', source: 'countries', paint: { 'line-color': '#333', 'line-width': 2 } });
           ['mouseenter', 'mouseleave'].forEach(evt => {
@@ -855,11 +1109,11 @@ map.addLayer({
     'fill-color': [
       'case',
       ['boolean', ['feature-state', 'selected'], false], '#ffe900',
-      ['==', ['get', 'Data'], 'Region'],     '#ff9900',
-      ['==', ['get', 'Data'], 'Pointcloud'], '#8FBC8B',
-      ['==', ['get', 'Data'], 'DEM'],        '#dda0dd',
-      ['==', ['get', 'Data'], 'Geen info'],  '#ffcccc',
-      /* else */                              '#ffcccc'
+      ['==', ['get', 'Data'], 'Region'],     '#A7C1D9',
+      ['==', ['get', 'Data'], 'Pointcloud'], '#A9B689',
+      ['==', ['get', 'Data'], 'DEM'],        '#D4602A',
+      ['==', ['get', 'Data'], 'Geen info'],  '#8E8E93',
+      /* else */                              '#8E8E93'
     ],
     'fill-opacity': 0.5
   }
@@ -889,8 +1143,6 @@ map.addLayer({
 function selectRegion(id, props) {
   console.log('selectRegion', id, props.Name);
 
-  // GEEN renderRegionList hier aanroepen!!
-  // console.log('RegionsData', regionsData);
 
   if (!regionsData || !regionsData.features || !regionsData.features[id]) return;
 
