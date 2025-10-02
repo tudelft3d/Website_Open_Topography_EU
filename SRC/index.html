@@ -484,6 +484,7 @@
         selectedCountryFeature = feature; 
         fetch(`data/region_map_data_${feature.properties.Name.toLowerCase().replace(/\s+/g, '_')}.geojson`)
 
+
         .then(r => r.ok ? r.json() : Promise.reject()) 
         .then(rd => { 
             if (rd && rd.features) { 
