@@ -2,7 +2,7 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8" />
-  <title>European Topography</title>
+  <title>European Point Clouds</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/png" href="images/logo_website.png">
   <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
@@ -111,8 +111,8 @@
           
           <!-- <button id="helpModalClose">&times;</button> --> 
         <div id="helpModalContent">
-          <h3>Help us grow the European topography website</h3> 
-          <p>We aim to provide the most complete overview of available topographic datasets. However, some data might still be missing or not yet included.</p> 
+          <h3>Help us grow the European Point Clouds website</h3> 
+          <p>We aim to provide the most complete overview of available point cloud and elevation datasets. However, some data might still be missing or not yet included.</p> 
           <p> Your contribution helps us keep this overview accurate and up to date. Do you know of data that should be added? Let us know, and we will include it as soon as possible.</p> 
           <p>Simply click the link to the google form, and fill in the questions!!</p> 
           <a href="https://forms.gle/3NaWoRirKtWohpAC6" target="_blank" rel="noopener noreferrer">Click here to fill out the form</a> 
@@ -128,7 +128,7 @@
         </div> <div id="tab-spacer"></div>
           </div> <div id="introModal" class="panel"> 
           <div class="intro-content"> 
-            <h3>Welcome to the European Topography Elevation Searcher</h3> 
+            <h3>Welcome to the European Point Cloud Searcher</h3> 
             <p> This search facilitates the locations of the known point clouds and point cloud-based elevation models in Europe. 
               ach dataset has been validated and checked to see if the data is open or intended to become open data. 
               The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis. </p> 
@@ -136,8 +136,8 @@
                 Remember this if you want data for your projects and/or products. 
                 The license indicated with the products is, to the best of my knowledge at the time of writing. 
                 Please confirm the applicable license with the source before integrating the data. </p> 
-                <p> The European Topography Elevation webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find, was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. 
-                  The Website is hosted by TU Delft and the 3D Geoinformation section of the Urbanisms department, which will be maintained until the completion of the PhD work. </p> 
+                <p> The European Point Cloud webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find, was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. 
+                  The website is hosted by TU Delft and the 3D Geoinformation group of the Urbanism department, and it will be maintained until the completion of the PhD work. </p> 
               <button id="introBtn">Got it</button> 
             </div> 
           </div> 
@@ -145,7 +145,7 @@
                 <!-- Information Panel --> 
 
                 <div id="infoPanel" class="panel"> 
-                  <h2>How to use Europian Topography</h2> 
+                  <h2>How to use European Point Clouds website</h2> 
                   <p> This platform helps you explore national and regional topographic and point cloud datasets across Europe. 
                     Follow the steps below — each section includes an explanation and an example GIF. </p> 
                   <div class="info-step"> <div class="info-text"> 
@@ -180,7 +180,7 @@
                             <p>When you select a country or region, details will appear: dataset type, accuracy, acquisition year, and links to the provider. The dataroom link, refers you to the landing page where you can download the elevation datasets. </p> 
                             </div> <div class="info-gif"> <img src="images/step3.png" alt="GIF showing information panel" /> </div> 
                             </div> <div class="info-step"> <div class="info-text"> <h3>5. Return to Overview</h3> 
-                            <p> Use the <em>Retrun to national Overview view</em> button in the TOC to reset the map and return to the full European overview. </p> 
+                            <p> Use the <em>Return to national Overview view</em> button in the TOC to reset the map and return to the full European overview. </p> 
                             </div> <div class="info-gif"> <img src="images/gifs/step5.gif" alt="GIF showing overview reset" /> </div> 
                             </div> 
                             </div>
@@ -757,7 +757,7 @@ function showInfo(p, regionMode) {
     const dataHtml = `
       <h4>Acquisition & Coverage</h4>
       <ul>
-        <li><strong>Datasetstype:</strong> ${p.Data||'N/A'}</li>
+        <li><strong>Dataset type:</strong> ${p.Data||'N/A'}</li>
         <li><strong>Type:</strong> ${p.Type||'N/A'}</li>
       </ul>
       <h4>Accuracy</h4>
