@@ -107,6 +107,9 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         # Export regional file per country
         for nation in result_gdf['country'].unique():
             region_match = result_gdf[result_gdf['country'].str.lower() == nation.lower()]
+            # Simplify geometries to reduce file size (tolerance in degrees)
+            region_match = region_match.copy()
+            region_match['geometry'] = region_match['geometry'].simplify(tolerance=0.001)
             output_region_gpkg = os.path.join(
                 output_dir,
                 f"region_map_data_{nation.lower()}.geojson"
@@ -124,9 +127,16 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         if not keep_cols:
             keep_cols = nations_gdf.columns
 
-        main_nations_file = os.path.join(output_dir, 'map_data_overview.geojson')
-        nations_gdf[keep_cols].to_file(main_nations_file, driver='GeoJSON')
-        region_gdf.to_file(output_region_final_gpkg, driver='GeoJSON')
+        # Simplify geometries before saving
+        nations_simplified = nations_gdf[keep_cols].copy()
+        nations_simplified['geometry'] = nations_simplified['geometry'].simplify(tolerance=0.001)
+        main_output_file = os.path.join(output_dir, 'map_data_overview.geojson')
+        nations_simplified.to_file(main_output_file, driver='GeoJSON')
+        
+        # Simplify regional geometries before saving
+        region_simplified = region_gdf.copy()
+        region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
+        region_simplified.to_file(output_region_final_gpkg, driver='GeoJSON')
     else:
         print("No matches found, nothing exported.")
 
@@ -145,8 +155,6 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
 def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
     """
     Process geographic data and create map files for the European Point Clouds website.
-    Run with:
-    python MapMaker.py --gadm-gpkg path/to/gadm_410-levels.gpkg --excel-path /path/to/Quality_parameters.xlsx --name-column Name
     """
     # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
