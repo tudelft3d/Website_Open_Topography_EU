@@ -10,13 +10,18 @@ import pandas as pd
 import geopandas as gpd
 import fiona
 import click
+import logging
+
+logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def AMD_reader(matched_rows, adm_match, row, special_dir):
     """
     Process a match from ADM layers or search in special directory if no match is found.
     """
     if adm_match.empty:
-        click.echo(f'No ADM match found for {row}, searching in special directory...')
+        logger.info(f'No ADM match found for {row}, searching in special directory...')
         return matched_rows
         # Search in special_dir for a .gpkg file with the same name
         lookup_name = row['match_name'].lower().replace(" ", "_")
@@ -35,13 +40,13 @@ def AMD_reader(matched_rows, adm_match, row, special_dir):
                     matched_row['country'] = row['match_name']  
                     matched_rows.append(matched_row)
 
-                print(f"Special match found in {gadm_gpkg} ({len(special_gdf)} features)")
+                logger.info(f"Special match found in {gadm_gpkg} ({len(special_gdf)} features)")
                 return matched_rows
             except Exception as e:
-                print(f"Error reading {gadm_gpkg}: {e}")
+                logger.error(f"Error reading {gadm_gpkg}: {e}")
                 return matched_rows
         else:
-            print(f"No match found for {row['match_name']} and no gpkg in {special_dir}")
+            logger.warning(f"No match found for {row['match_name']} and no gpkg in {special_dir}")
             return matched_rows
     else:
         # Normal match
@@ -76,10 +81,10 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         name = row['match_name']
 
         if name is None or pd.isna(name):
-            print(f'Skipping empty name for row: {row}')
+            logger.warning(f'Skipping empty name for row: {row}')
             continue
 
-        print(f'Processing {name} at ADM level {AMD_val}...')
+        logger.info(f'Processing {name} at ADM level {AMD_val}...')
 
         if AMD_val == 0:
             adm_match = adm0[adm0['name'] == name]
@@ -94,7 +99,7 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
             adm_match = adm3[adm3['name'] == name]
             matched_rows = AMD_reader(matched_rows, adm_match, row, special_dir)
         else:
-            print(f'No ADM level found for {name}!')
+            logger.error(f'No ADM level found for {name}!')
 
     # ---- OUTPUT ----
     if matched_rows:
@@ -138,7 +143,7 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
         region_simplified.to_file(output_region_final_gpkg, driver='GeoJSON')
     else:
-        print("No matches found, nothing exported.")
+        logger.warning("No matches found, nothing exported.")
 
 
 @click.command()
@@ -167,12 +172,10 @@ def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
-    click.echo(f"Processing data...")
-    click.echo(f"  GPKG: {gadm_gpkg}")
-    click.echo(f"  Excel: {excel_path}")
-    click.echo(f"  Output dir: {output_dir}")
+    logger.info(f"Processing data...")
+    
     if special_dir:
-        click.echo(f"  Special dir: {special_dir}")
+        logger.info(f"Special dir: {special_dir}")
     
     match_names_and_export(
         gadm_gpkg=gadm_gpkg,
@@ -182,7 +185,8 @@ def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
         special_dir=special_dir
     )
     
-    click.echo("Processing complete!")
+    logger.info("Processing complete!")
+    logger.info(f"  Data saved in: {output_dir}")
 
 
 if __name__ == "__main__":
