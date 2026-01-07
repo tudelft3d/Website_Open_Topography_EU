@@ -13,38 +13,38 @@ import click
 
 def AMD_reader(matched_rows, adm_match, row, special_dir):
     """
-    Verwerk een match uit ADM-lagen of zoek in de speciale map als er geen match is.
+    Process a match from ADM layers or search in special directory if no match is found.
     """
     if adm_match.empty:
         click.echo(f'No ADM match found for {row}, searching in special directory...')
         return matched_rows
-        # Zoek in special_dir naar een .gpkg met dezelfde naam
+        # Search in special_dir for a .gpkg file with the same name
         lookup_name = row['match_name'].lower().replace(" ", "_")
-        gpkg_path = os.path.join(special_dir, f"{lookup_name}.gpkg")
+        gadm_gpkg = os.path.join(special_dir, f"{lookup_name}.gpkg")
 
-        if os.path.exists(gpkg_path):
+        if os.path.exists(gadm_gpkg):
             try:
-                # Lees alle features van de eerste laag van de gevonden gpkg
-                layers = fiona.listlayers(gpkg_path)
-                special_gdf = gpd.read_file(gpkg_path, layer=layers[0])
+                # Read all features from the first layer of the found gpkg
+                layers = fiona.listlayers(gadm_gpkg)
+                special_gdf = gpd.read_file(gadm_gpkg, layer=layers[0])
 
                 for _, feat in special_gdf.iterrows():
                     matched_row = row.drop('match_name').to_dict()
                     matched_row['geometry'] = feat.geometry
-                    # gebruik Excel match_name als "country" label
+                    # use Excel match_name as "country" label
                     matched_row['country'] = row['match_name']  
                     matched_rows.append(matched_row)
 
-                print(f"Special match gevonden in {gpkg_path} ({len(special_gdf)} features)")
+                print(f"Special match found in {gadm_gpkg} ({len(special_gdf)} features)")
                 return matched_rows
             except Exception as e:
-                print(f"Fout bij lezen van {gpkg_path}: {e}")
+                print(f"Error reading {gadm_gpkg}: {e}")
                 return matched_rows
         else:
-            print(f"Geen match gevonden voor {row['match_name']} en geen gpkg in {special_dir}")
+            print(f"No match found for {row['match_name']} and no gpkg in {special_dir}")
             return matched_rows
     else:
-        # Normale match
+        # Normal match
         _nation = adm_match.COUNTRY
         geometry = adm_match.iloc[0].geometry
         matched_row = row.drop('match_name').to_dict()
@@ -100,11 +100,11 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
     if matched_rows:
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry='geometry', crs=adm0.crs)
 
-        # Regionaal vs nationaal splitsen
+        # Split regional vs national
         region_gdf = result_gdf[result_gdf['ADM'] > 0]
         nations_gdf = result_gdf[result_gdf['ADM'] == 0]
 
-        # Exporteer per land een regionaal bestand
+        # Export regional file per country
         for nation in result_gdf['country'].unique():
             region_match = result_gdf[result_gdf['country'].str.lower() == nation.lower()]
             output_region_gpkg = os.path.join(
@@ -113,13 +113,13 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
             )
             region_match.to_file(output_region_gpkg, driver='GeoJSON')
 
-        # Exporteer totaalbestanden
+        # Export total files
         output_region_final_gpkg = os.path.join(
             output_dir,
             "region_map_data_Europe.geojson"
         )
 
-        # neem standaardkolommen mee als ze bestaan, anders alles
+        # keep standard columns if they exist, otherwise all
         keep_cols = [c for c in ['Name', 'Data', 'geometry'] if c in nations_gdf.columns]
         if not keep_cols:
             keep_cols = nations_gdf.columns
@@ -128,7 +128,7 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         nations_gdf[keep_cols].to_file(main_nations_file, driver='GeoJSON')
         region_gdf.to_file(output_region_final_gpkg, driver='GeoJSON')
     else:
-        print("Geen matches gevonden, niets geëxporteerd.")
+        print("No matches found, nothing exported.")
 
 
 @click.command()
@@ -145,6 +145,8 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
 def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
     """
     Process geographic data and create map files for the European Point Clouds website.
+    Run with:
+    python MapMaker.py --gadm-gpkg path/to/gadm_410-levels.gpkg --excel-path /path/to/Quality_parameters.xlsx --name-column Name
     """
     # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
