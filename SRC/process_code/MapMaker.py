@@ -59,7 +59,7 @@ def AMD_reader(matched_rows, adm_match, row, special_dir):
         return matched_rows
 
 
-def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
+def match_names_and_export(gadm_gpkg, excel_file, name_column, output_dir, special_dir):
     # Load specific layers
     adm0 = gpd.read_file(gadm_gpkg, layer='ADM_0')
     adm1 = gpd.read_file(gadm_gpkg, layer='ADM_1')
@@ -71,7 +71,7 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
     adm2['name'] = adm2['NAME_1'].str.upper()
     adm3['name'] = adm3['VARNAME_3'].str.upper()
 
-    df = pd.read_excel(excel_path)
+    df = pd.read_excel(excel_file)
     df['match_name'] = df[name_column].str.upper()
 
     matched_rows = []
@@ -143,13 +143,13 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
         region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
         region_simplified.to_file(output_region_final_gpkg, driver='GeoJSON')
     else:
-        logger.warning("No matches found, nothing exported.")
+        logger.warning("No matches found, nothing to export.")
 
 
 @click.command()
 @click.option('--gadm-gpkg', required=True, type=click.Path(exists=True), 
               help='Path to the GADM database file with administrative boundaries for all countries')
-@click.option('--excel-path', required=True, type=click.Path(exists=True),
+@click.option('--excel-file', required=True, type=click.Path(exists=True),
               help='Path to the Excel file with dataset information')
 @click.option('--name-column', default='Name', 
               help='Column name in Excel file containing region names (default: Name)')
@@ -157,7 +157,7 @@ def match_names_and_export(gadm_gpkg, excel_path, name_column, output_dir, speci
               help='Output directory for GeoJSON files')
 @click.option('--special-dir', type=click.Path(exists=True),
               help='Directory containing special/custom GPKG files for edge cases')
-def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
+def main(gadm_gpkg, excel_file, name_column, output_dir, special_dir):
     """
     Process geographic data and create map files for the European Point Clouds website.
     """
@@ -179,7 +179,7 @@ def main(gadm_gpkg, excel_path, name_column, output_dir, special_dir):
     
     match_names_and_export(
         gadm_gpkg=gadm_gpkg,
-        excel_path=excel_path,
+        excel_file=excel_file,
         name_column=name_column,
         output_dir=output_dir,
         special_dir=special_dir
