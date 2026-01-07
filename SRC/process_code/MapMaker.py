@@ -2,7 +2,7 @@
 """
 Created on Thu Apr  3 11:45:59 2025
 
-@author: Daan
+Copyright © 2025-2026 3D geoinformation group, TU Delft and Daan van den Heide. All rights reserved.
 """
 
 import os
