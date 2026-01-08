@@ -1,1 +1,5 @@
 pytest>=7.0
+geopandas
+click
+fiona
+openpyxl
