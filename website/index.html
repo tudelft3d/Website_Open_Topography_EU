@@ -16,25 +16,25 @@
 
     </div>
     <div id="toc" class="panel">
-        <div id="toc-country" style="display:block;">
+        <div id="toc-country">
             <!-- <h2>Topographic data overview of Europe</h2> -->
             <input id="tocSearch" placeholder="Search a country..." />
             <h3>Category search</h3>
             <div id="legendCategories" class="legend-categories"></div>
             <button id="overviewBtn" class="overview-btn">Reset view</button>
-            <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries
+            <div id="dividerLine" class="divider">&mdash;&mdash;&mdash; Available countries
                 &mdash;&mdash;&mdash;</div>
             <ul id="countryList" class="country-list"></ul>
         </div>
 
         <!-- Regio-TOC -->
-        <div id="toc-region" style="display:none;">
+        <div id="toc-region">
             <h2>National level data overview</h2>
-            <div id="regionFilterBtns" style="margin-bottom:14px;"></div>
-            <div id="regionDividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available regions
+            <div id="regionFilterBtns"></div>
+            <div id="regionDividerLine" class="divider">&mdash;&mdash;&mdash; Available regions
                 &mdash;&mdash;&mdash;</div>
             <ul id="regionList" class="country-list"></ul>
-            <button id="regionOverviewBtn" class="overview-btn" style="margin-top:18px;">Return to national
+            <button id="regionOverviewBtn" class="overview-btn">Return to national
                 overview</button>
         </div>
     </div>
@@ -112,11 +112,11 @@
                 <p> Open the left-hand panel to browse all available countries. You can filter with the search bar or
                     click a category button to highlight only specific dataset types: </p>
                 <ul>
-                    <li><span style="color:#A7C1D9; font-weight:bold;">Region</span> – regional dataset</li>
-                    <li><span style="color:#A9B689; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
-                    <li><span style="color:#D4602A; font-weight:bold;">Digital Elevation Model</span> – raster Digital
+                    <li><span class="category-region">Region</span> – regional dataset</li>
+                    <li><span class="category-pointcloud">Pointcloud</span> – LiDAR datasets</li>
+                    <li><span class="category-dem">Digital Elevation Model</span> – raster Digital
                         Elevation Models</li>
-                    <li><span style="color:#ffcccc; font-weight:bold;">No info</span> – no open information</li>
+                    <li><span class="category-no-info">No info</span> – no open information</li>
 
                 </ul>
             </div>

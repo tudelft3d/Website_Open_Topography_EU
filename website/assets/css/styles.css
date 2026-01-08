@@ -48,6 +48,67 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+}
+
+/* Visibility utility classes */
+.show {
+    display: block !important;
+}
+
+.hide {
+    display: none !important;
+}
+
+/* TOC specific styles */
+#toc-country {
+    display: block;
+}
+
+#toc-region {
+    display: none;
+}
+
+/* Divider lines - controlled by JavaScript */
+#dividerLine {
+    display: none;
+}
+
+#regionDividerLine {
+    display: none;
+}
+
+/* When in national view, ensure region elements are hidden */
+#toc-country:not([style*="display: none"]) ~ #toc-region #regionDividerLine {
+    display: none !important;
+}
+
+#regionFilterBtns {
+    margin-bottom: 14px;
+}
+
+#regionOverviewBtn {
+    margin-top: 18px;
+}
+
+/* Category color spans */
+.category-region {
+    color: #A7C1D9;
+    font-weight: bold;
+}
+
+.category-pointcloud {
+    color: #A9B689;
+    font-weight: bold;
+}
+
+.category-dem {
+    color: #D4602A;
+    font-weight: bold;
+}
+
+.category-no-info {
+    color: #ffcccc;
+    font-weight: bold;
     background: #2c3e50;
     padding: 8px 12px;
     border-radius: 8px;
