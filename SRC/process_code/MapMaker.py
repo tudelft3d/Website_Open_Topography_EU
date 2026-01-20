@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import fiona   # voor fiona.listlayers
-
+import datetime
 def AMD_reader(matched_rows, adm_match, row, special_dir):
     """
     Verwerk een match uit ADM-lagen of zoek in de speciale map als er geen match is.
@@ -53,6 +53,17 @@ def AMD_reader(matched_rows, adm_match, row, special_dir):
 
 
 def match_names_and_export(gpkg_path, excel_path, name_column, output_gpkg, special_dir):
+    import datetime
+
+    # --- maak datum-directory ---
+    today_str = datetime.datetime.now().strftime("%d_%m_%Y")
+    base_out_dir = os.path.dirname(output_gpkg)
+    dated_out_dir = os.path.join(base_out_dir, today_str)
+    os.makedirs(dated_out_dir, exist_ok=True)
+
+    # update output pad naar nieuwe directory
+    output_gpkg = os.path.join(dated_out_dir, os.path.basename(output_gpkg))
+
     # Load specific layers
     adm0 = gpd.read_file(gpkg_path, layer='ADM_0')
     adm1 = gpd.read_file(gpkg_path, layer='ADM_1')
@@ -92,34 +103,33 @@ def match_names_and_export(gpkg_path, excel_path, name_column, output_gpkg, spec
     if matched_rows:
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry='geometry', crs=adm0.crs)
 
-        # Regionaal vs nationaal splitsen
         region_gdf = result_gdf[result_gdf['ADM'] > 0]
         nations_gdf = result_gdf[result_gdf['ADM'] == 0]
 
-        # Exporteer per land een regionaal bestand
+        # per land regionaal bestand
         for nation in result_gdf['country'].unique():
             region_match = result_gdf[result_gdf['country'].str.lower() == nation.lower()]
-            output_region_gpkg = os.path.join(
-                os.path.dirname(output_gpkg),
+            output_region_geojson = os.path.join(
+                dated_out_dir,
                 f"region_map_data_{nation.lower()}.geojson"
             )
-            region_match.to_file(output_region_gpkg, driver='GeoJSON')
+            region_match.to_file(output_region_geojson, driver='GeoJSON')
 
-        # Exporteer totaalbestanden
-        output_region_final_gpkg = os.path.join(
-            os.path.dirname(output_gpkg),
+        # totaalbestanden
+        output_region_final_geojson = os.path.join(
+            dated_out_dir,
             "region_map_data_Europe.geojson"
         )
 
-        # neem standaardkolommen mee als ze bestaan, anders alles
         keep_cols = [c for c in ['Name', 'Data', 'geometry'] if c in nations_gdf.columns]
         if not keep_cols:
             keep_cols = nations_gdf.columns
 
         nations_gdf[keep_cols].to_file(output_gpkg, driver='GeoJSON')
-        region_gdf.to_file(output_region_final_gpkg, driver='GeoJSON')
+        region_gdf.to_file(output_region_final_geojson, driver='GeoJSON')
     else:
         print("Geen matches gevonden, niets geëxporteerd.")
+
 
 
 
@@ -127,6 +137,6 @@ match_names_and_export(
     gpkg_path=r'C:\Users\Daan\Documents\data\RS1\gadm_410_levels.gpkg',
     excel_path=r'C:\Users\Daan\Documents\data\RS1\Quality_parameters.xlsx',
     name_column='Name',
-    output_gpkg=r'C:\Users\Daan\Documents\GitHub\Website_Open_Topography_EU\tests\data\map_data_overview.geojson',
+    output_gpkg=r'C:\Users\Daan\Documents\data\website\data\map_data_overview.geojson',
     special_dir=r'C:\Users\Daan\Documents\data\RS1\special_gpkg'   # <--- map waar je losse gpkg's bewaart
 )
