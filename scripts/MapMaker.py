@@ -165,7 +165,7 @@ def main(gadm_gpkg, excel_file, name_column, output_dir, special_dir):
     
     # Default output path if not provided
     if not output_dir:
-        default_output_dir = os.path.join(os.path.dirname(script_dir), 'data', 'boundaries')
+        default_output_dir = os.path.join(os.path.dirname(script_dir), 'data')
         output_dir = default_output_dir
     
     # Create output directory if it doesn't exist
