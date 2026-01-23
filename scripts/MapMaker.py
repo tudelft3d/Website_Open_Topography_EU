@@ -22,7 +22,6 @@ def AMD_reader(matched_rows, adm_match, row, special_dir):
     """
     if adm_match.empty:
         logger.info(f'No ADM match found for {row}, searching in special directory...')
-        return matched_rows
         # Search in special_dir for a .gpkg file with the same name
         lookup_name = row['match_name'].lower().replace(" ", "_")
         gadm_gpkg = os.path.join(special_dir, f"{lookup_name}.gpkg")
