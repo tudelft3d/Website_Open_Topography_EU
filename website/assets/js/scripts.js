@@ -467,17 +467,15 @@
             // Click outside countries/regions to return to overview
             map.on('click', e => {
                 // Check if click hit any features on country or region layers
-                
                 let countryFeatures = [];
                 if (map.getLayer('country-fill')) {
-                    countryFeatures = map.queryRenderedFeatures({ layers: ['country-fill'] });
+                    countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
                 }
-                
                 let regionFeatures = [];
                 if (map.getLayer('region-fill')) {
-                    regionFeatures = map.queryRenderedFeatures({ layers: ['region-fill'] });
-                }                
-                // If no features were hit and we're currently viewing regions, return to overview
+                    regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
+                }
+                // If no features were hit and we're currently viewing regions or countries, return to overview
                 if (countryFeatures.length === 0 && regionFeatures.length === 0 && regionsData) {
                     overviewReset();
                 }
