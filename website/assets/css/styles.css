@@ -356,7 +356,6 @@ body {
     content: "";
     width: 24px;
     height: 24px;
-    background: url('images/region_icon.svg') no-repeat center center / contain;
 }
 
 .overview-btn {
@@ -392,7 +391,6 @@ body {
 }
 
 .divider {
-    border-top: 2px dashed #ffe900;
     margin: 22px 0 10px 0;
     text-align: center;
     position: relative;
@@ -666,7 +664,6 @@ li a:hover {
 #logo-bar-bottom a#logo-rws img {
     background: #ffe900 !important;
 }
-
 
 #helpModal button {
     display: inline-block;
