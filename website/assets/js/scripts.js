@@ -467,9 +467,16 @@
             // Click outside countries/regions to return to overview
             map.on('click', e => {
                 // Check if click hit any features on country or region layers
-                const countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
-                const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
                 
+                let countryFeatures = [];
+                if (map.getLayer('country-fill')) {
+                    countryFeatures = map.queryRenderedFeatures({ layers: ['country-fill'] });
+                }
+                
+                let regionFeatures = [];
+                if (map.getLayer('region-fill')) {
+                    regionFeatures = map.queryRenderedFeatures({ layers: ['region-fill'] });
+                }                
                 // If no features were hit and we're currently viewing regions, return to overview
                 if (countryFeatures.length === 0 && regionFeatures.length === 0 && regionsData) {
                     overviewReset();
@@ -538,9 +545,9 @@
     function resetToCountries() { 
         selectedCountryFeature = null; 
         regionsData = null; 
-        map.removeLayer('region-fill'); 
-        map.removeLayer('region-border'); 
-        map.removeSource('regions'); 
+        if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
+        if (map.getLayer('region-border')) map.removeLayer('region-border'); 
+        if (map.getSource('regions')) map.removeSource('regions'); 
         tocSearch.style.display = ''; 
         tocSearch.value = ''; 
         tocList.innerHTML = ''; 
