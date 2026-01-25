@@ -121,7 +121,7 @@ def match_names_and_export(gadm_gpkg, excel_file, name_column, output_dir, speci
             region_match.to_file(output_region_gpkg, driver='GeoJSON')
 
         # Export total files
-        output_region_final_gpkg = os.path.join(
+        output_region_final_geojson = os.path.join(
             output_dir,
             "region_map_data_Europe.geojson"
         )
@@ -140,7 +140,7 @@ def match_names_and_export(gadm_gpkg, excel_file, name_column, output_dir, speci
         # Simplify regional geometries before saving
         region_simplified = region_gdf.copy()
         region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
-        region_simplified.to_file(output_region_final_gpkg, driver='GeoJSON')
+        region_simplified.to_file(output_region_final_geojson, driver='GeoJSON')
     else:
         logger.warning("No matches found, nothing to export.")
 
