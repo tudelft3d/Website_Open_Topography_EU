@@ -1,199 +1,4 @@
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-  <meta charset="UTF-8" />
-  <title>European Point Clouds</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" type="image/png" href="images/logo_website.png">
-  <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
-  <style>
-    html, body { height: 100%; margin: 0; font-family: 'Roboto', sans-serif; background: transparent; }
-    #toc, #sidebar, #helpModal, #infoPanel { top: 70px; /* overal gelijk */ }
-    .panel { position: fixed; top: 48px; right: 12px; background: #2c3e50; color: #fff; padding: 16px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); overflow-y: auto; display: none; z-index: 1001; }
-    #logo-container { position: fixed; top: 12px; left: 12px; z-index: 2000; }
-    #logo { height: 48px; width: auto; }
-    #logo-bar { position: fixed; top: 12px; left: 12px; z-index: 2000; display: flex; align-items: center; gap: 12px; background: #2c3e50; padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-    /* Fullscreen background overlay */
-    #introModal { display: flex; justify-content: center; align-items: center; flex-direction: column; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(44,62,80,0.85); z-index: 2000; }
-    /* White content box inside the modal */
-    #introModal .intro-content { background: #fff; color: #2c3e50; padding: 24px; border-radius: 12px; max-width: 600px; width: 90%; line-height: 1.5; box-shadow: 0 8px 40px rgba(0,0,0,0.4); overflow-y: auto; max-height: 80vh; }
-    #introModal h3 { margin-top: 0; }
-    #introModal h4 { margin-top: 1em; }
-    #introModal button { display: inline-block; /* button only as wide as content */ margin: 16px auto 0 auto; /* auto left/right centers it */ text-align: center; /* make sure text stays centered */ padding: 10px 20px; font-size: 1rem; font-weight: bold; background: #ffe900; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s ease; }
-    #introModal button:hover { background: #ffef33; }
-    #toc { position: fixed; left: 12px; width: 370px; background: #2c3e50; color: #fff; padding: 24px 20px 24px 24px; border-radius: 14px; z-index: 1002; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-height: calc(90vh - 70px); /* limits height relative to window */ overflow-y: auto; /* enables scrolling */ box-sizing: border-box; /* padding stays inside width */ }
-    /* Logos inside the TOC */
-    #toc-logos { display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 16px; }
-    #toc-logos img { height: 36px; width: auto; cursor: pointer; transition: transform 0.2s ease; }
-    #toc-logos img#logo { height: 48px; /* bigger site logo */ margin-right: 12px; }
-    #helpModal { width: 25%; max-height: calc(90vh - 48px); right: 12px; top: 70px; background: #2c3e50; /* <-- witte achtergrond */ color: #fff; /* tekst zwart maken */ padding: 24px; /* wat lucht rondom */ border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.3); }
-    #helpModal a { color: #fff; /* wit */ font-weight: bold; /* vetgedrukt */ text-decoration: underline; }
-    #helpModal a:visited, #helpModal a:active, #helpModal a:hover { color: #fff; /* blijft wit in alle staten */ }
-    #contributors-label { font-size: 0.75rem; /* kleiner */ color: #fff; /* wit */ text-align: center; /* netjes onder de logo’s */ margin-top: 4px; /* beetje ruimte erboven */ opacity: 0.8; /* iets subtieler */ }
-    #toc-logos img:hover { transform: scale(1.1); }
-    #toc h2 { font-size: 2.2rem; margin-top: 0; margin-bottom: 14px; text-align: center; }
-    #toc input { width: 100%; border-radius: 8px; margin-bottom: 20px; padding: 12px; font-size:1.1rem; background: #fff; color: #222; border: none; outline: none; font-family: inherit; box-sizing: border-box; }
-    #toc h3 { margin: 8px 0 18px 0; font-size: 1.2rem; font-weight: bold; color: #ffe900; letter-spacing: 0.02em; text-align: center; /* titel in het midden */ }
-    .legend-categories { display: flex; flex-wrap: nowrap; /* alle vier op één rij */ gap: 12px; /* gelijke ruimte ertussen */ margin-bottom: 22px; }
-    .legend-btn { flex: 1; /* alle knoppen even breed */ display: flex; flex-direction: column; /* kleur boven, tekst eronder */ align-items: center; /* alles gecentreerd */ justify-content: center; gap: 6px; /* ruimte tussen kleur en tekst */ font-size: 1rem; font-weight: 600; padding: 12px 0; border-radius: 8px; border: none; cursor: pointer; background: #242a34; color: #fff; outline: 2px solid transparent; transition: background 0.15s, outline 0.15s; }
-    .legend-btn.active, .legend-btn:focus { background: #444; outline: 2px solid #ffe900; }
-    .legend-btn[data-color]::before { content: ""; width: 20px; height: 20px; border-radius: 4px; background: var(--cat-color, #bbb); border: 2px solid #fff; box-shadow: 0 0 0 1px #111; }
-    .legend-btn:hover::before { border-color: #ffe900; /* Rijkswaterstaat-geel */ }
-    .legend-btn.home-btn { flex-direction: column; gap: 4px; }
-    .legend-btn.home-btn::before { content: "🏠"; /* huis-icoon, kan je ook vervangen door een img */ font-size: 1.4rem; line-height: 1; }
-    .legend-btn.region-btn::before { content: ""; width: 24px; height: 24px; background: url('images/region_icon.svg') no-repeat center center / contain; }
-    .overview-btn { display: block; width: 100%; /* volle breedte van de TOC */ text-align: center; /* tekst in het midden */ background: #ffe900; color: #333; font-weight: bold; border-radius: 8px; padding: 10px 0; /* horizontaal padding eruit, zodat het smal blijft */ border: none; cursor: pointer; transition: background 0.12s; box-sizing: border-box; }
-    .legend-btn.overview-home-btn { background: #ffe900; color: #333; font-weight: bold; }
-    .legend-btn.overview-home-btn:hover { background: #ffef33; }
-    .overview-btn:hover { background: #ffe666; }
-    .divider { border-top: 2px dashed #ffe900; margin: 22px 0 10px 0; text-align: center; position: relative; font-size: 1rem; color: #ffe900; letter-spacing: 0.04em; opacity: 0.95; }
-    .country-list { margin: 0; padding: 0; list-style: none; overflow: hidden; }
-    .country-item { background: rgba(255,255,255,0.08); color: #fff; margin-bottom: 8px; padding: 10px 14px; border-radius: 7px; font-size: 1.08rem; cursor: pointer; border-left: 6px solid var(--cat-color, #ffe900); opacity: 0; max-height: 0; transition: all 0.55s cubic-bezier(0.77,0,0.175,1); transform: translateY(-20px); }
-    .country-item.show { opacity: 1; max-height: 48px; transform: translateY(0); }
-    #sidebar { right: 12px; left: auto; width: 40vw; min-width: 340px; max-width: 800px; max-height: calc(90vh - 48px); background: #2c3e50; color: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.40); overflow-y: auto; display: none; z-index: 1002; font-size: 1.1rem; box-sizing: border-box; }
-    #sidebar a { color: #fff; font-weight: bold; text-decoration: underline; word-break: break-all; }
-    #sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; position: relative; }
-    #sidebar-header h3 { margin: 0; font-weight: bold; font-size: 20px; color: white; flex: 1 1 auto; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
-    #tabs { display: flex; align-items: center; justify-content: space-between; background: #2c3e50; padding: 15px 16px; position: fixed; top: 0; width: 100%; z-index: 1003; box-sizing: border-box; }
-    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-weight: bold; /* vet */ font-style: italic; /* cursief */ }
-    #tab-buttons { position: absolute; left: 50%; transform: translateX(-50%); /* echt centreren */ display: flex; gap: 12px; }
-    #tabs button { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; }
-    .info-step { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 28px; align-items: flex-start; }
-    .info-text { flex: 1 1 55%; min-width: 240px; }
-    .info-gif { flex: 1 1 40%; text-align: center; }
-    .info-gif img { max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
-    #tabs button.active { border-bottom: 2px solid #fff; }
-    .toc-category-btn { flex: 0 0 auto; padding: 4px 8px; margin: 2px; font-size: 0.8rem; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-    .toc-category-btn:hover { background: #666; }
-    li { padding: 8px 0; cursor: pointer; }
-    li:hover { text-decoration: none; }
-    #infoPanel { display: none; position: fixed; /* make sure it floats like the other panels */ left: 12px; /* adjust this to move it lower */ width: 42vw; min-width: 340px; max-width: 860px; max-height: calc(90vh - 90px); /* match the new top value */ background: #2c3e50; /* match sidebar style if you want */ color: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,0.40); overflow-y: auto; z-index: 1002; font-size: 1.1rem; box-sizing: border-box; }
-    li { padding: 8px 0; cursor: default; /* geen klik-handje meer */ text-decoration: none; /* geen underline */ }
-    li a { cursor: pointer; text-decoration: underline; color: #fff; /* of je eigen kleur */ }
-    li a:hover { text-decoration: underline; /* blijft klassiek link-gedrag */ }
-    #logo-bar-bottom { position: fixed; bottom: 12px; left: 12px; z-index: 2000; display: flex; align-items: center; justify-content: center; gap: 6px; /* kleine afstand */ background: #2c3e50; padding: 6px 8px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-    #logo-bar-bottom img { width: 70px; /* vaste breedte */ height: 40px; /* vaste hoogte */ object-fit: contain; /* behoud verhoudingen binnen dat vlak */ background: #fff; /* evt. standaard achtergrond */ padding: 2px; border-radius: 4px; }
-    #logo-bar-bottom img:hover { transform: scale(1.1); }
-    #logo-bar-bottom a#logo-tudelft img { background: #fff !important; }
-    #logo-bar-bottom a#logo-eurosdr img { background: #005bbb !important; }
-    #logo-bar-bottom a#logo-rws img { background: #ffe900 !important; }
-  </style>
-</head>
-<body> 
-  <!-- <div id="logo-container"> --> 
-    <div id="map">
-
-    </div> 
-    <div id="toc" class="panel"> 
-      <div id="toc-country" style="display:block;"> 
-        <!-- <h2>Topographic data overview of Europe</h2> -->
-        <input id="tocSearch" placeholder="Search a country..." /> 
-        <h3>Category search</h3> 
-        <div id="legendCategories" class="legend-categories"></div> 
-        <button id="overviewBtn" class="overview-btn">Reset view</button> 
-        <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div> 
-        <ul id="countryList" class="country-list"></ul> 
-      </div> 
-      
-      <!-- Regio-TOC --> 
-      <div id="toc-region" style="display:none;"> 
-        <h2>National level data overview</h2> 
-        <div id="regionFilterBtns" style="margin-bottom:14px;"></div> 
-        <div id="regionDividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
-        <ul id="regionList" class="country-list"></ul> 
-        <button id="regionOverviewBtn" class="overview-btn" style="margin-top:18px;">Return to national overview</button> </div> 
-      </div> <div id="sidebar" class="panel"> 
-        <div id="sidebar-header">
-           <h3 id="infoTitle"></h3> 
-          </div> <div id="info">Select a country.</div> 
-        </div> <div id="helpModal" class="panel"> 
-          
-          <!-- <button id="helpModalClose">&times;</button> --> 
-        <div id="helpModalContent">
-          <h3>Help us grow the European Point Clouds website</h3> 
-          <p>We aim to provide the most complete overview of available point cloud and elevation datasets. However, some data might still be missing or not yet included.</p> 
-          <p> Your contribution helps us keep this overview accurate and up to date. Do you know of data that should be added? Let us know, and we will include it as soon as possible.</p> 
-          <p>Simply click the link to the google form, and fill in the questions!!</p> 
-          <a href="https://forms.gle/3NaWoRirKtWohpAC6" target="_blank" rel="noopener noreferrer">Click here to fill out the form</a> 
-        </div> 
-      </div> 
-          
-          
-      <div id="tabs"> 
-        <div id="tab-title">European Point Clouds</div> <div id="tab-buttons">
-          <button id="tab-toc" class="active">Table of Contents</button> 
-          <button id="tab-info">Help</button> 
-          <button id="tab-help">Submit New Datasets </button> 
-        </div> <div id="tab-spacer"></div>
-          </div> <div id="introModal" class="panel"> 
-          <div class="intro-content"> 
-            <h3>Welcome to the European Point Cloud Searcher</h3> 
-            <p> This platform offers aggregated access to known point clouds and point cloud-based elevation models across Europe. 
-              Each dataset has been validated and checked to see if the data is open or intended to become open data. 
-              The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis. </p> 
-              <h4>Small print &amp; disclaimer</h4> <p> The linking to this search page implies no guarantee of availability, completeness, correctness, or fitness for any particular purpose. 
-                Remember this if you want data for your projects and/or products. 
-                The license indicated with the products is, to the best of my knowledge at the time of writing. 
-                Please confirm the applicable license with the source before integrating the data. </p> 
-                <p> The European Point Cloud webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find, was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. 
-                  The website is hosted by TU Delft and the 3D Geoinformation group of the Urbanism department, and it will be maintained until the completion of the PhD work. </p> 
-              <button id="introBtn">Got it</button> 
-            </div> 
-          </div> 
-                
-                <!-- Information Panel --> 
-
-                <div id="infoPanel" class="panel"> 
-                  <h2>How to use European Point Clouds website</h2> 
-                  <p> This platform helps you explore national and regional topographic and point cloud datasets across Europe. 
-                    Follow the steps below — each section includes an explanation and an example GIF. </p> 
-                  <div class="info-step"> <div class="info-text"> 
-                  <h3>1. Move and Zoom the Map</h3> 
-                  <p> Drag the map with your mouse to move, scroll to zoom in/out, or use pinch gestures on touch devices. 
-                    Hold <kbd>Shift</kbd> and drag to tilt and rotate the map. </p>
-                   </div> <div class="info-gif"> <img src="images/gifs/step1.gif" alt="GIF showing map navigation" /> </div> 
-                  </div> 
-                  <div class="info-step"> 
-                    <div class="info-text"> 
-                      <h3>2. Use the Table of Contents (TOC)</h3> 
-                      <p> Open the left-hand panel to browse all available countries. You can filter with the search bar or click a category button to highlight only specific dataset types: </p> 
-                      <ul> 
-                            <li><span style="color:#A7C1D9; font-weight:bold;">Region</span> – regional dataset</li>
-                            <li><span style="color:#A9B689; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
-                            <li><span style="color:#D4602A; font-weight:bold;">Digital Elevation Model</span> – raster Digital Elevation Models</li>
-                            <li><span style="color:#ffcccc; font-weight:bold;">No info</span> – no open information</li>
-
-                       </ul> </div> 
-                  
-                      </div> 
-                      <div class="info-step"> 
-                        <div class="info-text"> 
-                          <h3>3. Select a Country</h3> 
-                          <p> Click a country in the TOC list, or directly on the map. The map will highlight the country and show information in the right-hand panel. 
-                            If regional data exists, a new panel with regions will appear. </p> 
-                          </div> 
-                              <div class="info-gif"> <img src="images/gifs/step2.gif" alt="GIF showing search in TOC" /> </div> 
-                        </div> <div class="info-step"> 
-                          <div class="info-text"> 
-                            <h3>4. Explore Detailed Information</h3> 
-                            <p>When you select a country or region, details will appear: dataset type, accuracy, acquisition year, and links to the provider. The dataroom link refers you to the landing page where you can download the elevation datasets. </p> 
-                            </div> <div class="info-gif"> <img src="images/step3.png" alt="GIF showing information panel" /> </div> 
-                            </div> <div class="info-step"> <div class="info-text"> <h3>5. Return to Overview</h3> 
-                            <p> Use the <em>Return to national Overview view</em> button in the TOC to reset the map and return to the full European overview. </p> 
-                            </div> <div class="info-gif"> <img src="images/gifs/step5.gif" alt="GIF showing overview reset" /> </div> 
-                            </div> 
-                            </div>
-                            <div id="logo-bar-bottom">
-                               <div id="contributors-label">Contributors</div> 
-                               <a id="logo-tudelft" href="https://3d.bk.tudelft.nl/" target="_blank"> <img src="images/logo_tudelft.png" alt="TU Delft"> </a> 
-                               <a id="logo-rws" href="https://www.rijkswaterstaat.nl/" target="_blank"> <img src="images/logo_rws.png" alt="Rijkswaterstaat"> </a> 
-                               <a id="logo-eurosdr" href="https://www.eurosdr.net/" target="_blank"> <img src="images/logo_eurosdr.png" alt="EuroSDR"> </a> 
-                            </div> 
-                            <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script> 
-                            <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script> 
-
-          <script> (function() { 
+(function() { 
     function debounce(fn, delay) { 
         let timer; 
         return function(...args) { 
@@ -662,10 +467,15 @@
             // Click outside countries/regions to return to overview
             map.on('click', e => {
                 // Check if click hit any features on country or region layers
-                const countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
-                const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
-                
-                // If no features were hit and we're currently viewing regions, return to overview
+                let countryFeatures = [];
+                if (map.getLayer('country-fill')) {
+                    countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
+                }
+                let regionFeatures = [];
+                if (map.getLayer('region-fill')) {
+                    regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
+                }
+                // If no features were hit and we're currently viewing regions or countries, return to overview
                 if (countryFeatures.length === 0 && regionFeatures.length === 0 && regionsData) {
                     overviewReset();
                 }
@@ -733,9 +543,9 @@
     function resetToCountries() { 
         selectedCountryFeature = null; 
         regionsData = null; 
-        map.removeLayer('region-fill'); 
-        map.removeLayer('region-border'); 
-        map.removeSource('regions'); 
+        if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
+        if (map.getLayer('region-border')) map.removeLayer('region-border'); 
+        if (map.getSource('regions')) map.removeSource('regions'); 
         tocSearch.style.display = ''; 
         tocSearch.value = ''; 
         tocList.innerHTML = ''; 
@@ -799,7 +609,4 @@ function linkifyEPSG(text) {
     : text; 
 }
 
-}()); 
-</script> 
-</body> 
-</html>
+}());
