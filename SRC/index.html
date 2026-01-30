@@ -21,7 +21,7 @@
     #introModal h4 { margin-top: 1em; }
     #introModal button { display: inline-block; /* button only as wide as content */ margin: 16px auto 0 auto; /* auto left/right centers it */ text-align: center; /* make sure text stays centered */ padding: 10px 20px; font-size: 1rem; font-weight: bold; background: #ffe900; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s ease; }
     #introModal button:hover { background: #ffef33; }
-    #toc { position: fixed; left: 12px; width: 370px; background: #2c3e50; color: #fff; padding: 24px 20px 24px 24px; border-radius: 14px; z-index: 1002; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-height: calc(90vh - 70px); /* limits height relative to window */ overflow-y: auto; /* enables scrolling */ box-sizing: border-box; /* padding stays inside width */ }
+    #toc { display: none !important; position: fixed; left: 0; width: 370px; background: #2c3e50; color: #fff; padding: 24px 20px 24px 24px; border-radius: 0 14px 14px 0; z-index: 1002; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-height: calc(90vh - 70px); /* limits height relative to window */ overflow-y: auto; /* enables scrolling */ box-sizing: border-box; /* padding stays inside width */ }
     /* Logos inside the TOC */
     #toc-logos { display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 16px; }
     #toc-logos img { height: 36px; width: auto; cursor: pointer; transition: transform 0.2s ease; }
@@ -34,7 +34,7 @@
     #toc h2 { font-size: 2.2rem; margin-top: 0; margin-bottom: 14px; text-align: center; }
     #toc input { width: 100%; border-radius: 8px; margin-bottom: 20px; padding: 12px; font-size:1.1rem; background: #fff; color: #222; border: none; outline: none; font-family: inherit; box-sizing: border-box; }
     #toc h3 { margin: 8px 0 18px 0; font-size: 1.2rem; font-weight: bold; color: #ffe900; letter-spacing: 0.02em; text-align: center; /* titel in het midden */ }
-    .legend-categories { display: flex; flex-wrap: nowrap; /* alle vier op één rij */ gap: 12px; /* gelijke ruimte ertussen */ margin-bottom: 22px; }
+    .legend-categories { display: none; flex-wrap: nowrap; /* alle vier op één rij */ gap: 12px; /* gelijke ruimte ertussen */ margin-bottom: 22px; }
     .legend-btn { flex: 1; /* alle knoppen even breed */ display: flex; flex-direction: column; /* kleur boven, tekst eronder */ align-items: center; /* alles gecentreerd */ justify-content: center; gap: 6px; /* ruimte tussen kleur en tekst */ font-size: 1rem; font-weight: 600; padding: 12px 0; border-radius: 8px; border: none; cursor: pointer; background: #242a34; color: #fff; outline: 2px solid transparent; transition: background 0.15s, outline 0.15s; }
     .legend-btn.active, .legend-btn:focus { background: #444; outline: 2px solid #ffe900; }
     .legend-btn[data-color]::before { content: ""; width: 20px; height: 20px; border-radius: 4px; background: var(--cat-color, #bbb); border: 2px solid #fff; box-shadow: 0 0 0 1px #111; }
@@ -55,13 +55,47 @@
     #sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; position: relative; }
     #sidebar-header h3 { margin: 0; font-weight: bold; font-size: 20px; color: white; flex: 1 1 auto; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
-    #tabs { display: flex; align-items: center; justify-content: space-between; background: #2c3e50; padding: 15px 16px; position: fixed; top: 0; width: 100%; z-index: 1003; box-sizing: border-box; }
-    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-weight: bold; /* vet */ font-style: italic; /* cursief */ }
-    #tab-buttons { position: absolute; left: 50%; transform: translateX(-50%); /* echt centreren */ display: flex; gap: 12px; }
-    #tabs button { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; }
+    #tabs { display: flex; align-items: center; gap: 16px; background: #2c3e50; padding: 15px 16px; position: fixed; top: 0; width: 100%; z-index: 1003; box-sizing: border-box; flex-wrap: nowrap; }
+    #tab-left { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-width: 0; }
+    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-style: italic; flex: 0 0 auto; }
+    #tab-title.hidden { display: none; }
+    #tab-spacer { display: none; }
+    #tab-buttons { display: flex; gap: 12px; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; white-space: nowrap; }
+    #tabs button { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
+    /* Data dropdown */
+    #dataMenu {
+      position: fixed;
+      top: 56px;
+      right: 16px;
+      background: #2c3e50;
+      color: #fff;
+      padding: 14px;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      display: none;
+      z-index: 1600;
+      min-width: 220px;
+    }
+    #dataMenu button {
+      width: 100%;
+      text-align: left;
+      background: #ffe900;
+      color: #222;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 8px;
+    }
+    #dataMenu button:last-child { margin-bottom: 0; }
+    #tab-search { position: relative; display: flex; align-items: center; flex: 0 0 320px; min-width: 240px; max-width: 360px; margin: 0 12px; }
+    #tocSearchToggle { flex: 0 0 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer; background: #ffe900 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' stroke='%23222' fill='none' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='6'/%3E%3Cline x1='15.5' y1='15.5' x2='21' y2='21'/%3E%3C/svg%3E") center/18px 18px no-repeat; box-shadow: 0 2px 6px rgba(0,0,0,0.25); margin: 0; padding: 0; }
+    #tocSearch { display: none; flex: 1 1 auto; border-radius: 8px; padding: 10px 12px 10px 12px; font-size: 1rem; background: #fff; color: #222; border: none; outline: none; font-family: inherit; min-height: 40px; box-sizing: border-box; }
+    #tab-search.open #tocSearch { display: block; }
+    #tab-search.open #tocSearchToggle { display: none; }
     .info-step { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 28px; align-items: flex-start; }
     .info-text { flex: 1 1 55%; min-width: 240px; }
-    .info-gif { flex: 1 1 40%; text-align: center; }
     .info-gif img { max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
     #tabs button.active { border-bottom: 2px solid #fff; }
     .toc-category-btn { flex: 0 0 auto; padding: 4px 8px; margin: 2px; font-size: 0.8rem; background: #444; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
@@ -78,18 +112,128 @@
     #logo-bar-bottom a#logo-tudelft img { background: #fff !important; }
     #logo-bar-bottom a#logo-eurosdr img { background: #005bbb !important; }
     #logo-bar-bottom a#logo-rws img { background: #ffe900 !important; }
+    /* used for differnet devices */
+    @media (max-width: 768px) {
+  #tabs { position: fixed; top: 0; left: 0; right: 0; padding: 12px; flex-wrap: wrap; gap: 8px; }
+  #tab-left { order: 1; width: 100%; gap: 8px; }
+  #tab-search { order: 2; flex: 1 1 100%; max-width: none; min-width: 0; margin: 0; }
+  #tab-buttons { order: 3; width: 100%; justify-content: flex-start; gap: 12px; flex-wrap: wrap; }
+  #tocSearch { width: 100%; max-width: none; padding-left: 46px; }
+        #toc, #sidebar, #helpModal, #infoPanel {
+            position: fixed; left: 0; right: 0; width: 100%;
+            top: auto; bottom: 0;
+            max-height: 65vh; border-radius: 12px 12px 0 0;
+            box-sizing: border-box;
+                     }
+        #toc { max-height: 60vh; }
+            .legend-categories { flex-wrap: wrap; gap: 8px; }
+        #tabs button, .legend-btn, .overview-btn { padding: 12px 14px; font-size: 1rem; }
+        #logo-bar, #logo-bar-bottom { display: none; }
+        }
+    .legend-bookmark {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 1500;
+      display: flex;
+      align-items: flex-end;
+      gap: 0;
+    }
+
+
+    #legend-toggle {
+      width: 140px;
+      height: 44px;
+      border-radius: 12px 12px 0 0;
+      background: #2c3e50;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+#legend-toggle::after {
+  content: "Legend";
+  writing-mode: horizontal-tb;
+  transform: none;
+  font-weight: bold;
+}
+
+    #legend-panel {
+      position: absolute;
+      right: 0;
+      bottom: 0;  /* align bottom of panel with bottom of page via bookmark */
+      width: 240px;
+      background: #2c3e50;
+      color: #fff;
+      border-radius: 12px 12px 0 0;
+      padding: 14px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+      z-index: 1501;
+      transform: translateY(110%);
+      transition: transform 0.2s ease, opacity 0.2s ease;
+      opacity: 0;
+    }
+    .legend-bookmark:not(.open) #legend-panel { display: none; }
+    .legend-bookmark.open #legend-panel {
+      display: block;
+      transform: translateY(0);
+      opacity: 1;
+    }
+    .legend-bookmark.open #legend-toggle { display: none; }
+
+.legend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.legend-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.legend-list li:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+
+.swatch.pc { background: #A9B689; }
+.swatch.dem { background: #D4602A; }
+.swatch.region { background: #A7C1D9; }
+.swatch.noinfo { background: #8E8E93; }
+
   </style>
 </head>
 <body> 
   <!-- <div id="logo-container"> --> 
+    
     <div id="map">
 
     </div> 
     <div id="toc" class="panel"> 
       <div id="toc-country" style="display:block;"> 
         <!-- <h2>Topographic data overview of Europe</h2> -->
-        <input id="tocSearch" placeholder="Search a country..." /> 
-        <h3>Category search</h3> 
+        <h3 id="categorySearchTitle" style="display:none;">Category search</h3> 
         <div id="legendCategories" class="legend-categories"></div> 
         <button id="overviewBtn" class="overview-btn">Reset view</button> 
         <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div> 
@@ -121,14 +265,27 @@
           
           
       <div id="tabs"> 
-        <div id="tab-title">European Point Clouds</div> <div id="tab-buttons">
-          <button id="tab-toc" class="active">Table of Contents</button> 
-          <button id="tab-info">Help</button> 
-          <button id="tab-help">Submit New Datasets </button> 
-        </div> <div id="tab-spacer"></div>
+        <div id="tab-left">
+          <div id="tab-title">European Point Clouds</div>
+        </div>
+        <div id="tab-search">
+          <button id="tocSearchToggle" aria-label="Open search"></button>
+          <input id="tocSearch" placeholder="Search a country..." />
+        </div>
+        <div id="tab-buttons">
+          <button id="tab-toc" class="active">HOME</button> 
+          <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
+          <button id="tab-data">DATA ▼</button> 
+          <button id="tab-help">Contribute</button> 
+        </div>
+        <div id="tab-spacer"></div>
+        <div id="dataMenu">
+          <button id="dataMapBtn">Find your data on the map</button>
+          <button id="dataCatalogueBtn">Find your data in the catalogue</button>
+        </div>
           </div> <div id="introModal" class="panel"> 
           <div class="intro-content"> 
-            <h3>Welcome to the European Point Cloud Searcher</h3> 
+            <h3>Welcome to the <em>European Point Clouds</em></h3> 
             <p> This platform offers aggregated access to known point clouds and point cloud-based elevation models across Europe. 
               Each dataset has been validated and checked to see if the data is open or intended to become open data. 
               The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis. </p> 
@@ -145,7 +302,7 @@
                 <!-- Information Panel --> 
 
                 <div id="infoPanel" class="panel"> 
-                  <h2>How to use European Point Clouds website</h2> 
+                  <h2>How to get started</h2> 
                   <p> This platform helps you explore national and regional topographic and point cloud datasets across Europe. 
                     Follow the steps below — each section includes an explanation and an example GIF. </p> 
                   <div class="info-step"> <div class="info-text"> 
@@ -192,8 +349,33 @@
                             </div> 
                             <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script> 
                             <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script> 
+<div id="legend-bookmark" class="legend-bookmark">
+  <button id="legend-toggle" aria-label="Open legend"></button>
 
-          <script> (function() { 
+  <div id="legend-panel">
+    <div class="legend-header">
+      <span>Legend</span>
+      <button id="legend-close" aria-label="Close legend">&times;</button>
+    </div>
+
+    <ul class="legend-list">
+      <li data-cat="Pointcloud">
+        <span class="swatch pc"></span> Point cloud
+      </li>
+      <li data-cat="DEM">
+        <span class="swatch dem"></span> Digital Elevation Model
+      </li>
+      <li data-cat="Region">
+        <span class="swatch region"></span> Regional dataset
+      </li>
+      <li data-cat="No Info">
+        <span class="swatch noinfo"></span> No information
+      </li>
+    </ul>
+  </div>
+</div>
+
+ <script> (function() { 
     function debounce(fn, delay) { 
         let timer; 
         return function(...args) { 
@@ -240,10 +422,19 @@
             if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
             if (map.getLayer('region-border')) map.removeLayer('region-border'); 
             if (map.getSource('regions')) map.removeSource('regions'); 
+            // clear any filters that may hide countries
+            if (map.getLayer('country-fill')) map.setFilter('country-fill', null);
+            if (map.getLayer('country-border')) map.setFilter('country-border', null);
+            applyCategoryFilterToMap(); 
             map.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
         } 
         map.setMinZoom(2); 
         sidebar.style.display = 'none'; // Sidebar sluiten bij reset 
+        infoTitleEl.textContent = 'Select a country.'; 
+        infoBox.innerHTML = 'Select a country.'; 
+        if (document.getElementById('infoPanel')) { 
+            document.getElementById('infoPanel').style.display = 'none'; 
+        } 
         renderCountriesList(); 
     } 
 
@@ -258,6 +449,8 @@
     const countryListEl = document.getElementById('countryList'); 
     const dividerLine = document.getElementById('dividerLine'); 
     const tocSearch = document.getElementById('tocSearch'); 
+    const tocSearchToggle = document.getElementById('tocSearchToggle');
+    const tabSearch = document.getElementById('tab-search');
     const tabs = { 
         toc: document.getElementById('tab-toc'), 
         info: document.getElementById('tab-info'), 
@@ -273,11 +466,51 @@
     // Init 
     // tocSearch.addEventListener('input', debounce(updateTOCList, 200)); 
     tocSearch.addEventListener('input', renderCountriesList); 
+    tocSearchToggle.addEventListener('click', () => {
+        tabSearch.classList.add('open');
+        document.getElementById('tab-title').classList.add('hidden');
+        tocSearch.focus();
+        tocSearch.select();
+    });
+    document.addEventListener('click', (e) => {
+        if (!tabSearch.contains(e.target)) {
+            tabSearch.classList.remove('open');
+            document.getElementById('tab-title').classList.remove('hidden');
+        }
+        const menu = document.getElementById('dataMenu');
+        if (menu && menu.style.display === 'block' && !menu.contains(e.target) && e.target !== dataTab) {
+            menu.style.display = 'none';
+        }
+    });
     overviewBtn.onclick = overviewReset; 
     introBtn.addEventListener('click', () => introModal.style.display = 'none'); 
-    tabs.toc.addEventListener('click', () => showTab('toc')); 
+    tabs.toc.addEventListener('click', () => overviewReset()); 
     tabs.info.addEventListener('click', () => showTab('info')); 
     tabs.help.addEventListener('click', () => showTab('help')); 
+
+    const dataTab = document.getElementById('tab-data');
+    const dataMenu = document.getElementById('dataMenu');
+    document.getElementById('dataMapBtn').addEventListener('click', () => {
+        overviewReset();
+        dataMenu.style.display = 'none';
+    });
+    document.getElementById('dataCatalogueBtn').addEventListener('click', () => {
+        window.location.href = 'catalogue.html';
+    });
+    dataTab.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = dataMenu.style.display === 'block';
+        dataMenu.style.display = open ? 'none' : 'block';
+    });
+    dataTab.addEventListener('mouseenter', () => {
+        dataMenu.style.display = 'block';
+    });
+    dataTab.addEventListener('mouseleave', () => {
+        if (!dataMenu.matches(':hover')) dataMenu.style.display = 'none';
+    });
+    dataMenu.addEventListener('mouseleave', () => {
+        dataMenu.style.display = 'none';
+    });
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
     function showTab(name) { 
@@ -291,7 +524,7 @@
     } 
 
     // Load data 
-    fetch('data/map_data_overview.geojson') 
+    fetch('data/map_data_overview.geojson')
     .then(r => r.json()) 
     .then(cd => { 
         countriesData = cd; 
@@ -626,7 +859,7 @@
             minZoom: 2, 
             maxZoom: 10 
         }); 
-        map.on('load', () => { 
+    map.on('load', () => { 
             const onlyCountries = { 
                 type: 'FeatureCollection', 
                 features: countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName) 
@@ -653,30 +886,30 @@
             ['mouseenter', 'mouseleave'].forEach(evt => { 
                 map.on(evt, 'country-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : ''); 
             }); 
-            map.on('click', 'country-fill', e => { 
-                const feat = e.features[0]; 
-                if (feat.properties.infoStatus !== 'hasinfo' && feat.properties.infoStatus !== 'region') return; 
-                handleCountrySelect(feat); 
-            }); 
 
-            // Click outside countries/regions to return to overview
+            // Unified click handling: select country/region or reset if empty
             map.on('click', e => {
-                // Check if click hit any features on country or region layers
                 const countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
-                const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
-                
-                // If no features were hit and we're currently viewing regions, return to overview
-                if (countryFeatures.length === 0 && regionFeatures.length === 0 && regionsData) {
-                    overviewReset();
+                if (countryFeatures.length) {
+                    const feat = countryFeatures[0];
+                    if (feat.properties.infoStatus === 'hasinfo' || feat.properties.infoStatus === 'region') {
+                        handleCountrySelect(feat);
+                        return;
+                    }
                 }
+                const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
+        if (regionFeatures.length) {
+            selectRegion(regionFeatures[0].id, regionFeatures[0].properties);
+            return;
+        }
+        overviewReset();
             });
         }); 
     } 
 
     // AANGEPAST: kaart-styling robuust tegen hoofdletters/varianten 
     function showRegionsOnMap(rd) { 
-        if (map.getLayer('country-fill')) map.setLayoutProperty('country-fill', 'visibility', 'none'); 
-        if (map.getLayer('country-border')) map.setLayoutProperty('country-border', 'visibility', 'none'); 
+        // keep countries visible so switching countries remains possible 
         if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
         if (map.getLayer('region-border')) map.removeLayer('region-border'); 
         if (map.getSource('regions')) map.removeSource('regions'); 
@@ -800,6 +1033,60 @@ function linkifyEPSG(text) {
 }
 
 }()); 
+const legendBookmark = document.getElementById('legend-bookmark');
+const legendToggle = document.getElementById('legend-toggle');
+const legendPanel  = document.getElementById('legend-panel');
+const legendClose  = document.getElementById('legend-close');
+const legendTitle  = legendPanel.querySelector('.legend-header span');
+
+function closeLegend() {
+  legendBookmark.classList.remove('open');
+}
+legendToggle.onclick = () => {
+  legendBookmark.classList.add('open');
+};
+
+legendClose.onclick = closeLegend;
+legendTitle.onclick = closeLegend;
+document.addEventListener('click', (e) => {
+  if (!legendBookmark.contains(e.target)) {
+    closeLegend();
+  }
+});
+
+// Koppelt direct aan bestaande category-logica
+legendPanel.querySelectorAll('li').forEach(li => {
+  li.addEventListener('click', () => {
+    activeCategory = normalizeCat(li.dataset.cat);
+    renderCountriesList();
+    applyCategoryFilterToMap();
+
+    legendPanel.querySelectorAll('li')
+      .forEach(x => x.classList.remove('active'));
+    li.classList.add('active');
+    applyCategoryFilterToMap();
+  });
+});
+
+function applyCategoryFilterToMap() {
+  if (!window.map || !map.getLayer('country-fill')) return;
+  if (activeCategory) {
+    map.setFilter('country-fill', [
+      'all',
+      ['==', ['get', 'Data'], activeCategory],
+      ['!', ['has', 'RegionName']]
+    ]);
+    map.setFilter('country-border', [
+      'all',
+      ['!', ['has', 'RegionName']]
+    ]);
+  } else {
+    map.setFilter('country-fill', null);
+    map.setFilter('country-border', null);
+  }
+}
+
 </script> 
+
 </body> 
 </html>

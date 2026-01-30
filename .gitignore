@@ -19,3 +19,4 @@ tests/data/region_map_data_slovakia.geojson
 tests/images/logo_eurosdr.png
 tests/images/logo_rws.png
 tests/images/logo_tudelft.png
+SRC/data/map_data_overview.geojson

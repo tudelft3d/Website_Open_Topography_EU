@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting Started – European Point Clouds</title>
+  <link rel="icon" type="image/png" href="images/logo_website.png">
+  <style>
+    :root {
+      --bg: #2c3e50;
+      --card: #f8fafc;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #ffe900;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #e7edf5 0%, #f6f8fb 100%);
+      color: var(--text);
+    }
+    header {
+      background: var(--bg);
+      color: #fff;
+      padding: 16px 22px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header a {
+      color: #fff;
+      text-decoration: none;
+      font-weight: 600;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      transition: background 0.15s ease;
+    }
+    header a:hover { background: rgba(255, 255, 255, 0.16); }
+    header h1 { margin: 0; font-size: 1.4rem; font-weight: 700; letter-spacing: 0.3px; }
+    main {
+      max-width: 1080px;
+      margin: 32px auto 64px auto;
+      padding: 0 18px;
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
+      padding: 18px 18px 12px 18px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      align-items: center;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      color: var(--bg);
+    }
+    .card p {
+      margin: 6px 0 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .media {
+      justify-self: end;
+    }
+    .media img {
+      max-width: 100%;
+      border-radius: 10px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.16);
+    }
+    @media (max-width: 768px) {
+      header { flex-wrap: wrap; }
+      main { margin-top: 22px; }
+      .card { grid-template-columns: 1fr; }
+      .media { justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a href="index.html">← Back to map</a>
+    <h1>Getting Started</h1>
+  </header>
+
+  <main>
+    <div class="card">
+      <div>
+        <h2>1. Move and zoom the map</h2>
+        <p>Drag to pan, scroll or pinch to zoom. Hold <kbd>Shift</kbd> + drag to tilt and rotate.</p>
+      </div>
+      <div class="media">
+        <img src="images/gifs/step1.gif" alt="Map navigation demo">
+      </div>
+    </div>
+
+    <div class="card">
+      <div>
+        <h2>2. Select a country</h2>
+        <p>Click any country on the map. The info panel shows available datasets and links.</p>
+      </div>
+      <div class="media">
+        <img src="images/gifs/step2.gif" alt="Country selection demo">
+      </div>
+    </div>
+
+    <div class="card">
+      <div>
+        <h2>3. View dataset details</h2>
+        <p>See dataset type, accuracy, year, and the dataroom link for downloads.</p>
+      </div>
+      <div class="media">
+        <img src="images/step3.png" alt="Dataset details panel">
+      </div>
+    </div>
+
+    <div class="card">
+      <div>
+        <h2>4. Reset to overview</h2>
+        <p>Use the HOME button in the top bar to return to the European overview.</p>
+      </div>
+      <div class="media">
+        <img src="images/gifs/step5.gif" alt="Reset overview demo">
+      </div>
+    </div>
+  </main>
+</body>
+</html>
