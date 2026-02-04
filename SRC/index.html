@@ -133,7 +133,7 @@
     .legend-bookmark {
       position: fixed;
       right: 12px;
-      bottom: 12px;
+      bottom: 0;           /* plak tegen onderkant aan */
       z-index: 1500;
       display: flex;
       align-items: flex-end;
@@ -217,10 +217,10 @@
   border-radius: 4px;
 }
 
-.swatch.pc { background: #A9B689; }
-.swatch.dem { background: #D4602A; }
-.swatch.region { background: #A7C1D9; }
-.swatch.noinfo { background: #8E8E93; }
+.swatch.pc { background: #1B9E77; }
+.swatch.dem { background: #7570B3; }
+.swatch.region { background: #0072B2; }
+.swatch.noinfo { background: #7F7F7F; }
 
   </style>
 </head>
@@ -316,10 +316,10 @@
                       <h3>2. Use the Table of Contents (TOC)</h3> 
                       <p> Open the left-hand panel to browse all available countries. You can filter with the search bar or click a category button to highlight only specific dataset types: </p> 
                       <ul> 
-                            <li><span style="color:#A7C1D9; font-weight:bold;">Region</span> – regional dataset</li>
-                            <li><span style="color:#A9B689; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
-                            <li><span style="color:#D4602A; font-weight:bold;">Digital Elevation Model</span> – raster Digital Elevation Models</li>
-                            <li><span style="color:#ffcccc; font-weight:bold;">No info</span> – no open information</li>
+                            <li><span style="color:#0072B2; font-weight:bold;">Region</span> – regional dataset</li>
+                            <li><span style="color:#1B9E77; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
+                            <li><span style="color:#7570B3; font-weight:bold;">Elevation model</span> – raster Digital Elevation Models</li>
+                            <li><span style="color:#7F7F7F; font-weight:bold;">No data / unknown</span> – no open information</li>
 
                        </ul> </div> 
                   
@@ -363,13 +363,13 @@
         <span class="swatch pc"></span> Point cloud
       </li>
       <li data-cat="DEM">
-        <span class="swatch dem"></span> Digital Elevation Model
+        <span class="swatch dem"></span> Elevation model
       </li>
       <li data-cat="Region">
         <span class="swatch region"></span> Regional dataset
       </li>
       <li data-cat="No Info">
-        <span class="swatch noinfo"></span> No information
+        <span class="swatch noinfo"></span> No data / unknown
       </li>
     </ul>
   </div>
@@ -385,10 +385,10 @@
     } 
 
     const categoryColors = { 
-        Region: '#A7C1D9', 
-        Pointcloud: '#A9B689', 
-        DEM: '#D4602A', 
-        'No Info':'#8E8E93' 
+        Region: '#0072B2', 
+        Pointcloud: '#1B9E77', 
+        DEM: '#7570B3', 
+        'No Info':'#7F7F7F' 
     }; 
 
     // State 
@@ -552,7 +552,7 @@
         legendCatsEl.innerHTML = ''; 
         const orderedCats = ['Pointcloud', 'DEM', 'No Info', 'Region']; 
         orderedCats.forEach(cat => { 
-            const color = categoryColors[cat] || '#8E8E93'; 
+            const color = categoryColors[cat] || '#7F7F7F'; 
             const btn = document.createElement('button'); 
             btn.className = 'legend-btn'; 
             btn.setAttribute('data-color', cat); 
@@ -561,7 +561,8 @@
                 btn.classList.add('region-btn'); 
                 btn.innerHTML = '<span>Regional</span>'; // logo + tekst via CSS 
             } else { 
-                btn.textContent = cat; 
+                const label = (cat === 'DEM') ? 'Elevation model' : (cat === 'No Info' ? 'No data / unknown' : cat); 
+                btn.textContent = label; 
             } 
             btn.onclick = () => { 
                 document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
@@ -591,7 +592,7 @@
 
     // NIEUW: haal kleur op ongeacht hoofdletters/varianten 
     function getCatColor(cat) { 
-        return (categoryColors[normalizeCat(cat)] || '#8E8E93'); 
+        return (categoryColors[normalizeCat(cat)] || '#7F7F7F'); 
     } 
 
     // AANGEPAST: kleuren in landenlijst via getCatColor 
@@ -774,10 +775,10 @@
         tocList.style.flexWrap = 'wrap'; 
         tocList.style.gap = '4px'; 
         const colorMap = { 
-            Region: '#A7C1D9', 
-            Pointcloud: '#A9B689', 
-            DEM: '#D4602A', 
-            'No info': '#8E8E93' 
+            Region: '#0072B2', 
+            Pointcloud: '#1B9E77', 
+            DEM: '#7570B3', 
+            'No info': '#7F7F7F' 
         }; 
         const matches = countriesData.features 
         .filter(f => type === 'No info' ? !f.properties.Data : f.properties.Data === type) 
@@ -870,7 +871,7 @@
                 type: 'fill', 
                 source: 'countries', 
                 paint: { 
-                    'fill-color': ['case', ['boolean', ['feature-state', 'highlightAllGreen'], false], '#A7C1D9', ['==', ['get', 'Data'], 'Region'], '#A7C1D9', ['==', ['get', 'Data'], 'Pointcloud'], '#A9B689', ['==', ['get', 'Data'], 'DEM'], '#D4602A', '#8E8E93'], 
+                    'fill-color': ['case', ['boolean', ['feature-state', 'highlightAllGreen'], false], '#0072B2', ['==', ['get', 'Data'], 'Region'], '#0072B2', ['==', ['get', 'Data'], 'Pointcloud'], '#1B9E77', ['==', ['get', 'Data'], 'DEM'], '#7570B3', '#7F7F7F'], 
                     'fill-opacity': 0.6 
                 } 
             }); 
@@ -922,11 +923,11 @@
             paint: { 
                 'fill-color': [ 
                     'case', ['boolean', ['feature-state', 'selected'], false], '#ffe900', 
-                    ['==', ['downcase', ['get', 'Data']], 'region'], '#A7C1D9', 
-                    ['==', ['downcase', ['get', 'Data']], 'pointcloud'], '#A9B689', 
-                    ['==', ['downcase', ['get', 'Data']], 'dem'], '#D4602A', 
-                    ['==', ['downcase', ['get', 'Data']], 'no info'], '#8E8E93', 
-                    /* else */ '#8E8E93' 
+                    ['==', ['downcase', ['get', 'Data']], 'region'], '#0072B2', 
+                    ['==', ['downcase', ['get', 'Data']], 'pointcloud'], '#1B9E77', 
+                    ['==', ['downcase', ['get', 'Data']], 'dem'], '#7570B3', 
+                    ['==', ['downcase', ['get', 'Data']], 'no info'], '#7F7F7F', 
+                    /* else */ '#7F7F7F' 
                 ], 
                 'fill-opacity': 0.5 
             } 
