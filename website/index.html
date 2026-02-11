@@ -1,150 +1,447 @@
 <!DOCTYPE html>
 <html lang="nl">
-
 <head>
-    <meta charset="UTF-8" />
-    <title>European Point Clouds</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
-    <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
-    <link href="assets/css/styles.css" rel="stylesheet" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>European Point Clouds - Home</title>
+  <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
+  <style>
+    :root {
+      --bg: #2c3e50;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #ffe900;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Roboto', sans-serif;
+      background: linear-gradient(135deg, #e7edf5 0%, #f6f8fb 100%);
+      color: var(--text);
+      padding-top: 64px;
+    }
+    #tabs {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--bg);
+      padding: 15px 16px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      z-index: 1003;
+      box-sizing: border-box;
+      flex-wrap: nowrap;
+    }
+    #tab-left { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-width: 0; }
+    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-style: italic; flex: 0 0 auto; text-decoration: none; }
+    #tab-buttons { display: flex; gap: 12px; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; white-space: nowrap; }
+    #tab-search { position: relative; display: flex; align-items: center; width: 40px; height: 40px; margin: 0 8px 0 0; }
+    #tocSearchToggle {
+      flex: 0 0 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      background: #ffe900 url("assets/images/search_icon.png") center/24px 24px no-repeat;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      margin: 0;
+      padding: 0;
+    }
+    #tocSearch {
+      display: none;
+      position: fixed;
+      width: 320px;
+      height: 40px;
+      border-radius: 8px;
+      padding: 10px 12px 10px 12px;
+      font-size: 1rem;
+      background: #fff;
+      color: #222;
+      border: none;
+      outline: none;
+      font-family: inherit;
+      box-sizing: border-box;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 2000;
+    }
+    #tab-search.open #tocSearch { display: block; }
+    #tabs a, #tabs button {
+      color: #fff;
+      background: none;
+      border: none;
+      padding: 6px 12px;
+      font-size: 1rem;
+      cursor: pointer;
+      flex: 0 0 auto;
+      white-space: nowrap;
+      text-decoration: none;
+      font-family: inherit;
+    }
+    #tabs .active { border-bottom: 2px solid #fff; }
+    #dataMenu {
+      position: absolute;
+      top: 0;
+      left: 0;
+      background: #2c3e50;
+      color: #fff;
+      padding: 14px;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      display: none;
+      z-index: 1600;
+      min-width: 220px;
+    }
+    #dataMenu a {
+      width: 100%;
+      display: block;
+      text-align: left;
+      background: #ffe900;
+      color: #222;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 8px;
+      text-decoration: none;
+    }
+    #dataMenu a:last-child { margin-bottom: 0; }
+
+    .hero {
+      max-width: 1100px;
+      margin: 28px auto 16px auto;
+      padding: 0 18px;
+      display: grid;
+      gap: 20px;
+    }
+    .banner {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+      background: #0f172a;
+      min-height: 320px;
+    }
+    .banner img {
+      width: 100%;
+      height: 360px;
+      object-fit: cover;
+      display: block;
+    }
+    .banner-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, rgba(15, 23, 42, 0.70), rgba(15, 23, 42, 0.20));
+      display: flex;
+      align-items: flex-end;
+      padding: 22px;
+      color: #fff;
+    }
+    .banner-title {
+      font-size: 2rem;
+      font-weight: 800;
+      margin: 0;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .banner-subtitle {
+      margin: 6px 0 0 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      font-style: italic;
+      color: rgba(255, 255, 255, 0.9);
+      text-shadow: 0 2px 10px rgba(0,0,0,0.35);
+    }
+    .banner-controls { display: none; }
+    .banner-dots { display: none; }
+
+    .content {
+      max-width: 1100px;
+      margin: 0 auto 64px auto;
+      padding: 0 18px;
+      display: grid;
+      gap: 18px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+      padding: 22px;
+      line-height: 1.6;
+    }
+    .card h2 { margin: 0 0 8px 0; color: var(--bg); }
+    .card h3 { margin: 18px 0 6px 0; color: var(--bg); }
+    .muted { color: var(--muted); }
+    .inline-link { color: var(--bg); text-decoration: none; }
+    .inline-link:hover { text-decoration: underline; }
+    .cta-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .cta {
+      background: var(--accent);
+      color: #222;
+      font-weight: 700;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 14px;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .cta.secondary {
+      background: #fff;
+      border: 2px solid var(--bg);
+      color: var(--bg);
+    }
+    .partners {
+      max-width: 1100px;
+      margin: 0 auto 64px auto;
+      padding: 0 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .partners h3 { margin: 0; color: var(--bg); }
+    .partners-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .partners-row a {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: var(--bg);
+      font-weight: 600;
+      background: #fff;
+      padding: 8px 12px;
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(15,23,42,0.08);
+    }
+    .partners-row img {
+      width: 90px;
+      height: 32px;
+      object-fit: contain;
+    }
+
+    @media (max-width: 768px) {
+      body { padding-top: 92px; }
+      #tabs { flex-wrap: wrap; gap: 8px; }
+      #tab-left { width: 100%; gap: 8px; }
+      #tab-buttons { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+      #tab-search { order: 2; width: auto; height: auto; margin: 0; }
+      #tocSearch { position: static; display: block; width: 100%; max-width: none; padding-left: 46px; box-shadow: none; }
+      .banner img { height: 260px; }
+      .banner-title { font-size: 1.6rem; }
+    }
+  </style>
 </head>
-
 <body>
-  <!-- <div id="logo-container"> -->
-    <div id="map">
+  <div id="tabs">
+    <div id="tab-left">
+      <a id="tab-title" href="index.html">European Point Clouds</a>
+    </div>
+    <div id="tab-buttons">
+      <div id="tab-search">
+        <button id="tocSearchToggle" aria-label="Open search"></button>
+        <input id="tocSearch" placeholder="Search for a point cloud in a country, province or city" />
+      </div>
+      <button id="tab-data">DATA ▼</button>
+      <a id="tab-info" href="getting-started.html">Getting started</a>
+      <a id="tab-help" href="map.html?skipIntro=1">Contribute</a>
+    </div>
+  </div>
+  <div id="dataMenu">
+    <a href="map.html?skipIntro=1">Find your data on the map</a>
+    <a href="catalogue.html">Find your data in the catalogue</a>
+  </div>
 
-    </div> 
-    <div id="toc" class="panel"> 
-      <div id="toc-country" style="display:block;"> 
-        <!-- <h2>Topographic data overview of Europe</h2> -->
-        <h3 id="categorySearchTitle" style="display:none;">Category search</h3> 
-        <div id="legendCategories" class="legend-categories"></div> 
-        <button id="overviewBtn" class="overview-btn">Reset view</button> 
-        <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div> 
-        <ul id="countryList" class="country-list"></ul> 
-      </div> 
-      
-      <!-- Regio-TOC --> 
-      <div id="toc-region" style="display:none;"> 
-        <h2>National level data overview</h2> 
-        <div id="regionFilterBtns" style="margin-bottom:14px;"></div> 
-        <div id="regionDividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
-        <ul id="regionList" class="country-list"></ul> 
-        <button id="regionOverviewBtn" class="overview-btn" style="margin-top:18px;">Return to national overview</button> </div> 
-      </div> <div id="sidebar" class="panel"> 
-        <div id="sidebar-header">
-           <h3 id="infoTitle"></h3> 
-          </div> <div id="info">Select a country.</div> 
-        </div> <div id="helpModal" class="panel"> 
-          
-          <!-- <button id="helpModalClose">&times;</button> --> 
-        <div id="helpModalContent">
-          <h3>Help us grow the European Point Clouds website</h3> 
-          <p>We aim to provide the most complete overview of available point cloud and elevation datasets. However, some data might still be missing or not yet included.</p> 
-          <p> Your contribution helps us keep this overview accurate and up to date. Do you know of data that should be added? Let us know, and we will include it as soon as possible.</p> 
-          <p>Simply click the link to the google form, and fill in the questions!!</p> 
-          <a href="https://forms.gle/3NaWoRirKtWohpAC6" target="_blank" rel="noopener noreferrer">Click here to fill out the form</a> 
-        </div> 
-      </div> 
-          
-          
-      <div id="tabs"> 
-        <div id="tab-left">
-          <a id="tab-title" href="home.html">European Point Clouds</a>
+  <section class="hero">
+    <div class="banner" aria-label="Image carousel">
+      <img id="bannerImage" src="assets/images/gifs/step1.gif" alt="Map interaction example">
+      <div class="banner-overlay">
+        <div>
+          <h1 class="banner-title">Welcome to European Point Clouds</h1>
+          <p class="banner-subtitle">The portal to all point clouds in Europe, and still growing.</p>
         </div>
-        <div id="tab-buttons">
-          <div id="tab-search">
-            <button id="tocSearchToggle" aria-label="Open search"></button>
-            <input id="tocSearch" placeholder="Search for a point cloud in a country, province or city" />
-          </div>
-          <button id="tab-data">DATA ▼</button> 
-          <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
-          <button id="tab-help">Contribute</button> 
-        </div>
-        <div id="tab-spacer"></div>
-        <div id="dataMenu">
-          <button id="dataMapBtn">Find your data on the map</button>
-          <button id="dataCatalogueBtn">Find your data in the catalogue</button>
-        </div>
-          </div> 
-                
-                <!-- Information Panel --> 
+      </div>
+      <div class="banner-dots" id="bannerDots"></div>
+      <div class="banner-controls">
+        <button id="bannerPrev" aria-label="Previous image">Prev</button>
+        <button id="bannerNext" aria-label="Next image">Next</button>
+      </div>
+    </div>
+  </section>
 
-                <div id="infoPanel" class="panel"> 
-                  <h2>How to get started</h2> 
-                  <p> This platform helps you explore national and regional topographic and point cloud datasets across Europe. 
-                    Follow the steps below — each section includes an explanation and an example GIF. </p> 
-                  <div class="info-step"> <div class="info-text"> 
-                  <h3>1. Move and Zoom the Map</h3> 
-                  <p> Drag the map with your mouse to move, scroll to zoom in/out, or use pinch gestures on touch devices. 
-                    Hold <kbd>Shift</kbd> and drag to tilt and rotate the map. </p>
-                   </div> <div class="info-gif"> <img src="assets/images/gifs/step1.gif" alt="GIF showing map navigation" /> </div> 
-                  </div> 
-                  <div class="info-step"> 
-                    <div class="info-text"> 
-                      <h3>2. Use the Table of Contents (TOC)</h3> 
-                      <p> Open the left-hand panel to browse all available countries. You can filter with the search bar or click a category button to highlight only specific dataset types: </p> 
-                      <ul> 
-                            <li><span style="color:#0072B2; font-weight:bold;">Region</span> – regional dataset</li>
-                            <li><span style="color:#1B9E77; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
-                            <li><span style="color:#7570B3; font-weight:bold;">Elevation model</span> – raster Digital Elevation Models</li>
-                            <li><span style="color:#7F7F7F; font-weight:bold;">No data / unknown</span> – no open information</li>
-
-                       </ul> </div> 
-                  
-                      </div> 
-                      <div class="info-step"> 
-                        <div class="info-text"> 
-                          <h3>3. Select a Country</h3> 
-                          <p> Click a country in the TOC list, or directly on the map. The map will highlight the country and show information in the right-hand panel. 
-                            If regional data exists, a new panel with regions will appear. </p> 
-                          </div> 
-                              <div class="info-gif"> <img src="assets/images/gifs/step2.gif" alt="GIF showing search in TOC" /> </div> 
-                        </div> <div class="info-step"> 
-                          <div class="info-text"> 
-                            <h3>4. Explore Detailed Information</h3> 
-                            <p>When you select a country or region, details will appear: dataset type, accuracy, acquisition year, and links to the provider. The dataroom link refers you to the landing page where you can download the elevation datasets. </p> 
-                            </div> <div class="info-gif"> <img src="assets/images/step3.png" alt="GIF showing information panel" /> </div> 
-                            </div> <div class="info-step"> <div class="info-text"> <h3>5. Return to Overview</h3> 
-                            <p> Use the <em>Return to national Overview view</em> button in the TOC to reset the map and return to the full European overview. </p> 
-                            </div> <div class="info-gif"> <img src="assets/images/gifs/step5.gif" alt="GIF showing overview reset" /> </div> 
-                            </div> 
-                            </div>
-                            <div id="logo-bar-bottom">
-                               <div id="contributors-label">Contributors</div> 
-                               <a id="logo-tudelft" href="https://3d.bk.tudelft.nl/" target="_blank"> <img src="assets/images/logo_tudelft.png" alt="TU Delft"> </a> 
-                               <a id="logo-rws" href="https://www.rijkswaterstaat.nl/" target="_blank"> <img src="assets/images/logo_rws.png" alt="Rijkswaterstaat"> </a> 
-                               <a id="logo-eurosdr" href="https://www.eurosdr.net/" target="_blank"> <img src="assets/images/logo_eurosdr.png" alt="EuroSDR"> </a> 
-                            </div> 
-<div id="legend-bookmark" class="legend-bookmark">
-  <button id="legend-toggle" aria-label="Open legend"></button>
-
-  <div id="legend-panel">
-    <div class="legend-header">
-      <span>Legend</span>
-      <button id="legend-close" aria-label="Close legend">&times;</button>
+  <section class="content">
+    <div class="card">
+      <h2>Welcome</a></h2>
+      <p class="muted">
+        This platform offers aggregated access to known point clouds and point cloud-based elevation models across Europe.
+        Each dataset has been validated and checked to see if the data is open or intended to become open data.
+        The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis.
+      </p>
+      <div class="cta-row">
+        <a class="cta" href="map.html?skipIntro=1">Open the map</a>
+        <a class="cta" href="catalogue.html">Catalogue</a>
+        <a class="cta secondary" href="getting-started.html">How it works</a>
+      </div>
     </div>
 
-    <ul class="legend-list">
-      <li data-cat="Pointcloud">
-        <span class="swatch pc"></span> Point cloud
-      </li>
-      <li data-cat="DEM">
-        <span class="swatch dem"></span> Elevation model
-      </li>
-      <li data-cat="Region">
-        <span class="swatch region"></span> Regional dataset
-      </li>
-      <li data-cat="No Info">
-        <span class="swatch noinfo"></span> No data / unknown
-      </li>
-    </ul>
-  </div>
-</div>
-    <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
-    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <script src="assets/js/scripts.js"></script>
-</body>
+    <div class="card">
+      <h3>Small print &amp; disclaimer</h3>
+      <p class="muted">
+        The source links of this search page implies no guarantee of availability, completeness, correctness, or fitness for any
+        particular purpose. Remember this if you want data for your projects and/or products. The license indicated with the
+        products is, to the best of my knowledge at the time of writing. Please confirm the applicable license with the
+        source before integrating the data.
+      </p>
+      <p class="muted">
+        The European Point Cloud webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find,
+        was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. The website is
+        hosted by TU Delft and the 3D Geoinformation group of the Urbanism department, and it will be maintained until the
+        completion of the PhD work.
+      </p>
+    </div>
+  </section>
 
+  <section class="partners">
+    <h3>Contributors</h3>
+    <div class="partners-row">
+      <a href="https://3d.bk.tudelft.nl/" target="_blank" rel="noopener noreferrer">
+        <img src="assets/images/logo_tudelft.png" alt="TU Delft">
+        <span>TU Delft</span>
+      </a>
+      <a href="https://www.rijkswaterstaat.nl/" target="_blank" rel="noopener noreferrer">
+        <img src="assets/images/logo_rws.png" alt="Rijkswaterstaat">
+        <span>Rijkswaterstaat</span>
+      </a>
+      <a href="https://www.eurosdr.net/" target="_blank" rel="noopener noreferrer">
+        <img src="assets/images/logo_eurosdr.png" alt="EuroSDR">
+        <span>EUROSDR</span>
+      </a>
+      <a href="https://waterschapshuis.nl" target="_blank" rel="noopener noreferrer">
+        <span>Waterschapshuis</span>
+      </a>
+    </div>
+  </section>
+
+  <script>
+    const slides = [
+      { src: 'assets/images/gifs/step1.gif', alt: 'Map interaction example' },
+      { src: 'assets/images/gifs/step2.gif', alt: 'Search and selection example' },
+      { src: 'assets/images/gifs/step5.gif', alt: 'Reset to overview example' }
+    ];
+    const imgEl = document.getElementById('bannerImage');
+    const dotsEl = document.getElementById('bannerDots');
+    const prevBtn = document.getElementById('bannerPrev');
+    const nextBtn = document.getElementById('bannerNext');
+    let current = 0;
+    let timer = null;
+
+    function renderDots() {
+      dotsEl.innerHTML = '';
+      slides.forEach((_, i) => {
+        const b = document.createElement('button');
+        b.className = i === current ? 'active' : '';
+        b.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+        b.addEventListener('click', () => goTo(i));
+        dotsEl.appendChild(b);
+      });
+    }
+
+    function goTo(index) {
+      current = (index + slides.length) % slides.length;
+      imgEl.src = slides[current].src;
+      imgEl.alt = slides[current].alt;
+      renderDots();
+      restartTimer();
+    }
+
+    function next() { goTo(current + 1); }
+    function prev() { goTo(current - 1); }
+
+    function restartTimer() {
+      if (timer) clearInterval(timer);
+      timer = setInterval(next, 6000);
+    }
+
+    prevBtn.addEventListener('click', prev);
+    nextBtn.addEventListener('click', next);
+
+    renderDots();
+    restartTimer();
+  </script>
+  <script>
+    const tocSearchToggle = document.getElementById('tocSearchToggle');
+    const tabSearch = document.getElementById('tab-search');
+    const tocSearch = document.getElementById('tocSearch');
+    if (tocSearchToggle && tabSearch && tocSearch) {
+      const positionSearch = () => {
+        const rect = tocSearchToggle.getBoundingClientRect();
+        const left = 12;
+        const width = Math.max(160, rect.right - left);
+        tocSearch.style.left = `${left}px`;
+        tocSearch.style.width = `${width}px`;
+        tocSearch.style.top = `${rect.top}px`;
+      };
+      tocSearchToggle.addEventListener('click', () => {
+        tabSearch.classList.add('open');
+        document.getElementById('tab-title').classList.add('hidden');
+        positionSearch();
+        tocSearch.focus();
+        tocSearch.select();
+      });
+      document.addEventListener('click', (e) => {
+        if (!tabSearch.contains(e.target)) {
+          tabSearch.classList.remove('open');
+          document.getElementById('tab-title').classList.remove('hidden');
+        }
+      });
+      window.addEventListener('resize', () => {
+        if (tabSearch.classList.contains('open')) positionSearch();
+      });
+    }
+  </script>
+  <script>
+    const dataTab = document.getElementById('tab-data');
+    const dataMenu = document.getElementById('dataMenu');
+    if (dataTab && dataMenu) {
+      const positionMenu = () => {
+        const rect = dataTab.getBoundingClientRect();
+        dataMenu.style.left = `${rect.left + window.scrollX}px`;
+        dataMenu.style.top = `${rect.bottom + window.scrollY + 6}px`;
+      };
+      dataTab.addEventListener('click', (e) => {
+        e.stopPropagation();
+        positionMenu();
+        const open = dataMenu.style.display === 'block';
+        dataMenu.style.display = open ? 'none' : 'block';
+      });
+      dataTab.addEventListener('mouseenter', () => {
+        positionMenu();
+        dataMenu.style.display = 'block';
+      });
+      dataTab.addEventListener('mouseleave', () => {
+        if (!dataMenu.matches(':hover')) dataMenu.style.display = 'none';
+      });
+      dataMenu.addEventListener('mouseleave', () => {
+        dataMenu.style.display = 'none';
+      });
+      document.addEventListener('click', (e) => {
+        if (!dataMenu.contains(e.target) && e.target !== dataTab) {
+          dataMenu.style.display = 'none';
+        }
+      });
+      window.addEventListener('resize', () => {
+        if (dataMenu.style.display === 'block') positionMenu();
+      });
+    }
+  </script>
+</body>
 </html>

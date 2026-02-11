@@ -4,94 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catalogue - European Point Clouds</title>
-  <link rel="icon" type="image/png" href="assets/images/logo_website.png">
-  <style>
-    body { margin:0; font-family:'Roboto', sans-serif; background:#f6f8fb; color:#1e293b; padding-top:64px; }
-    #tabs {
-      display:flex; align-items:center; justify-content:center; gap:16px; background:#2c3e50; padding:15px 16px;
-      position:fixed; top:0; left:0; width:100%; z-index:1003; box-sizing:border-box; flex-wrap:nowrap;
-    }
-    #tab-left { display:flex; align-items:center; gap:12px; flex:0 0 auto; min-width:0; }
-    #tab-title { color:#fff; font-size:1.4rem; font-weight:bold; white-space:nowrap; font-style:italic; flex:0 0 auto; text-decoration:none; }
-    #tab-title.hidden { visibility: hidden; }
-    #tab-buttons { display:flex; gap:12px; align-items:center; flex:0 0 auto; flex-wrap:nowrap; white-space:nowrap; }
-    #tab-search { position: relative; display: flex; align-items: center; width: 40px; height: 40px; margin: 0 8px 0 0; }
-    #tocSearchToggle {
-      flex: 0 0 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: none;
-      cursor: pointer;
-      background: #ffe900 url("assets/images/search_icon.png") center/24px 24px no-repeat;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-      margin: 0;
-      padding: 0;
-    }
-    #tocSearch {
-      display: none;
-      position: fixed;
-      width: 320px;
-      height: 40px;
-      border-radius: 8px;
-      padding: 10px 12px 10px 12px;
-      font-size: 1rem;
-      background: #fff;
-      color: #222;
-      border: none;
-      outline: none;
-      font-family: inherit;
-      box-sizing: border-box;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      z-index: 2000;
-    }
-    #tab-search.open #tocSearch { display: block; }
-    #tabs a, #tabs button { color:#fff; background:none; border:none; padding:6px 12px; font-size:1rem; cursor:pointer; flex:0 0 auto; white-space:nowrap; text-decoration:none; font-family: inherit; }
-    #tabs .active { border-bottom:2px solid #fff; }
-    #dataMenu {
-      position: absolute;
-      top: 0;
-      left: 0;
-      background: #2c3e50;
-      color: #fff;
-      padding: 14px;
-      border-radius: 10px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-      display: none;
-      z-index: 1600;
-      min-width: 220px;
-    }
-    #dataMenu a {
-      width: 100%;
-      display: block;
-      text-align: left;
-      background: #ffe900;
-      color: #222;
-      border: none;
-      border-radius: 8px;
-      padding: 10px 12px;
-      font-weight: 700;
-      cursor: pointer;
-      margin-bottom: 8px;
-      text-decoration: none;
-    }
-    #dataMenu a:last-child { margin-bottom: 0; }
-    @media (max-width: 768px) {
-      body { padding-top:92px; }
-      #tabs { flex-wrap:wrap; gap:8px; }
-      #tab-left { width:100%; gap:8px; }
-      #tab-search { order: 2; width: auto; height: auto; margin: 0; }
-      #tab-buttons { width:100%; justify-content:flex-start; flex-wrap:wrap; }
-      #tocSearch { position: static; display: block; width: 100%; max-width: none; padding-left: 46px; box-shadow: none; }
-    }
-    main { max-width:960px; margin:32px auto; padding:0 18px; }
-    p { line-height:1.5; color:#475569; }
-    .note { margin-top:18px; padding:14px; border-radius:10px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,0.08); }
-  </style>
+  <link rel="icon" type="image/x-icon" href="assets/images/favicon.ico">
+  <link rel="stylesheet" href="assets/css/styles.css">
 </head>
-<body>
+<body class="catalogue-page">
   <div id="tabs">
     <div id="tab-left">
-      <a id="tab-title" href="home.html">European Point Clouds</a>
+      <a id="tab-title" href="index.html">European Point Clouds</a>
     </div>
     <div id="tab-buttons">
       <div id="tab-search">
@@ -100,82 +19,17 @@
       </div>
       <button id="tab-data" class="active">DATA ▼</button>
       <a id="tab-info" href="getting-started.html">Getting started</a>
-      <a id="tab-help" href="index.html?skipIntro=1">Contribute</a>
+      <a id="tab-help" href="map.html?skipIntro=1">Contribute</a>
     </div>
   </div>
   <div id="dataMenu">
-    <a href="index.html?skipIntro=1">Find your data on the map</a>
+    <a href="map.html?skipIntro=1">Find your data on the map</a>
     <a href="catalogue.html">Find your data in the catalogue</a>
   </div>
   <main>
     <p>This is a placeholder for the catalogue. Add your dataset listings or links here.</p>
     <div class="note">Tip: link your existing spreadsheet/API here so users can browse and download directly.</div>
   </main>
-  <script>
-    const tocSearchToggle = document.getElementById('tocSearchToggle');
-    const tabSearch = document.getElementById('tab-search');
-    const tocSearch = document.getElementById('tocSearch');
-    if (tocSearchToggle && tabSearch && tocSearch) {
-      const positionSearch = () => {
-        const rect = tocSearchToggle.getBoundingClientRect();
-        const left = 12;
-        const width = Math.max(160, rect.right - left);
-        tocSearch.style.left = `${left}px`;
-        tocSearch.style.width = `${width}px`;
-        tocSearch.style.top = `${rect.top}px`;
-      };
-      tocSearchToggle.addEventListener('click', () => {
-        tabSearch.classList.add('open');
-        document.getElementById('tab-title').classList.add('hidden');
-        positionSearch();
-        tocSearch.focus();
-        tocSearch.select();
-      });
-      document.addEventListener('click', (e) => {
-        if (!tabSearch.contains(e.target)) {
-          tabSearch.classList.remove('open');
-          document.getElementById('tab-title').classList.remove('hidden');
-        }
-      });
-      window.addEventListener('resize', () => {
-        if (tabSearch.classList.contains('open')) positionSearch();
-      });
-    }
-  </script>
-  <script>
-    const dataTab = document.getElementById('tab-data');
-    const dataMenu = document.getElementById('dataMenu');
-    if (dataTab && dataMenu) {
-      const positionMenu = () => {
-        const rect = dataTab.getBoundingClientRect();
-        dataMenu.style.left = `${rect.left + window.scrollX}px`;
-        dataMenu.style.top = `${rect.bottom + window.scrollY + 6}px`;
-      };
-      dataTab.addEventListener('click', (e) => {
-        e.stopPropagation();
-        positionMenu();
-        const open = dataMenu.style.display === 'block';
-        dataMenu.style.display = open ? 'none' : 'block';
-      });
-      dataTab.addEventListener('mouseenter', () => {
-        positionMenu();
-        dataMenu.style.display = 'block';
-      });
-      dataTab.addEventListener('mouseleave', () => {
-        if (!dataMenu.matches(':hover')) dataMenu.style.display = 'none';
-      });
-      dataMenu.addEventListener('mouseleave', () => {
-        dataMenu.style.display = 'none';
-      });
-      document.addEventListener('click', (e) => {
-        if (!dataMenu.contains(e.target) && e.target !== dataTab) {
-          dataMenu.style.display = 'none';
-        }
-      });
-      window.addEventListener('resize', () => {
-        if (dataMenu.style.display === 'block') positionMenu();
-      });
-    }
-  </script>
+  <script src="assets/js/scripts.js"></script>
 </body>
 </html>

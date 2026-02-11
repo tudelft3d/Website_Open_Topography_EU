@@ -721,3 +721,59 @@ function applyCategoryFilterToMap() {
     map.setFilter('country-border', null);
   }
 }
+
+// Banner/Carousel functionality for home page
+function initBannerCarousel() {
+    const slides = [
+        { src: 'assets/images/gifs/step1.gif', alt: 'Map interaction example' },
+        { src: 'assets/images/gifs/step2.gif', alt: 'Search and selection example' },
+        { src: 'assets/images/gifs/step5.gif', alt: 'Reset to overview example' }
+    ];
+    const imgEl = document.getElementById('bannerImage');
+    const dotsEl = document.getElementById('bannerDots');
+    const prevBtn = document.getElementById('bannerPrev');
+    const nextBtn = document.getElementById('bannerNext');
+    
+    if (!imgEl || !dotsEl) return; // Not on home page
+    
+    let current = 0;
+    let timer = null;
+
+    function renderDots() {
+        dotsEl.innerHTML = '';
+        slides.forEach((_, i) => {
+            const b = document.createElement('button');
+            b.className = i === current ? 'active' : '';
+            b.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+            b.addEventListener('click', () => goTo(i));
+            dotsEl.appendChild(b);
+        });
+    }
+
+    function goTo(index) {
+        current = (index + slides.length) % slides.length;
+        imgEl.src = slides[current].src;
+        imgEl.alt = slides[current].alt;
+        renderDots();
+        restartTimer();
+    }
+
+    function next() { goTo(current + 1); }
+    function prev() { goTo(current - 1); }
+
+    function restartTimer() {
+        if (timer) clearInterval(timer);
+        timer = setInterval(next, 6000);
+    }
+
+    if (prevBtn) prevBtn.addEventListener('click', prev);
+    if (nextBtn) nextBtn.addEventListener('click', next);
+
+    renderDots();
+    restartTimer();
+}
+
+// Initialize banner carousel if elements exist
+document.addEventListener('DOMContentLoaded', () => {
+    initBannerCarousel();
+});
