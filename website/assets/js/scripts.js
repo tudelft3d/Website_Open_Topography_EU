@@ -602,9 +602,9 @@
     function resetToCountries() { 
         selectedCountryFeature = null; 
         regionsData = null; 
-        if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
-        if (map.getLayer('region-border')) map.removeLayer('region-border'); 
-        if (map.getSource('regions')) map.removeSource('regions'); 
+        map.removeLayer('region-fill'); 
+        map.removeLayer('region-border'); 
+        map.removeSource('regions'); 
         tocSearch.style.display = ''; 
         tocSearch.value = ''; 
         tocList.innerHTML = ''; 
@@ -721,8 +721,3 @@ function applyCategoryFilterToMap() {
     map.setFilter('country-border', null);
   }
 }
-
-</script> 
-
-</body> 
-</html>
