@@ -1,22 +1,4 @@
-SRC/data/map_data.geojson
-SRC/data/region_map_data.geojson
-SRC/map_data.geojson
-tests/data/map_data.geojson
-tests/data/map_data.js
-tests/data/region_map_data_albania.geojson
-tests/data/region_map_data_andorra.geojson
-tests/data/region_map_data_austria.geojson
-tests/data/region_map_data_belgium.geojson
-tests/data/region_map_data_belarus.geojson
-tests/data/region_map_data_bulgaria.geojson
-tests/data/region_map_data_croatia.geojson
-tests/data/region_map_data_cyprus.geojson
-tests/data/region_map_data_bosnia and herzegovina.geojson
-tests/data/region_map_data_romania.geojson
-tests/data/region_map_data_san marino.geojson
-tests/data/region_map_data_slovakia.geojson
-/tests/data
-tests/images/logo_eurosdr.png
-tests/images/logo_rws.png
-tests/images/logo_tudelft.png
-SRC/data/map_data_overview.geojson
+.venv
+*.DS_Store
+website/data
+scripts/input_data/
