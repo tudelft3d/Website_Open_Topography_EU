@@ -13,14 +13,6 @@
     #logo-container { position: fixed; top: 12px; left: 12px; z-index: 2000; }
     #logo { height: 48px; width: auto; }
     #logo-bar { position: fixed; top: 12px; left: 12px; z-index: 2000; display: flex; align-items: center; gap: 12px; background: #2c3e50; padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-    /* Fullscreen background overlay */
-    #introModal { display: flex; justify-content: center; align-items: center; flex-direction: column; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(44,62,80,0.85); z-index: 2000; }
-    /* White content box inside the modal */
-    #introModal .intro-content { background: #fff; color: #2c3e50; padding: 24px; border-radius: 12px; max-width: 600px; width: 90%; line-height: 1.5; box-shadow: 0 8px 40px rgba(0,0,0,0.4); overflow-y: auto; max-height: 80vh; }
-    #introModal h3 { margin-top: 0; }
-    #introModal h4 { margin-top: 1em; }
-    #introModal button { display: inline-block; /* button only as wide as content */ margin: 16px auto 0 auto; /* auto left/right centers it */ text-align: center; /* make sure text stays centered */ padding: 10px 20px; font-size: 1rem; font-weight: bold; background: #ffe900; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s ease; }
-    #introModal button:hover { background: #ffef33; }
     #toc { display: none !important; position: fixed; left: 0; width: 370px; background: #2c3e50; color: #fff; padding: 24px 20px 24px 24px; border-radius: 0 14px 14px 0; z-index: 1002; box-shadow: 0 4px 20px rgba(0,0,0,0.3); max-height: calc(90vh - 70px); /* limits height relative to window */ overflow-y: auto; /* enables scrolling */ box-sizing: border-box; /* padding stays inside width */ }
     /* Logos inside the TOC */
     #toc-logos { display: flex; justify-content: flex-start; align-items: center; gap: 12px; margin-bottom: 16px; }
@@ -55,18 +47,18 @@
     #sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; position: relative; }
     #sidebar-header h3 { margin: 0; font-weight: bold; font-size: 20px; color: white; flex: 1 1 auto; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
-    #tabs { display: flex; align-items: center; gap: 16px; background: #2c3e50; padding: 15px 16px; position: fixed; top: 0; width: 100%; z-index: 1003; box-sizing: border-box; flex-wrap: nowrap; }
+    #tabs { display: flex; align-items: center; justify-content: center; gap: 16px; background: #2c3e50; padding: 15px 16px; position: fixed; top: 0; width: 100%; z-index: 1003; box-sizing: border-box; flex-wrap: nowrap; }
     #tab-left { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; min-width: 0; }
-    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-style: italic; flex: 0 0 auto; }
-    #tab-title.hidden { display: none; }
+    #tab-title { color: #fff; font-size: 1.4rem; font-weight: bold; white-space: nowrap; font-style: italic; flex: 0 0 auto; text-decoration: none; }
+    #tab-title.hidden { visibility: hidden; }
     #tab-spacer { display: none; }
     #tab-buttons { display: flex; gap: 12px; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; white-space: nowrap; }
-    #tabs button { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
+    #tabs button, #tabs a { color: #fff; background: none; border: none; padding: 6px 12px; font-size: 1rem; cursor: pointer; flex: 0 0 auto; white-space: nowrap; font-family: inherit; text-decoration: none; }
     /* Data dropdown */
     #dataMenu {
-      position: fixed;
-      top: 56px;
-      right: 16px;
+      position: absolute;
+      top: 0;
+      left: 0;
       background: #2c3e50;
       color: #fff;
       padding: 14px;
@@ -89,11 +81,10 @@
       margin-bottom: 8px;
     }
     #dataMenu button:last-child { margin-bottom: 0; }
-    #tab-search { position: relative; display: flex; align-items: center; flex: 0 0 320px; min-width: 240px; max-width: 360px; margin: 0 12px; }
-    #tocSearchToggle { flex: 0 0 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer; background: #ffe900 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' stroke='%23222' fill='none' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='6'/%3E%3Cline x1='15.5' y1='15.5' x2='21' y2='21'/%3E%3C/svg%3E") center/18px 18px no-repeat; box-shadow: 0 2px 6px rgba(0,0,0,0.25); margin: 0; padding: 0; }
-    #tocSearch { display: none; flex: 1 1 auto; border-radius: 8px; padding: 10px 12px 10px 12px; font-size: 1rem; background: #fff; color: #222; border: none; outline: none; font-family: inherit; min-height: 40px; box-sizing: border-box; }
+    #tab-search { position: relative; display: flex; align-items: center; width: 40px; height: 40px; margin: 0 8px 0 0; }
+    #tocSearchToggle { flex: 0 0 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer; background: #ffe900 url("images/search_icon.png") center/24px 24px no-repeat; box-shadow: 0 2px 6px rgba(0,0,0,0.25); margin: 0; padding: 0; }
+    #tocSearch { display: none; position: fixed; width: 320px; height: 40px; border-radius: 8px; padding: 10px 12px 10px 12px; font-size: 1rem; background: #fff; color: #222; border: none; outline: none; font-family: inherit; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 2000; }
     #tab-search.open #tocSearch { display: block; }
-    #tab-search.open #tocSearchToggle { display: none; }
     .info-step { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 28px; align-items: flex-start; }
     .info-text { flex: 1 1 55%; min-width: 240px; }
     .info-gif img { max-width: 100%; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
@@ -116,9 +107,9 @@
     @media (max-width: 768px) {
   #tabs { position: fixed; top: 0; left: 0; right: 0; padding: 12px; flex-wrap: wrap; gap: 8px; }
   #tab-left { order: 1; width: 100%; gap: 8px; }
-  #tab-search { order: 2; flex: 1 1 100%; max-width: none; min-width: 0; margin: 0; }
+  #tab-search { order: 2; width: auto; height: auto; margin: 0; }
   #tab-buttons { order: 3; width: 100%; justify-content: flex-start; gap: 12px; flex-wrap: wrap; }
-  #tocSearch { width: 100%; max-width: none; padding-left: 46px; }
+  #tocSearch { position: static; display: block; width: 100%; max-width: none; padding-left: 46px; box-shadow: none; }
         #toc, #sidebar, #helpModal, #infoPanel {
             position: fixed; left: 0; right: 0; width: 100%;
             top: auto; bottom: 0;
@@ -266,16 +257,15 @@
           
       <div id="tabs"> 
         <div id="tab-left">
-          <div id="tab-title">European Point Clouds</div>
-        </div>
-        <div id="tab-search">
-          <button id="tocSearchToggle" aria-label="Open search"></button>
-          <input id="tocSearch" placeholder="Search a country..." />
+          <a id="tab-title" href="home.html">European Point Clouds</a>
         </div>
         <div id="tab-buttons">
-          <button id="tab-toc" class="active">HOME</button> 
-          <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
+          <div id="tab-search">
+            <button id="tocSearchToggle" aria-label="Open search"></button>
+            <input id="tocSearch" placeholder="Search for a point cloud in a country, province or city" />
+          </div>
           <button id="tab-data">DATA ▼</button> 
+          <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
           <button id="tab-help">Contribute</button> 
         </div>
         <div id="tab-spacer"></div>
@@ -283,20 +273,6 @@
           <button id="dataMapBtn">Find your data on the map</button>
           <button id="dataCatalogueBtn">Find your data in the catalogue</button>
         </div>
-          </div> <div id="introModal" class="panel"> 
-          <div class="intro-content"> 
-            <h3>Welcome to the <em>European Point Clouds</em></h3> 
-            <p> This platform offers aggregated access to known point clouds and point cloud-based elevation models across Europe. 
-              Each dataset has been validated and checked to see if the data is open or intended to become open data. 
-              The project resulted in a report supported by Rijkswaterstaat (NL), TU Delft, EUROSDR and het Waterschapshuis. </p> 
-              <h4>Small print &amp; disclaimer</h4> <p> The linking to this search page implies no guarantee of availability, completeness, correctness, or fitness for any particular purpose. 
-                Remember this if you want data for your projects and/or products. 
-                The license indicated with the products is, to the best of my knowledge at the time of writing. 
-                Please confirm the applicable license with the source before integrating the data. </p> 
-                <p> The European Point Cloud webpage, making point clouds and Digital Elevation Models (DEM) more accessible to find, was initiated by Daan van der Heide in 2025 to complete his PhD work on point cloud harmonisation. 
-                  The website is hosted by TU Delft and the 3D Geoinformation group of the Urbanism department, and it will be maintained until the completion of the PhD work. </p> 
-              <button id="introBtn">Got it</button> 
-            </div> 
           </div> 
                 
                 <!-- Information Panel --> 
@@ -442,8 +418,6 @@
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
     // const closeBtn = document.getElementById('closeBtn'); 
-    const introModal = document.getElementById('introModal'); 
-    const introBtn = document.getElementById('introBtn'); 
     const legendCatsEl = document.getElementById('legendCategories'); 
     const overviewBtn = document.getElementById('overviewBtn'); 
     const countryListEl = document.getElementById('countryList'); 
@@ -466,8 +440,17 @@
     // Init 
     // tocSearch.addEventListener('input', debounce(updateTOCList, 200)); 
     tocSearch.addEventListener('input', renderCountriesList); 
+    const positionSearch = () => {
+        const rect = tocSearchToggle.getBoundingClientRect();
+        const left = 12;
+        const width = Math.max(160, rect.right - left);
+        tocSearch.style.left = `${left}px`;
+        tocSearch.style.width = `${width}px`;
+        tocSearch.style.top = `${rect.top}px`;
+    };
     tocSearchToggle.addEventListener('click', () => {
         tabSearch.classList.add('open');
+        positionSearch();
         document.getElementById('tab-title').classList.add('hidden');
         tocSearch.focus();
         tocSearch.select();
@@ -482,10 +465,10 @@
             menu.style.display = 'none';
         }
     });
+    window.addEventListener('resize', () => {
+        if (tabSearch.classList.contains('open')) positionSearch();
+    });
     overviewBtn.onclick = overviewReset; 
-    introBtn.addEventListener('click', () => introModal.style.display = 'none'); 
-    tabs.toc.addEventListener('click', () => overviewReset()); 
-    tabs.info.addEventListener('click', () => showTab('info')); 
     tabs.help.addEventListener('click', () => showTab('help')); 
 
     const dataTab = document.getElementById('tab-data');
@@ -497,12 +480,19 @@
     document.getElementById('dataCatalogueBtn').addEventListener('click', () => {
         window.location.href = 'catalogue.html';
     });
+    const positionDataMenu = () => {
+        const rect = dataTab.getBoundingClientRect();
+        dataMenu.style.left = `${rect.left + window.scrollX}px`;
+        dataMenu.style.top = `${rect.bottom + window.scrollY + 6}px`;
+    };
     dataTab.addEventListener('click', (e) => {
         e.stopPropagation();
+        positionDataMenu();
         const open = dataMenu.style.display === 'block';
         dataMenu.style.display = open ? 'none' : 'block';
     });
     dataTab.addEventListener('mouseenter', () => {
+        positionDataMenu();
         dataMenu.style.display = 'block';
     });
     dataTab.addEventListener('mouseleave', () => {
@@ -510,6 +500,9 @@
     });
     dataMenu.addEventListener('mouseleave', () => {
         dataMenu.style.display = 'none';
+    });
+    window.addEventListener('resize', () => {
+        if (dataMenu.style.display === 'block') positionDataMenu();
     });
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
@@ -536,11 +529,6 @@
             } 
             f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
         }); 
-        introModal.style.display = 'flex'; 
-        setTimeout(() => { 
-            introBtn.disabled = false; 
-            introBtn.style.display = 'inline-block'; 
-        }, 5000); 
         renderCategoryButtons(); 
         renderCountriesList(); 
         initMap(); 
