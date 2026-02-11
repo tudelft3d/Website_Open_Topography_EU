@@ -65,8 +65,6 @@
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
     // const closeBtn = document.getElementById('closeBtn'); 
-    const introModal = document.getElementById('introModal'); 
-    const introBtn = document.getElementById('introBtn'); 
     const legendCatsEl = document.getElementById('legendCategories'); 
     const overviewBtn = document.getElementById('overviewBtn'); 
     const countryListEl = document.getElementById('countryList'); 
@@ -89,8 +87,17 @@
     // Init 
     // tocSearch.addEventListener('input', debounce(updateTOCList, 200)); 
     tocSearch.addEventListener('input', renderCountriesList); 
+    const positionSearch = () => {
+        const rect = tocSearchToggle.getBoundingClientRect();
+        const left = 12;
+        const width = Math.max(160, rect.right - left);
+        tocSearch.style.left = `${left}px`;
+        tocSearch.style.width = `${width}px`;
+        tocSearch.style.top = `${rect.top}px`;
+    };
     tocSearchToggle.addEventListener('click', () => {
         tabSearch.classList.add('open');
+        positionSearch();
         document.getElementById('tab-title').classList.add('hidden');
         tocSearch.focus();
         tocSearch.select();
@@ -105,10 +112,10 @@
             menu.style.display = 'none';
         }
     });
+    window.addEventListener('resize', () => {
+        if (tabSearch.classList.contains('open')) positionSearch();
+    });
     overviewBtn.onclick = overviewReset; 
-    introBtn.addEventListener('click', () => introModal.style.display = 'none'); 
-    tabs.toc.addEventListener('click', () => overviewReset()); 
-    tabs.info.addEventListener('click', () => showTab('info')); 
     tabs.help.addEventListener('click', () => showTab('help')); 
 
     const dataTab = document.getElementById('tab-data');
@@ -120,12 +127,19 @@
     document.getElementById('dataCatalogueBtn').addEventListener('click', () => {
         window.location.href = 'catalogue.html';
     });
+    const positionDataMenu = () => {
+        const rect = dataTab.getBoundingClientRect();
+        dataMenu.style.left = `${rect.left + window.scrollX}px`;
+        dataMenu.style.top = `${rect.bottom + window.scrollY + 6}px`;
+    };
     dataTab.addEventListener('click', (e) => {
         e.stopPropagation();
+        positionDataMenu();
         const open = dataMenu.style.display === 'block';
         dataMenu.style.display = open ? 'none' : 'block';
     });
     dataTab.addEventListener('mouseenter', () => {
+        positionDataMenu();
         dataMenu.style.display = 'block';
     });
     dataTab.addEventListener('mouseleave', () => {
@@ -133,6 +147,9 @@
     });
     dataMenu.addEventListener('mouseleave', () => {
         dataMenu.style.display = 'none';
+    });
+    window.addEventListener('resize', () => {
+        if (dataMenu.style.display === 'block') positionDataMenu();
     });
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
@@ -159,11 +176,6 @@
             } 
             f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
         }); 
-        introModal.style.display = 'flex'; 
-        setTimeout(() => { 
-            introBtn.disabled = false; 
-            introBtn.style.display = 'inline-block'; 
-        }, 5000); 
         renderCategoryButtons(); 
         renderCountriesList(); 
         initMap(); 
