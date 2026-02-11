@@ -1300,3 +1300,44 @@ li a:hover {
     font-size: 1.6rem;
   }
 }
+
+/* Map page specific styles */
+.map-page #toc-country {
+  display: block;
+}
+
+.map-page #categorySearchTitle,
+.map-page #dividerLine,
+.map-page #toc-region,
+.map-page #regionDividerLine {
+  display: none;
+}
+
+.map-page #regionFilterBtns {
+  margin-bottom: 14px;
+}
+
+.map-page #regionOverviewBtn {
+  margin-top: 18px;
+}
+
+/* Dataset category color styles */
+.map-page .category-region {
+  color: #0072B2;
+  font-weight: bold;
+}
+
+.map-page .category-pointcloud {
+  color: #1B9E77;
+  font-weight: bold;
+}
+
+.map-page .category-elevation {
+  color: #7570B3;
+  font-weight: bold;
+}
+
+.map-page .category-no-data {
+  color: #7F7F7F;
+  font-weight: bold;
+}

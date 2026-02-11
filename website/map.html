@@ -10,28 +10,28 @@
     <link href="assets/css/styles.css" rel="stylesheet" />
 </head>
 
-<body>
+<body class="map-page">
   <!-- <div id="logo-container"> -->
     <div id="map">
 
     </div> 
     <div id="toc" class="panel"> 
-      <div id="toc-country" style="display:block;"> 
+      <div id="toc-country"> 
         <!-- <h2>Topographic data overview of Europe</h2> -->
-        <h3 id="categorySearchTitle" style="display:none;">Category search</h3> 
+        <h3 id="categorySearchTitle">Category search</h3> 
         <div id="legendCategories" class="legend-categories"></div> 
         <button id="overviewBtn" class="overview-btn">Reset view</button> 
-        <div id="dividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div> 
+        <div id="dividerLine" class="divider">&mdash;&mdash;&mdash; Available countries &mdash;&mdash;&mdash;</div> 
         <ul id="countryList" class="country-list"></ul> 
       </div> 
       
       <!-- Regio-TOC --> 
-      <div id="toc-region" style="display:none;"> 
+      <div id="toc-region"> 
         <h2>National level data overview</h2> 
-        <div id="regionFilterBtns" style="margin-bottom:14px;"></div> 
-        <div id="regionDividerLine" class="divider" style="display:none;">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
+        <div id="regionFilterBtns"></div> 
+        <div id="regionDividerLine" class="divider">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
         <ul id="regionList" class="country-list"></ul> 
-        <button id="regionOverviewBtn" class="overview-btn" style="margin-top:18px;">Return to national overview</button> </div> 
+        <button id="regionOverviewBtn" class="overview-btn">Return to national overview</button> </div> 
       </div> <div id="sidebar" class="panel"> 
         <div id="sidebar-header">
            <h3 id="infoTitle"></h3> 
@@ -86,10 +86,10 @@
                       <h3>2. Use the Table of Contents (TOC)</h3> 
                       <p> Open the left-hand panel to browse all available countries. You can filter with the search bar or click a category button to highlight only specific dataset types: </p> 
                       <ul> 
-                            <li><span style="color:#0072B2; font-weight:bold;">Region</span> – regional dataset</li>
-                            <li><span style="color:#1B9E77; font-weight:bold;">Pointcloud</span> – LiDAR datasets</li>
-                            <li><span style="color:#7570B3; font-weight:bold;">Elevation model</span> – raster Digital Elevation Models</li>
-                            <li><span style="color:#7F7F7F; font-weight:bold;">No data / unknown</span> – no open information</li>
+                            <li><span class="category-region">Region</span> – regional dataset</li>
+                            <li><span class="category-pointcloud">Pointcloud</span> – LiDAR datasets</li>
+                            <li><span class="category-elevation">Elevation model</span> – raster Digital Elevation Models</li>
+                            <li><span class="category-no-data">No data / unknown</span> – no open information</li>
 
                        </ul> </div> 
                   
