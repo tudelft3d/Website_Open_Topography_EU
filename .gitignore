@@ -1,4 +1,6 @@
-.venv
+.venv/
 *.DS_Store
-website/data
-scripts/input_data/
+website/data/*
+scripts/input_data/*
+__pycache__/
+
