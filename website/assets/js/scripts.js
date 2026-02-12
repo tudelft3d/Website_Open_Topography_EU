@@ -95,6 +95,10 @@
         tocSearch.style.width = `${width}px`;
         tocSearch.style.top = `${rect.top}px`;
     };
+    const closeSearch = () => {
+        tabSearch.classList.remove('open');
+        document.getElementById('tab-title').classList.remove('hidden');
+    };
     tocSearchToggle.addEventListener('click', () => {
         tabSearch.classList.add('open');
         positionSearch();
@@ -104,49 +108,77 @@
     });
     document.addEventListener('click', (e) => {
         if (!tabSearch.contains(e.target)) {
-            tabSearch.classList.remove('open');
-            document.getElementById('tab-title').classList.remove('hidden');
+            closeSearch();
         }
         const menu = document.getElementById('dataMenu');
-        if (menu && menu.style.display === 'block' && !menu.contains(e.target) && e.target !== dataTab) {
+        if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !dataTab.contains(e.target)) {
             menu.style.display = 'none';
         }
-    });
+    }, true);
     window.addEventListener('resize', () => {
         if (tabSearch.classList.contains('open')) positionSearch();
     });
-    overviewBtn.onclick = overviewReset; 
-    tabs.help.addEventListener('click', () => showTab('help')); 
+    if (overviewBtn) {
+        overviewBtn.onclick = overviewReset;
+    }
+    if (tabs.help && tabs.help.tagName === 'BUTTON') {
+        tabs.help.addEventListener('click', () => showTab('help'));
+    }
 
     const dataTab = document.getElementById('tab-data');
     const dataMenu = document.getElementById('dataMenu');
-    document.getElementById('dataMapBtn').addEventListener('click', () => {
-        overviewReset();
-        dataMenu.style.display = 'none';
-    });
-    document.getElementById('dataCatalogueBtn').addEventListener('click', () => {
-        window.location.href = 'catalogue.html';
-    });
+    let dataMenuCloseTimer = null;
+    const cancelCloseDataMenu = () => {
+        if (dataMenuCloseTimer) {
+            clearTimeout(dataMenuCloseTimer);
+            dataMenuCloseTimer = null;
+        }
+    };
+    const scheduleCloseDataMenu = () => {
+        cancelCloseDataMenu();
+        dataMenuCloseTimer = setTimeout(() => {
+            dataMenu.style.display = 'none';
+        }, 140);
+    };
+    const dataMapBtn = document.getElementById('dataMapBtn');
+    if (dataMapBtn) {
+        dataMapBtn.addEventListener('click', () => {
+            overviewReset();
+            dataMenu.style.display = 'none';
+        });
+    }
+    const dataCatalogueBtn = document.getElementById('dataCatalogueBtn');
+    if (dataCatalogueBtn) {
+        dataCatalogueBtn.addEventListener('click', () => {
+            window.location.href = 'catalogue.html';
+        });
+    }
     const positionDataMenu = () => {
         const rect = dataTab.getBoundingClientRect();
         dataMenu.style.left = `${rect.left + window.scrollX}px`;
-        dataMenu.style.top = `${rect.bottom + window.scrollY + 6}px`;
+        dataMenu.style.top = `${rect.bottom + window.scrollY + 2}px`;
     };
     dataTab.addEventListener('click', (e) => {
         e.stopPropagation();
+        closeSearch();
+        cancelCloseDataMenu();
         positionDataMenu();
         const open = dataMenu.style.display === 'block';
         dataMenu.style.display = open ? 'none' : 'block';
     });
     dataTab.addEventListener('mouseenter', () => {
+        cancelCloseDataMenu();
         positionDataMenu();
         dataMenu.style.display = 'block';
     });
     dataTab.addEventListener('mouseleave', () => {
-        if (!dataMenu.matches(':hover')) dataMenu.style.display = 'none';
+        scheduleCloseDataMenu();
+    });
+    dataMenu.addEventListener('mouseenter', () => {
+        cancelCloseDataMenu();
     });
     dataMenu.addEventListener('mouseleave', () => {
-        dataMenu.style.display = 'none';
+        scheduleCloseDataMenu();
     });
     window.addEventListener('resize', () => {
         if (dataMenu.style.display === 'block') positionDataMenu();
@@ -164,24 +196,26 @@
     } 
 
     // Load data 
-    fetch('data/map_data_overview.geojson')
-    .then(r => r.json()) 
-    .then(cd => { 
-        countriesData = cd; 
-        countriesData.features.forEach((f, i) => { 
-            if (f.id === undefined) f.id = i; 
-            const d = f.properties.Data; 
-            if (!d || d.trim() === '') { 
-                f.properties.Data = 'No Info'; // altijd zelfde notatie 
-            } 
-            f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
+    if (document.body.classList.contains('map-page')) {
+        fetch('data/map_data_overview.geojson')
+        .then(r => r.json()) 
+        .then(cd => { 
+            countriesData = cd; 
+            countriesData.features.forEach((f, i) => { 
+                if (f.id === undefined) f.id = i; 
+                const d = f.properties.Data; 
+                if (!d || d.trim() === '') { 
+                    f.properties.Data = 'No Info'; // altijd zelfde notatie 
+                } 
+                f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
+            }); 
+            renderCategoryButtons(); 
+            renderCountriesList(); 
+            initMap(); 
+            updateTOCList(); 
+            showTab('toc'); 
         }); 
-        renderCategoryButtons(); 
-        renderCountriesList(); 
-        initMap(); 
-        updateTOCList(); 
-        showTab('toc'); 
-    }); 
+    }
 
     function renderCategoryButtons() { 
         legendCatsEl.innerHTML = ''; 
@@ -401,7 +435,10 @@
         }); 
     } 
 
-    document.getElementById('regionOverviewBtn').onclick = overviewReset; 
+    const regionOverviewBtn = document.getElementById('regionOverviewBtn');
+    if (regionOverviewBtn) {
+        regionOverviewBtn.onclick = overviewReset;
+    }
 
     function updateTOCForType(type) { 
         tocSearch.style.display = 'none'; 
@@ -618,9 +655,24 @@
     } 
 
 function showInfo(p, regionMode) { 
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   const hasInfo = p.Data && p.Data.toLowerCase() !== 'region'; 
+  const objectName = p.Name || 'No name';
   // Titel altijd tonen 
-  infoTitleEl.textContent = p.Name || 'No name'; 
+  infoTitleEl.textContent = objectName; 
+  const bannerHtml = `
+    <div class="info-banner">
+      <img src="assets/images/banner-placeholder.svg" alt="Banner placeholder for ${escapeHtml(objectName)}" />
+      <div class="info-banner-title">${escapeHtml(objectName)}</div>
+    </div>`;
 
   // Maintext altijd tonen (ook als er geen data is) 
   const mainText = (p.Info && p.Info.trim() !== '') 
@@ -629,7 +681,7 @@ function showInfo(p, regionMode) {
 
   if (!hasInfo) { 
     // Alleen de tekst uit Info laten zien 
-    infoBox.innerHTML = mainText; 
+    infoBox.innerHTML = bannerHtml + mainText; 
   } else { 
     // Tekst + tabellen tonen 
     const xyRef = p['XY Ref'] ? linkifyEPSG(p['XY Ref']) : 'N/A'; 
@@ -654,7 +706,7 @@ function showInfo(p, regionMode) {
         <li><strong>Z-ref:</strong> ${zRef}</li>
       </ul>`; 
 
-    infoBox.innerHTML = mainText + dataHtml; 
+    infoBox.innerHTML = bannerHtml + mainText + dataHtml; 
   } 
   sidebar.style.display = 'block'; 
 }
@@ -673,36 +725,40 @@ const legendBookmark = document.getElementById('legend-bookmark');
 const legendToggle = document.getElementById('legend-toggle');
 const legendPanel  = document.getElementById('legend-panel');
 const legendClose  = document.getElementById('legend-close');
-const legendTitle  = legendPanel.querySelector('.legend-header span');
+if (legendBookmark && legendToggle && legendPanel && legendClose) {
+  const legendTitle = legendPanel.querySelector('.legend-header span');
 
-function closeLegend() {
-  legendBookmark.classList.remove('open');
-}
-legendToggle.onclick = () => {
-  legendBookmark.classList.add('open');
-};
-
-legendClose.onclick = closeLegend;
-legendTitle.onclick = closeLegend;
-document.addEventListener('click', (e) => {
-  if (!legendBookmark.contains(e.target)) {
-    closeLegend();
+  function closeLegend() {
+    legendBookmark.classList.remove('open');
   }
-});
+  legendToggle.onclick = () => {
+    legendBookmark.classList.add('open');
+  };
 
-// Koppelt direct aan bestaande category-logica
-legendPanel.querySelectorAll('li').forEach(li => {
-  li.addEventListener('click', () => {
-    activeCategory = normalizeCat(li.dataset.cat);
-    renderCountriesList();
-    applyCategoryFilterToMap();
-
-    legendPanel.querySelectorAll('li')
-      .forEach(x => x.classList.remove('active'));
-    li.classList.add('active');
-    applyCategoryFilterToMap();
+  legendClose.onclick = closeLegend;
+  if (legendTitle) {
+    legendTitle.onclick = closeLegend;
+  }
+  document.addEventListener('click', (e) => {
+    if (!legendBookmark.contains(e.target)) {
+      closeLegend();
+    }
   });
-});
+
+  // Koppelt direct aan bestaande category-logica
+  legendPanel.querySelectorAll('li').forEach(li => {
+    li.addEventListener('click', () => {
+      activeCategory = normalizeCat(li.dataset.cat);
+      renderCountriesList();
+      applyCategoryFilterToMap();
+
+      legendPanel.querySelectorAll('li')
+        .forEach(x => x.classList.remove('active'));
+      li.classList.add('active');
+      applyCategoryFilterToMap();
+    });
+  });
+}
 
 function applyCategoryFilterToMap() {
   if (!window.map || !map.getLayer('country-fill')) return;
@@ -725,9 +781,10 @@ function applyCategoryFilterToMap() {
 // Banner/Carousel functionality for home page
 function initBannerCarousel() {
     const slides = [
-        { src: 'assets/images/gifs/step1.gif', alt: 'Map interaction example' },
-        { src: 'assets/images/gifs/step2.gif', alt: 'Search and selection example' },
-        { src: 'assets/images/gifs/step5.gif', alt: 'Reset to overview example' }
+        { src: 'assets/images/Banner_index/Avignon_LidarHD.png', alt: 'Banner map: Avignon LidarHD' },
+        { src: 'assets/images/Banner_index/Barca_YY.png', alt: 'Banner map: Barca YY' },
+        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map: Helmond AHN5' },
+        { src: 'assets/images/Banner_index/test.gif', alt: 'Banner map animation' }
     ];
     const imgEl = document.getElementById('bannerImage');
     const dotsEl = document.getElementById('bannerDots');
@@ -738,6 +795,7 @@ function initBannerCarousel() {
     
     let current = 0;
     let timer = null;
+    let isTransitioning = false;
 
     function renderDots() {
         dotsEl.innerHTML = '';
@@ -751,10 +809,22 @@ function initBannerCarousel() {
     }
 
     function goTo(index) {
-        current = (index + slides.length) % slides.length;
-        imgEl.src = slides[current].src;
-        imgEl.alt = slides[current].alt;
-        renderDots();
+        if (isTransitioning) return;
+        const nextIndex = (index + slides.length) % slides.length;
+        if (nextIndex === current) return;
+
+        isTransitioning = true;
+        imgEl.classList.add('is-fading');
+
+        setTimeout(() => {
+            current = nextIndex;
+            imgEl.src = slides[current].src;
+            imgEl.alt = slides[current].alt;
+            renderDots();
+            imgEl.classList.remove('is-fading');
+            isTransitioning = false;
+        }, 240);
+
         restartTimer();
     }
 
@@ -777,3 +847,4 @@ function initBannerCarousel() {
 document.addEventListener('DOMContentLoaded', () => {
     initBannerCarousel();
 });
+
