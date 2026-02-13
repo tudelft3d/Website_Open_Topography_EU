@@ -781,10 +781,7 @@ function applyCategoryFilterToMap() {
 // Banner/Carousel functionality for home page
 function initBannerCarousel() {
     const slides = [
-        { src: 'assets/images/Banner_index/Avignon_LidarHD.png', alt: 'Banner map: Avignon LidarHD' },
-        { src: 'assets/images/Banner_index/Barca_YY.png', alt: 'Banner map: Barca YY' },
-        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map: Helmond AHN5' },
-        { src: 'assets/images/Banner_index/test.gif', alt: 'Banner map animation' }
+        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map example' }
     ];
     const imgEl = document.getElementById('bannerImage');
     const dotsEl = document.getElementById('bannerDots');
@@ -795,7 +792,6 @@ function initBannerCarousel() {
     
     let current = 0;
     let timer = null;
-    let isTransitioning = false;
 
     function renderDots() {
         dotsEl.innerHTML = '';
@@ -809,22 +805,10 @@ function initBannerCarousel() {
     }
 
     function goTo(index) {
-        if (isTransitioning) return;
-        const nextIndex = (index + slides.length) % slides.length;
-        if (nextIndex === current) return;
-
-        isTransitioning = true;
-        imgEl.classList.add('is-fading');
-
-        setTimeout(() => {
-            current = nextIndex;
-            imgEl.src = slides[current].src;
-            imgEl.alt = slides[current].alt;
-            renderDots();
-            imgEl.classList.remove('is-fading');
-            isTransitioning = false;
-        }, 240);
-
+        current = (index + slides.length) % slides.length;
+        imgEl.src = slides[current].src;
+        imgEl.alt = slides[current].alt;
+        renderDots();
         restartTimer();
     }
 
@@ -847,4 +831,3 @@ function initBannerCarousel() {
 document.addEventListener('DOMContentLoaded', () => {
     initBannerCarousel();
 });
-
