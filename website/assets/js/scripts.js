@@ -652,7 +652,63 @@
     function zoomTo(feature, pitch) { 
         const bbox = turf.bbox(feature); 
         map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], { padding:20, duration:1000, pitch, bearing:0 }); 
-    } 
+    }
+
+function buildInfoBannerCandidates(name) {
+  const raw = String(name || '').trim();
+  const lower = raw.toLowerCase();
+  const collapsed = lower.replace(/\s+/g, ' ');
+  const underscored = collapsed.replace(/\s+/g, '_');
+  const compact = collapsed.replace(/\s+/g, '');
+  const hyphenated = collapsed.replace(/\s+/g, '-');
+  const title = raw.replace(/\s+/g, '_');
+  const legacyBase = [
+    raw,
+    lower,
+    title,
+    underscored
+  ];
+
+  const candidates = [
+    `assets/images/banner/${underscored}.png`,
+    `assets/images/banner/${underscored}.jpg`,
+    `assets/images/banner/${hyphenated}.png`,
+    `assets/images/banner/${hyphenated}.jpg`,
+    `assets/images/banner/${compact}.png`,
+    `assets/images/banner/${compact}.jpg`
+  ];
+
+  legacyBase.forEach((base) => {
+    candidates.push(`assets/images/Banner/Banner_${base}.png`);
+    candidates.push(`assets/images/Banner/Banner_${base}.jpg`);
+  });
+
+  return [...new Set(candidates)];
+}
+
+function resolveInfoBannerImage(name, imgEl) {
+  const candidates = buildInfoBannerCandidates(name);
+  let index = 0;
+
+  const setNext = () => {
+    if (index >= candidates.length) {
+      imgEl.src = 'assets/images/banner-placeholder.svg';
+      imgEl.alt = `Banner placeholder for ${name}`;
+      return;
+    }
+
+    const nextSrc = candidates[index++];
+    const probe = new Image();
+    probe.onload = () => {
+      imgEl.src = nextSrc;
+      imgEl.alt = `Banner for ${name}`;
+    };
+    probe.onerror = setNext;
+    probe.src = nextSrc;
+  };
+
+  setNext();
+}
 
 function showInfo(p, regionMode) { 
   function escapeHtml(text) {
@@ -670,7 +726,7 @@ function showInfo(p, regionMode) {
   infoTitleEl.textContent = objectName; 
   const bannerHtml = `
     <div class="info-banner">
-      <img src="assets/images/banner-placeholder.svg" alt="Banner placeholder for ${escapeHtml(objectName)}" />
+      <img id="infoBannerImage" src="assets/images/banner-placeholder.svg" alt="Banner placeholder for ${escapeHtml(objectName)}" />
       <div class="info-banner-title">${escapeHtml(objectName)}</div>
     </div>`;
 
@@ -708,6 +764,12 @@ function showInfo(p, regionMode) {
 
     infoBox.innerHTML = bannerHtml + mainText + dataHtml; 
   } 
+
+  const infoBannerImage = infoBox.querySelector('#infoBannerImage');
+  if (infoBannerImage) {
+    resolveInfoBannerImage(objectName, infoBannerImage);
+  }
+
   sidebar.style.display = 'block'; 
 }
 function linkifyEPSG(text) { 
