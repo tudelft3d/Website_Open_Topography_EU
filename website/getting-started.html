@@ -23,6 +23,22 @@
       <a id="tab-info" class="active" href="getting-started.html">Getting started</a>
       <a id="tab-help" href="map.html?skipIntro=1">Contribute</a>
     </div>
+    <div id="mobile-controls" aria-label="Mobile navigation controls">
+      <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
+      <button id="mobileSearchToggle" aria-label="Open search"></button>
+    </div>
+    <div id="mobileMenu">
+      <a href="catalogue.html">Data</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="map.html?skipIntro=1">Contribute</a>
+    </div>
+    <div id="mobileSearchOverlay" aria-hidden="true">
+      <div id="mobileSearchCard">
+        <p>Start search for clouds</p>
+        <input id="mobileSearchInput" type="text" placeholder="Start search for clouds" autocomplete="off" />
+        <div id="mobileSearchHint"></div>
+      </div>
+    </div>
   </div>
   <div id="dataMenu">
     <a href="map.html?skipIntro=1">PC on the map</a>

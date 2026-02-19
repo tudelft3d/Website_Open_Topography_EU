@@ -23,14 +23,51 @@
       <a id="tab-info" href="getting-started.html">Getting started</a>
       <a id="tab-help" href="map.html?skipIntro=1">Contribute</a>
     </div>
+    <div id="mobile-controls" aria-label="Mobile navigation controls">
+      <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
+      <button id="mobileSearchToggle" aria-label="Open search"></button>
+    </div>
+    <div id="mobileMenu">
+      <a href="catalogue.html">Data</a>
+      <a href="getting-started.html">Getting started</a>
+      <a href="map.html?skipIntro=1">Contribute</a>
+    </div>
+    <div id="mobileSearchOverlay" aria-hidden="true">
+      <div id="mobileSearchCard">
+        <p>Start search for clouds</p>
+        <input id="mobileSearchInput" type="text" placeholder="Start search for clouds" autocomplete="off" />
+        <div id="mobileSearchHint"></div>
+      </div>
+    </div>
   </div>
   <div id="dataMenu">
     <a href="map.html?skipIntro=1">PC on the map</a>
     <a href="catalogue.html">PC in the catalogue</a>
   </div>
   <main>
-    <p>This is a placeholder for the catalogue. Add your dataset listings or links here.</p>
-    <div class="note">Tip: link your existing spreadsheet/API here so users can browse and download directly.</div>
+    <h1>Point Cloud Catalogue</h1>
+    <p id="catalogueStatus">Loading catalogue from <code>data/catalogue.csv</code>...</p>
+    <div class="catalogue-table-wrap">
+      <table class="catalogue-table" aria-label="Point cloud dataset catalogue">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Year</th>
+            <th>Responsible agency</th>
+            <th>Spatial distribution</th>
+            <th>Planimetric</th>
+            <th>Altimetric</th>
+            <th>Dataroom</th>
+          </tr>
+        </thead>
+        <tbody id="catalogueBody">
+          <tr>
+            <td colspan="7">Loading...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">CSV headers can include: Name, Year, Responsible agency, National, Urban, Planimetric, Altimetric, Link.</div>
   </main>
   <script src="assets/js/scripts.js"></script>
 </body>

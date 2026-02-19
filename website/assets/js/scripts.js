@@ -15,7 +15,7 @@
     }; 
 
     // State 
-    let countriesData, regionsData; 
+    let countriesData, regionsData, overviewMapData; 
     let selectedCountryFeature = null; 
     let selectedRegionFeatureId = null; 
     let activeCategory = null; 
@@ -31,6 +31,76 @@
         document.getElementById('toc-region').style.display = 'block'; 
     } 
 
+    function buildRegionFileCandidates(countryName) {
+        const base = String(countryName || '').toLowerCase().trim();
+        const underscored = base.replace(/\s+/g, '_');
+        return [
+            `data/region_map_data_${underscored}.geojson`,
+            `data/region_map_data_${base}.geojson`
+        ];
+    }
+
+    function fetchCountryRegions(countryName) {
+        const candidates = buildRegionFileCandidates(countryName);
+        const tryAt = (index) => {
+            if (index >= candidates.length) return Promise.reject(new Error('No region file found'));
+            return fetch(candidates[index]).then((res) => {
+                if (!res.ok) return tryAt(index + 1);
+                return res.json();
+            });
+        };
+        return tryAt(0);
+    }
+
+    function buildOverviewMapData() {
+        const baseCountries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName);
+        const regionalCountries = baseCountries.filter(f => normalizeCat(f.properties.Data) === 'Region');
+        if (!regionalCountries.length) {
+            overviewMapData = { type: 'FeatureCollection', features: baseCountries };
+            return Promise.resolve();
+        }
+
+        const replacements = regionalCountries.map((country) => {
+            const countryName = country.properties.Name;
+            return fetchCountryRegions(countryName)
+                .then((rd) => {
+                    const countryNameLc = String(countryName).toLowerCase();
+                    const features = (rd && rd.features ? rd.features : [])
+                        .filter((rf) => String((rf.properties && rf.properties.Name) || '').toLowerCase() !== countryNameLc)
+                        .map((rf) => ({
+                            type: 'Feature',
+                            properties: {
+                                ...(rf.properties || {}),
+                                Data: normalizeCat((rf.properties || {}).Data || 'No Info'),
+                                ParentCountry: countryName,
+                                infoStatus: 'regionchild'
+                            },
+                            geometry: rf.geometry
+                        }));
+                    return { countryName, features };
+                })
+                .catch(() => ({ countryName, features: [] }));
+        });
+
+        return Promise.all(replacements).then((resolved) => {
+            const replacementByCountry = {};
+            resolved.forEach((entry) => {
+                replacementByCountry[entry.countryName] = entry.features;
+            });
+            const merged = [];
+            baseCountries.forEach((country) => {
+                const countryName = country.properties.Name;
+                const replacement = replacementByCountry[countryName];
+                if (Array.isArray(replacement) && replacement.length) {
+                    merged.push(...replacement);
+                } else {
+                    merged.push(country);
+                }
+            });
+            overviewMapData = { type: 'FeatureCollection', features: merged };
+        });
+    }
+
     function overviewReset() { 
         activeCategory = null; 
         selectedCountryFeature = null; 
@@ -39,21 +109,22 @@
         document.getElementById('tocSearch').value = ''; 
         document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
         showCountryTOC(); 
-        if (window.map) { 
-            if (map.getLayer('country-fill')) map.setLayoutProperty('country-fill', 'visibility', 'visible'); 
-            if (map.getLayer('country-border')) map.setLayoutProperty('country-border', 'visibility', 'visible'); 
-            if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
-            if (map.getLayer('region-border')) map.removeLayer('region-border'); 
-            if (map.getSource('regions')) map.removeSource('regions'); 
+        const mapRef = window.map;
+        if (mapRef) { 
+            if (mapRef.getLayer('country-fill')) mapRef.setLayoutProperty('country-fill', 'visibility', 'visible'); 
+            if (mapRef.getLayer('country-border')) mapRef.setLayoutProperty('country-border', 'visibility', 'visible'); 
+            if (mapRef.getLayer('region-fill')) mapRef.removeLayer('region-fill'); 
+            if (mapRef.getLayer('region-border')) mapRef.removeLayer('region-border'); 
+            if (mapRef.getSource('regions')) mapRef.removeSource('regions'); 
             // clear any filters that may hide countries
-            if (map.getLayer('country-fill')) map.setFilter('country-fill', null);
-            if (map.getLayer('country-border')) map.setFilter('country-border', null);
+            if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
+            if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
             applyCategoryFilterToMap(); 
-            map.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
+            mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
+            mapRef.setMinZoom(2); 
         } 
-        map.setMinZoom(2); 
         sidebar.style.display = 'none'; // Sidebar sluiten bij reset 
-        infoTitleEl.textContent = 'Select a country.'; 
+        if (infoTitleEl) infoTitleEl.textContent = 'Select a country.'; 
         infoBox.innerHTML = 'Select a country.'; 
         if (document.getElementById('infoPanel')) { 
             document.getElementById('infoPanel').style.display = 'none'; 
@@ -62,6 +133,7 @@
     } 
 
     const sidebar = document.getElementById('sidebar'); 
+    const sidebarCloseBtn = document.getElementById('sidebar-close');
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
     // const closeBtn = document.getElementById('closeBtn'); 
@@ -71,6 +143,12 @@
     const dividerLine = document.getElementById('dividerLine'); 
     const tocSearch = document.getElementById('tocSearch'); 
     const tocSearchToggle = document.getElementById('tocSearchToggle');
+    const mobileSearchToggle = document.getElementById('mobileSearchToggle');
+    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+    const mobileMenu = document.getElementById('mobileMenu');
+    const mobileSearchOverlay = document.getElementById('mobileSearchOverlay');
+    const mobileSearchInput = document.getElementById('mobileSearchInput');
+    const mobileSearchHint = document.getElementById('mobileSearchHint');
     const tabSearch = document.getElementById('tab-search');
     const tabs = { 
         toc: document.getElementById('tab-toc'), 
@@ -86,9 +164,18 @@
 
     // Init 
     // tocSearch.addEventListener('input', debounce(updateTOCList, 200)); 
+    if (sidebarCloseBtn) {
+        sidebarCloseBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            overviewReset();
+        });
+    }
     tocSearch.addEventListener('input', renderCountriesList); 
-    const positionSearch = () => {
-        const rect = tocSearchToggle.getBoundingClientRect();
+    const positionSearch = (anchorEl) => {
+        const anchor = anchorEl || tocSearchToggle;
+        if (!anchor) return;
+        const rect = anchor.getBoundingClientRect();
         const left = 12;
         const width = Math.max(160, rect.right - left);
         tocSearch.style.left = `${left}px`;
@@ -96,19 +183,84 @@
         tocSearch.style.top = `${rect.top}px`;
     };
     const closeSearch = () => {
-        tabSearch.classList.remove('open');
+        if (tabSearch) tabSearch.classList.remove('open');
+        if (tocSearch) tocSearch.classList.remove('mobile-open');
+        if (mobileSearchOverlay) mobileSearchOverlay.classList.remove('open');
         document.getElementById('tab-title').classList.remove('hidden');
     };
-    tocSearchToggle.addEventListener('click', () => {
-        tabSearch.classList.add('open');
-        positionSearch();
+    const searchAndSelectCountry = (query) => {
+        const q = String(query || '').trim().toLowerCase();
+        if (!q || !countriesData || !Array.isArray(countriesData.features)) return false;
+        const countries = countriesData.features.filter(f => f.properties && f.properties.Name && !f.properties.RegionName);
+        const exact = countries.find(f => String(f.properties.Name).toLowerCase() === q);
+        const partial = countries.find(f => String(f.properties.Name).toLowerCase().includes(q));
+        const match = exact || partial;
+        if (!match) return false;
+        handleCountrySelect(match);
+        return true;
+    };
+    const openSearch = (anchorEl) => {
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        if (isMobile) {
+            if (mobileSearchOverlay) mobileSearchOverlay.classList.add('open');
+            if (mobileSearchInput) {
+                mobileSearchInput.value = '';
+                if (mobileSearchHint) mobileSearchHint.textContent = '';
+                mobileSearchInput.focus();
+            }
+        } else if (tabSearch) {
+            tabSearch.classList.add('open');
+            positionSearch(anchorEl);
+            tocSearch.focus();
+            tocSearch.select();
+        }
         document.getElementById('tab-title').classList.add('hidden');
-        tocSearch.focus();
-        tocSearch.select();
-    });
+    };
+    if (tocSearchToggle) {
+        tocSearchToggle.addEventListener('click', () => openSearch(tocSearchToggle));
+    }
+    if (mobileSearchToggle) {
+        mobileSearchToggle.addEventListener('click', () => openSearch(mobileSearchToggle));
+    }
+    if (mobileMenuToggle && mobileMenu) {
+        mobileMenuToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            mobileMenu.classList.toggle('open');
+        });
+        mobileMenu.querySelectorAll('a').forEach((link) => {
+            link.addEventListener('click', () => mobileMenu.classList.remove('open'));
+        });
+    }
+    if (mobileSearchOverlay && mobileSearchInput) {
+        mobileSearchOverlay.addEventListener('click', (e) => {
+            if (e.target === mobileSearchOverlay) {
+                closeSearch();
+            }
+        });
+        mobileSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeSearch();
+                return;
+            }
+            if (e.key === 'Enter') {
+                const ok = searchAndSelectCountry(mobileSearchInput.value);
+                if (ok) {
+                    closeSearch();
+                } else if (mobileSearchHint) {
+                    mobileSearchHint.textContent = 'Country not found.';
+                }
+            }
+        });
+    }
     document.addEventListener('click', (e) => {
-        if (!tabSearch.contains(e.target)) {
+        if ((tabSearch && !tabSearch.contains(e.target)) &&
+            (!mobileSearchToggle || !mobileSearchToggle.contains(e.target)) &&
+            (!tocSearch || !tocSearch.contains(e.target)) &&
+            (!mobileSearchOverlay || !mobileSearchOverlay.contains(e.target))) {
             closeSearch();
+        }
+        if (mobileMenu && mobileMenu.classList.contains('open') && !mobileMenu.contains(e.target) && !mobileMenuToggle.contains(e.target)) {
+            mobileMenu.classList.remove('open');
         }
         const menu = document.getElementById('dataMenu');
         if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !dataTab.contains(e.target)) {
@@ -116,7 +268,7 @@
         }
     }, true);
     window.addEventListener('resize', () => {
-        if (tabSearch.classList.contains('open')) positionSearch();
+        if (tabSearch && tabSearch.classList.contains('open')) positionSearch(tocSearchToggle);
     });
     if (overviewBtn) {
         overviewBtn.onclick = overviewReset;
@@ -187,8 +339,14 @@
 
     function showTab(name) { 
         Object.keys(panels).forEach(key => { 
-            panels[key].style.display = (key === name) ? 'block' : 'none'; 
-            tabs[key].classList.toggle('active', key === name); 
+            const panel = panels[key];
+            if (panel) {
+                panel.style.display = (key === name) ? 'block' : 'none'; 
+            }
+            const tab = tabs[key];
+            if (tab) {
+                tab.classList.toggle('active', key === name); 
+            }
         }); 
         if (name === 'help') { 
             sidebar.style.display = 'none'; // Sidebar verbergen bij help 
@@ -209,6 +367,9 @@
                 } 
                 f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
             }); 
+            return buildOverviewMapData();
+        })
+        .then(() => {
             renderCategoryButtons(); 
             renderCountriesList(); 
             initMap(); 
@@ -533,9 +694,10 @@
             maxZoom: 10 
         }); 
     map.on('load', () => { 
+            const mapFeatures = (overviewMapData && overviewMapData.features) ? overviewMapData.features : countriesData.features;
             const onlyCountries = { 
                 type: 'FeatureCollection', 
-                features: countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName) 
+                features: mapFeatures.filter(f => f.properties.Name && !f.properties.RegionName) 
             }; 
             map.addSource('countries', { type: 'geojson', data: onlyCountries, generateId: true }); 
             map.addLayer({ 
@@ -560,22 +722,43 @@
                 map.on(evt, 'country-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : ''); 
             }); 
 
-            // Unified click handling: select country/region or reset if empty
+            // Unified click handling: select region first, then country, otherwise reset
             map.on('click', e => {
+                const regionLayers = ['region-fill', 'region-border'].filter(layerId => map.getLayer(layerId));
+                if (regionLayers.length) {
+                    const regionFeatures = map.queryRenderedFeatures(e.point, { layers: regionLayers });
+                    if (regionFeatures.length) {
+                        const regionFeature = regionFeatures[0];
+                        if (regionFeature && regionFeature.id !== undefined) {
+                            selectRegion(regionFeature.id, regionFeature.properties);
+                            return;
+                        }
+                    }
+                }
+
                 const countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
                 if (countryFeatures.length) {
                     const feat = countryFeatures[0];
+                    if (feat.properties.ParentCountry) {
+                        const parentCountryName = String(feat.properties.ParentCountry).toLowerCase();
+                        const parentCountry = countriesData.features.find((f) =>
+                            f.properties &&
+                            f.properties.Name &&
+                            !f.properties.RegionName &&
+                            String(f.properties.Name).toLowerCase() === parentCountryName
+                        );
+                        if (parentCountry) {
+                            handleCountrySelect(parentCountry);
+                            return;
+                        }
+                    }
                     if (feat.properties.infoStatus === 'hasinfo' || feat.properties.infoStatus === 'region') {
                         handleCountrySelect(feat);
                         return;
                     }
                 }
-                const regionFeatures = map.queryRenderedFeatures(e.point, { layers: ['region-fill'] });
-        if (regionFeatures.length) {
-            selectRegion(regionFeatures[0].id, regionFeatures[0].properties);
-            return;
-        }
-        overviewReset();
+
+                overviewReset();
             });
         }); 
     } 
@@ -586,6 +769,15 @@
         if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
         if (map.getLayer('region-border')) map.removeLayer('region-border'); 
         if (map.getSource('regions')) map.removeSource('regions'); 
+        if (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) {
+            const selectedName = selectedCountryFeature.properties.Name;
+            if (map.getLayer('country-fill')) {
+                map.setFilter('country-fill', ['!=', ['get', 'Name'], selectedName]);
+            }
+            if (map.getLayer('country-border')) {
+                map.setFilter('country-border', ['!=', ['get', 'Name'], selectedName]);
+            }
+        }
         map.addSource('regions', { type: 'geojson', data: rd, generateId: true }); 
         map.addLayer({ 
             id: 'region-fill', 
@@ -601,7 +793,7 @@
                     ['==', ['downcase', ['get', 'Data']], 'no info'], '#7F7F7F', 
                     /* else */ '#7F7F7F' 
                 ], 
-                'fill-opacity': 0.5 
+                'fill-opacity': 0.75 
             } 
         }); 
         map.addLayer({ 
@@ -613,9 +805,7 @@
                 'line-width': [ 'case', ['==', ['get', 'Name'], selectedCountryFeature.properties.Name], 4, 2 ] 
             } 
         }); 
-        map.on('click', 'region-fill', e => { 
-            selectRegion(e.features[0].id, e.features[0].properties); 
-        }); 
+        // Region selection is handled in the unified map click handler above.
     } 
 
     function selectRegion(id, props) { 
@@ -654,63 +844,163 @@
         map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], { padding:20, duration:1000, pitch, bearing:0 }); 
     }
 
-function buildInfoBannerCandidates(name) {
-  const raw = String(name || '').trim();
-  const lower = raw.toLowerCase();
-  const collapsed = lower.replace(/\s+/g, ' ');
-  const underscored = collapsed.replace(/\s+/g, '_');
-  const compact = collapsed.replace(/\s+/g, '');
-  const hyphenated = collapsed.replace(/\s+/g, '-');
-  const title = raw.replace(/\s+/g, '_');
-  const legacyBase = [
-    raw,
-    lower,
-    title,
-    underscored
-  ];
+function normalizeCountryKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, 'and')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const countryFlagCodes = {
+  albania: 'al',
+  andorra: 'ad',
+  austria: 'at',
+  belarus: 'by',
+  belgium: 'be',
+  'bosnia and herzegovina': 'ba',
+  bulgaria: 'bg',
+  croatia: 'hr',
+  cyprus: 'cy',
+  czechia: 'cz',
+  'czech republic': 'cz',
+  denmark: 'dk',
+  estonia: 'ee',
+  finland: 'fi',
+  france: 'fr',
+  germany: 'de',
+  greece: 'gr',
+  hungary: 'hu',
+  iceland: 'is',
+  ireland: 'ie',
+  italy: 'it',
+  kosovo: 'xk',
+  latvia: 'lv',
+  liechtenstein: 'li',
+  lithuania: 'lt',
+  luxembourg: 'lu',
+  malta: 'mt',
+  moldova: 'md',
+  monaco: 'mc',
+  montenegro: 'me',
+  netherlands: 'nl',
+  'north macedonia': 'mk',
+  norway: 'no',
+  poland: 'pl',
+  portugal: 'pt',
+  romania: 'ro',
+  'san marino': 'sm',
+  serbia: 'rs',
+  slovakia: 'sk',
+  slovenia: 'si',
+  spain: 'es',
+  sweden: 'se',
+  switzerland: 'ch',
+  ukraine: 'ua',
+  'united kingdom': 'gb',
+  england: 'gb',
+  europe: 'eu'
+};
+
+function resolveFlagCodeForFeature(p) {
+  const explicitCode = p && (p.FlagCode || p.flag_code || p.flag);
+  if (explicitCode) return String(explicitCode).toLowerCase().trim();
 
   const candidates = [
-    `assets/images/banner/${underscored}.png`,
-    `assets/images/banner/${underscored}.jpg`,
-    `assets/images/banner/${hyphenated}.png`,
-    `assets/images/banner/${hyphenated}.jpg`,
-    `assets/images/banner/${compact}.png`,
-    `assets/images/banner/${compact}.jpg`
-  ];
+    p && p.ParentCountry,
+    p && p.main_country,
+    p && p.country,
+    selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name,
+    p && p.Name
+  ].filter(Boolean);
 
-  legacyBase.forEach((base) => {
-    candidates.push(`assets/images/Banner/Banner_${base}.png`);
-    candidates.push(`assets/images/Banner/Banner_${base}.jpg`);
-  });
-
-  return [...new Set(candidates)];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const key = normalizeCountryKey(candidates[i]);
+    if (/^[a-z]{2}$/.test(key)) return key;
+    if (countryFlagCodes[key]) return countryFlagCodes[key];
+  }
+  return '';
 }
 
-function resolveInfoBannerImage(name, imgEl) {
-  const candidates = buildInfoBannerCandidates(name);
-  let index = 0;
+function getBannerNavigationItems() {
+  const items = [];
+  if (regionsData && Array.isArray(regionsData.features) && regionsData.features.length) {
+    regionsData.features.forEach((f, i) => {
+      if (f.id === undefined) f.id = i;
+      items.push({
+        kind: 'region',
+        id: f.id,
+        name: (f.properties && f.properties.Name) || '',
+        properties: f.properties || {}
+      });
+    });
 
-  const setNext = () => {
-    if (index >= candidates.length) {
-      imgEl.src = 'assets/images/banner-placeholder.svg';
-      imgEl.alt = `Banner placeholder for ${name}`;
-      return;
+    if (selectedCountryFeature && selectedCountryFeature.properties) {
+      const countryName = String(selectedCountryFeature.properties.Name || '').toLowerCase();
+      const hasCountryInRegions = items.some((it) => String(it.name || '').toLowerCase() === countryName);
+      if (!hasCountryInRegions) {
+        items.unshift({
+          kind: 'country',
+          id: null,
+          name: selectedCountryFeature.properties.Name || '',
+          properties: selectedCountryFeature.properties
+        });
+      }
     }
-
-    const nextSrc = candidates[index++];
-    const probe = new Image();
-    probe.onload = () => {
-      imgEl.src = nextSrc;
-      imgEl.alt = `Banner for ${name}`;
-    };
-    probe.onerror = setNext;
-    probe.src = nextSrc;
-  };
-
-  setNext();
+  } else if (selectedCountryFeature && selectedCountryFeature.properties) {
+    items.push({
+      kind: 'country',
+      id: null,
+      name: selectedCountryFeature.properties.Name || '',
+      properties: selectedCountryFeature.properties
+    });
+  }
+  return items;
 }
 
-function showInfo(p, regionMode) { 
+function findCurrentBannerItemIndex(items, p, regionMode) {
+  if (!items.length) return -1;
+  if (regionMode && selectedRegionFeatureId !== null) {
+    const idxById = items.findIndex((it) => it.kind === 'region' && it.id === selectedRegionFeatureId);
+    if (idxById !== -1) return idxById;
+  }
+
+  const currentName = String((p && p.Name) || '').toLowerCase();
+  if (currentName) {
+    const idxByName = items.findIndex((it) => String(it.name || '').toLowerCase() === currentName);
+    if (idxByName !== -1) return idxByName;
+  }
+  return 0;
+}
+
+function navigateInfoBanner(step, p, regionMode) {
+  const items = getBannerNavigationItems();
+  if (items.length < 2) return;
+
+  const currentIdx = findCurrentBannerItemIndex(items, p, regionMode);
+  const nextIdx = (currentIdx + step + items.length) % items.length;
+  const nextItem = items[nextIdx];
+  if (!nextItem) return;
+
+  if (nextItem.kind === 'region' && nextItem.id !== null && nextItem.id !== undefined) {
+    selectRegion(nextItem.id, nextItem.properties);
+    return;
+  }
+
+  if (window.map && map.getSource('regions') && selectedRegionFeatureId !== null) {
+    try {
+      map.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false });
+    } catch (e) {}
+  }
+  selectedRegionFeatureId = null;
+  showInfo(nextItem.properties, false);
+}
+
+function showInfo(p, regionMode, yearIndex) { 
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -720,54 +1010,168 @@ function showInfo(p, regionMode) {
       .replace(/'/g, '&#39;');
   }
 
-  const hasInfo = p.Data && p.Data.toLowerCase() !== 'region'; 
+  const hasInfo = [
+    p && p.Data,
+    p && p.Type,
+    p && p.National,
+    p && p.Urban,
+    p && p.Planimetric,
+    p && p.Altimetric,
+    p && p.Year,
+    p && p.Link,
+    p && p['XY Ref'],
+    p && p['Z Ref']
+  ].some((value) => value !== null && value !== undefined && String(value).trim() !== '');
   const objectName = p.Name || 'No name';
+  const formatMeters = (value) => (value || value === 0 ? `${value} m` : 'N/A');
+  const normalizeValue = (value) => {
+    if (value === 0) return '0';
+    if (value === null || value === undefined) return '';
+    const text = String(value).trim();
+    if (!text) return '';
+    if (/^(n\/a|na|none|null|geen data|no data|unknown)$/i.test(text)) return '';
+    return text;
+  };
+  const formatSpatialDistribution = (national, urban) => {
+    const nationalVal = normalizeValue(national);
+    const urbanVal = normalizeValue(urban);
+    if (nationalVal && urbanVal && nationalVal === urbanVal) return `${nationalVal} ppsm`;
+    if (nationalVal && urbanVal) return `${nationalVal} to ${urbanVal} ppsm`;
+    if (nationalVal) return `${nationalVal} ppsm`;
+    if (urbanVal) return `${urbanVal} ppsm`;
+    return 'N/A';
+  };
+  const splitSeries = (value) => {
+    if (value === null || value === undefined) return [];
+    const text = String(value).trim();
+    if (!text) return [];
+    return text.split(/\s*,\s*/).filter(Boolean);
+  };
+  const yearSeries = splitSeries(p.Year);
+  const hasYearSwitcher = yearSeries.length > 1;
+  const activeYearIndex = hasYearSwitcher
+    ? Math.max(0, Math.min(Number.isInteger(yearIndex) ? yearIndex : 0, yearSeries.length - 1))
+    : 0;
+  const valueForYear = (rawValue) => {
+    if (!hasYearSwitcher) return rawValue;
+    const parts = splitSeries(rawValue);
+    if (parts.length === yearSeries.length) return parts[activeYearIndex];
+    return rawValue;
+  };
+  const navItems = getBannerNavigationItems();
+  const navHtml = navItems.length > 1
+    ? `<div class="info-banner-nav">
+         <button id="infoBannerPrev" class="info-banner-btn" aria-label="Previous region">‹</button>
+         <button id="infoBannerNext" class="info-banner-btn" aria-label="Next region">›</button>
+       </div>`
+    : '';
+  const buildTypeBadges = (typeText) => {
+    if (!typeText || !String(typeText).trim()) return '<strong>N/A</strong>';
+    const tokens = String(typeText).split(',').map(t => t.trim()).filter(Boolean);
+    if (!tokens.length) return '<strong>N/A</strong>';
+    const chips = tokens.map((token) => {
+      const upper = token.toUpperCase();
+      const iconSrc = `assets/images/icons/${upper.toLowerCase()}.png`;
+      return `<span class="type-pill" title="${escapeHtml(upper)}"><img class="type-icon" src="${iconSrc}" alt="${escapeHtml(upper)}" /></span>`;
+    }).join('');
+    return `<div class="type-pillset">${chips}</div>`;
+  };
   // Titel altijd tonen 
-  infoTitleEl.textContent = objectName; 
+  if (infoTitleEl) infoTitleEl.textContent = objectName; 
+  const flagCode = resolveFlagCodeForFeature(p);
+  const flagName = escapeHtml((p && (p.ParentCountry || p.main_country || p.country || p.Name)) || objectName);
+  const flagHtml = flagCode
+    ? `<img class="info-banner-flag" src="https://flagcdn.com/w320/${flagCode}.png" srcset="https://flagcdn.com/w640/${flagCode}.png 2x, https://flagcdn.com/w960/${flagCode}.png 3x" width="320" height="170" alt="${flagName} flag">`
+    : `<img class="info-banner-flag" src="assets/images/banner-placeholder.svg" width="320" height="170" alt="Flag not available">`;
   const bannerHtml = `
     <div class="info-banner">
-      <img id="infoBannerImage" src="assets/images/banner-placeholder.svg" alt="Banner placeholder for ${escapeHtml(objectName)}" />
+      ${flagHtml}
       <div class="info-banner-title">${escapeHtml(objectName)}</div>
+      ${navHtml}
     </div>`;
 
   // Maintext altijd tonen (ook als er geen data is) 
   const mainText = (p.Info && p.Info.trim() !== '') 
-  ? `<p>${p.Info}</p>` 
-  : '<p>No info available.</p>';
+  ? `<div class="info-intro"><p>${p.Info}</p></div>` 
+  : '<div class="info-intro"><p>No info available.</p></div>';
 
   if (!hasInfo) { 
     // Alleen de tekst uit Info laten zien 
     infoBox.innerHTML = bannerHtml + mainText; 
   } else { 
     // Tekst + tabellen tonen 
-    const xyRef = p['XY Ref'] ? linkifyEPSG(p['XY Ref']) : 'N/A'; 
-    const zRef = p['Z Ref'] ? linkifyEPSG(p['Z Ref']) : 'N/A'; 
+    const xyRef = p['XY Ref'] ? linkifyEPSG(valueForYear(p['XY Ref'])) : 'N/A'; 
+    const zRef = p['Z Ref'] ? linkifyEPSG(valueForYear(p['Z Ref'])) : 'N/A'; 
+    const yearLabel = hasYearSwitcher ? yearSeries[activeYearIndex] : (p.Year || 'N/A');
+    const yearNavHtml = hasYearSwitcher
+      ? `<div class="info-year-nav">
+           <button id="infoYearPrev" class="info-year-btn" aria-label="Previous year">‹</button>
+           <span class="info-year-label">${escapeHtml(yearLabel)}</span>
+           <button id="infoYearNext" class="info-year-btn" aria-label="Next year">›</button>
+         </div>`
+      : '';
+    const linkValue = valueForYear(p.Link);
+    const accessHtml = linkValue
+      ? `<a href="${linkValue}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
+      : 'N/A';
 
     const dataHtml = `
-      <h4>Acquisition & Coverage</h4>
-      <ul>
-        <li><strong>Dataset type:</strong> ${p.Data||'N/A'}</li>
-        <li><strong>Type:</strong> ${p.Type||'N/A'}</li>
-      </ul>
-      <h4>Accuracy</h4>
-      <ul>
-        <li><strong>Planimetric:</strong> ${p.Planimetric||'N/A'} m</li>
-        <li><strong>Altimetric:</strong> ${p.Altimetric||'N/A'} m</li>
-      </ul>
-      <h4>Additional Info</h4>
-      <ul>
-        <li><strong>Year:</strong> ${p.Year||'N/A'}</li>
-        <li><strong>Access:</strong> <a href="${p.Link||'#'}" target="_blank">View dataroom</a></li>
-        <li><strong>XY-ref:</strong> ${xyRef}</li>
-        <li><strong>Z-ref:</strong> ${zRef}</li>
-      </ul>`; 
+      <div class="info-sections">
+        <section class="info-card">
+          <h4>Acquisition & Coverage</h4>
+          <div class="info-row"><span>Dataset type</span><strong>${p.Data || 'N/A'}</strong></div>
+          <div class="info-row"><span>Acquisition platform</span>${buildTypeBadges(p.Type)}</div>
+        </section>
+        <section class="info-card">
+          <h4>Quality descriptions</h4>
+          <div class="info-row"><span>Spatial distribution</span><strong>${formatSpatialDistribution(valueForYear(p.National), valueForYear(p.Urban))}</strong></div>
+          <div class="info-row"><span>Planimetric</span><strong>${formatMeters(valueForYear(p.Planimetric))}</strong></div>
+          <div class="info-row"><span>Altimetric</span><strong>${formatMeters(valueForYear(p.Altimetric))}</strong></div>
+        </section>
+        <section class="info-card">
+          <h4>Additional Info</h4>
+          ${yearNavHtml}
+          <div class="info-row"><span>Year</span><strong>${yearLabel}</strong></div>
+          <div class="info-row"><span>Access</span><strong>${accessHtml}</strong></div>
+          <div class="info-row"><span>XY-ref</span><strong>${xyRef}</strong></div>
+          <div class="info-row"><span>Z-ref</span><strong>${zRef}</strong></div>
+        </section>
+      </div>`; 
 
     infoBox.innerHTML = bannerHtml + mainText + dataHtml; 
   } 
 
-  const infoBannerImage = infoBox.querySelector('#infoBannerImage');
-  if (infoBannerImage) {
-    resolveInfoBannerImage(objectName, infoBannerImage);
+  const infoBannerPrev = infoBox.querySelector('#infoBannerPrev');
+  const infoBannerNext = infoBox.querySelector('#infoBannerNext');
+  if (infoBannerPrev) {
+    infoBannerPrev.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      navigateInfoBanner(-1, p, regionMode);
+    });
+  }
+  if (infoBannerNext) {
+    infoBannerNext.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      navigateInfoBanner(1, p, regionMode);
+    });
+  }
+  const infoYearPrev = infoBox.querySelector('#infoYearPrev');
+  const infoYearNext = infoBox.querySelector('#infoYearNext');
+  if (hasYearSwitcher && infoYearPrev && infoYearNext) {
+    infoYearPrev.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const nextIndex = (activeYearIndex - 1 + yearSeries.length) % yearSeries.length;
+      showInfo(p, regionMode, nextIndex);
+    });
+    infoYearNext.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const nextIndex = (activeYearIndex + 1) % yearSeries.length;
+      showInfo(p, regionMode, nextIndex);
+    });
   }
 
   sidebar.style.display = 'block'; 
@@ -782,7 +1186,6 @@ function linkifyEPSG(text) {
     : text; 
 }
 
-}()); 
 const legendBookmark = document.getElementById('legend-bookmark');
 const legendToggle = document.getElementById('legend-toggle');
 const legendPanel  = document.getElementById('legend-panel');
@@ -839,6 +1242,7 @@ function applyCategoryFilterToMap() {
     map.setFilter('country-border', null);
   }
 }
+}()); 
 
 // Banner/Carousel functionality for home page
 function initBannerCarousel() {
@@ -892,4 +1296,170 @@ function initBannerCarousel() {
 // Initialize banner carousel if elements exist
 document.addEventListener('DOMContentLoaded', () => {
     initBannerCarousel();
+});
+
+function parseCsvText(text, delimiter) {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    const sep = delimiter || ',';
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (text[i + 1] === '"') {
+                    field += '"';
+                    i += 1;
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                field += ch;
+            }
+            continue;
+        }
+        if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === sep) {
+            row.push(field);
+            field = '';
+        } else if (ch === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        } else if (ch !== '\r') {
+            field += ch;
+        }
+    }
+    row.push(field);
+    if (row.some((v) => String(v).trim() !== '') || rows.length === 0) {
+        rows.push(row);
+    }
+    return rows;
+}
+
+function initCatalogueTable() {
+    const body = document.getElementById('catalogueBody');
+    const status = document.getElementById('catalogueStatus');
+    if (!body || !status || !document.body.classList.contains('catalogue-page')) return;
+
+    const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
+    const readFirst = (row, ...candidates) => {
+        for (let i = 0; i < candidates.length; i += 1) {
+            const value = row[candidates[i]];
+            if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+        }
+        return '';
+    };
+    const normalize = (value) => {
+        if (value === null || value === undefined) return '';
+        const v = String(value).trim();
+        if (!v || /^(n\/a|na|null|none|geen data|no data|unknown)$/i.test(v)) return '';
+        return v;
+    };
+    const escapeHtml = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const spatialDistribution = (row) => {
+        const direct = normalize(readFirst(row, 'spatialdistribution', 'spatialdensity', 'density'));
+        if (direct) return direct.toLowerCase().includes('ppsm') ? direct : `${direct} ppsm`;
+        const national = normalize(readFirst(row, 'national'));
+        const urban = normalize(readFirst(row, 'urban'));
+        if (national && urban && national === urban) return `${national} ppsm`;
+        if (national && urban) return `${national} to ${urban} ppsm`;
+        if (national) return `${national} ppsm`;
+        if (urban) return `${urban} ppsm`;
+        return 'N/A';
+    };
+
+    fetch('data/catalogue.csv')
+        .then((response) => {
+            if (!response.ok) throw new Error('CSV not found');
+            return response.text();
+        })
+        .then((csvText) => {
+            const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
+            const commaCount = (firstLine.match(/,/g) || []).length;
+            const semicolonCount = (firstLine.match(/;/g) || []).length;
+            const delimiter = semicolonCount > commaCount ? ';' : ',';
+            const rows = parseCsvText(csvText, delimiter);
+            if (!rows.length || rows[0].length === 0) throw new Error('CSV empty');
+            const headers = rows[0].map((h) => key(h));
+            const records = rows.slice(1).filter((r) => r.some((v) => String(v).trim() !== ''))
+                .map((r) => {
+                    const obj = {};
+                    headers.forEach((h, i) => {
+                        obj[h] = r[i] !== undefined ? r[i] : '';
+                    });
+                    return obj;
+                });
+
+            if (!records.length) {
+                body.innerHTML = '<tr><td colspan="7">No catalogue rows found in CSV.</td></tr>';
+                status.textContent = 'Catalogue loaded, but no data rows were found.';
+                return;
+            }
+
+            const isNA = (value) => {
+                const v = String(value || '').trim().toLowerCase();
+                return !v || v === 'n/a';
+            };
+
+            const html = records.map((row) => {
+                const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || 'N/A';
+                const rawYear = readFirst(row, 'year') || 'N/A';
+                const rawAgency = readFirst(row, 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || 'N/A';
+                const rawSpatial = spatialDistribution(row);
+                const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || 'N/A';
+                const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || 'N/A';
+                const link = readFirst(row, 'dataroom', 'link', 'access');
+
+                const allNA = [
+                    rawName,
+                    rawYear,
+                    rawAgency,
+                    rawSpatial,
+                    rawPlanimetric,
+                    rawAltimetric,
+                    link || 'N/A'
+                ].every(isNA);
+                if (allNA) return '';
+
+                const name = escapeHtml(rawName);
+                const year = escapeHtml(rawYear);
+                const agency = escapeHtml(rawAgency);
+                const spatial = escapeHtml(rawSpatial);
+                const planimetric = escapeHtml(rawPlanimetric);
+                const altimetric = escapeHtml(rawAltimetric);
+                const linkHtml = link
+                    ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
+                    : 'N/A';
+
+                return `<tr>
+                    <td>${name}</td>
+                    <td>${year}</td>
+                    <td>${agency}</td>
+                    <td>${spatial}</td>
+                    <td>${planimetric}</td>
+                    <td>${altimetric}</td>
+                    <td>${linkHtml}</td>
+                </tr>`;
+            }).join('');
+
+            body.innerHTML = html || '<tr><td colspan="7">No catalogue rows to display after filtering empty data.</td></tr>';
+            status.textContent = `Loaded ${records.length} catalogue rows from data/catalogue.csv.`;
+        })
+        .catch(() => {
+            body.innerHTML = '<tr><td colspan="7">Could not load data/catalogue.csv. Add the CSV file to show catalogue rows.</td></tr>';
+            status.textContent = 'Catalogue CSV not found. Expected file: data/catalogue.csv';
+        });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initCatalogueTable();
 });
