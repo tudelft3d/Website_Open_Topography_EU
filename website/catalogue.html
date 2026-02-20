@@ -21,7 +21,7 @@
       </div>
       <button id="tab-data" class="active">DATA ▼</button>
       <a id="tab-info" href="getting-started.html">Getting started</a>
-      <a id="tab-help" href="map.html?skipIntro=1">Contribute</a>
+      <a id="tab-help" href="contribute.html" target="_blank" rel="noopener noreferrer" title="fill in the MSForm and help us grow">Add Pointclouds</a>
     </div>
     <div id="mobile-controls" aria-label="Mobile navigation controls">
       <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
@@ -30,7 +30,7 @@
     <div id="mobileMenu">
       <a href="catalogue.html">Data</a>
       <a href="getting-started.html">Getting started</a>
-      <a href="map.html?skipIntro=1">Contribute</a>
+      <a href="contribute.html" target="_blank" rel="noopener noreferrer">Add Pointclouds</a>
     </div>
     <div id="mobileSearchOverlay" aria-hidden="true">
       <div id="mobileSearchCard">
@@ -46,12 +46,13 @@
   </div>
   <main>
     <h1>Point Cloud Catalogue</h1>
-    <p id="catalogueStatus">Loading catalogue from <code>data/catalogue.csv</code>...</p>
+    <p id="catalogueStatus">In the table all the found point clouds and point cloud elevation models are given.</p>
     <div class="catalogue-table-wrap">
       <table class="catalogue-table" aria-label="Point cloud dataset catalogue">
         <thead>
           <tr>
-            <th>Name</th>
+            <th>Region</th>
+            <th>Data version</th>
             <th>Year</th>
             <th>Responsible agency</th>
             <th>Spatial distribution</th>
@@ -62,12 +63,11 @@
         </thead>
         <tbody id="catalogueBody">
           <tr>
-            <td colspan="7">Loading...</td>
+            <td colspan="8">Loading...</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <div class="note">CSV headers can include: Name, Year, Responsible agency, National, Urban, Planimetric, Altimetric, Link.</div>
   </main>
   <script src="assets/js/scripts.js"></script>
 </body>

@@ -33,7 +33,6 @@
         <ul id="regionList" class="country-list"></ul> 
         <button id="regionOverviewBtn" class="overview-btn">Return to national overview</button> </div> 
       </div> <div id="sidebar" class="panel"> 
-        <button id="sidebar-reset" aria-label="Reset overview">&#8635;</button>
         <button id="sidebar-close" aria-label="Close information panel">&times;</button>
         <div id="info">Select a country.</div> 
         </div> <div id="helpModal" class="panel"> 
@@ -43,8 +42,8 @@
           <h3>Help us grow the European Point Clouds website</h3> 
           <p>We aim to provide the most complete overview of available point cloud and elevation datasets. However, some data might still be missing or not yet included.</p> 
           <p> Your contribution helps us keep this overview accurate and up to date. Do you know of data that should be added? Let us know, and we will include it as soon as possible.</p> 
-          <p>Simply click the link to the google form, and fill in the questions!!</p> 
-          <a href="https://forms.gle/3NaWoRirKtWohpAC6" target="_blank" rel="noopener noreferrer">Click here to fill out the form</a> 
+          <p>Simply click the link to the contribution form, and fill in the questions.</p> 
+          <a href="contribute.html">Click here to fill out the form</a> 
         </div> 
       </div> 
           
@@ -62,7 +61,7 @@
           </div>
           <button id="tab-data">DATA ▼</button> 
           <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
-          <button id="tab-help">Contribute</button> 
+          <a id="tab-help" href="contribute.html" target="_blank" rel="noopener noreferrer" title="fill in the MSForm and help us grow">Add Pointclouds</a> 
         </div>
         <div id="mobile-controls" aria-label="Mobile navigation controls">
           <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
@@ -72,7 +71,7 @@
         <div id="mobileMenu">
           <a href="catalogue.html">Data</a>
           <a href="getting-started.html">Getting started</a>
-          <a href="map.html?skipIntro=1">Contribute</a>
+          <a href="contribute.html" target="_blank" rel="noopener noreferrer">Add Pointclouds</a>
         </div>
         <div id="mobileSearchOverlay" aria-hidden="true">
           <div id="mobileSearchCard">

@@ -478,29 +478,6 @@ body.home-page {
   background: rgba(255, 255, 255, 0.25);
 }
 
-#sidebar-reset {
-  position: absolute;
-  top: 8px;
-  right: 46px;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  z-index: 2;
-  pointer-events: auto;
-  transition: transform 0.25s ease, background 0.2s ease;
-}
-
-#sidebar-reset:hover {
-  background: rgba(255, 255, 255, 0.25);
-  transform: rotate(180deg);
-}
-
 #sidebar a {
   color: #fff;
   font-weight: bold;

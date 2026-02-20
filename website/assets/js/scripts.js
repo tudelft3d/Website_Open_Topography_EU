@@ -28,6 +28,18 @@
     let selectedRegionFeatureId = null; 
     let activeCategory = null; 
     let activeLegendCategories = new Set();
+    const mapFocusParams = (() => {
+        try {
+            const qp = new URLSearchParams(window.location.search || '');
+            return {
+                country: (qp.get('focusCountry') || '').trim(),
+                region: (qp.get('focusRegion') || '').trim()
+            };
+        } catch (e) {
+            return { country: '', region: '' };
+        }
+    })();
+    let mapFocusHandled = false;
 
     // DOM 
     function showCountryTOC() { 
@@ -59,6 +71,58 @@
             });
         };
         return tryAt(0);
+    }
+
+    function findCountryFeatureByName(name) {
+        const target = normalizeCountryKey(name);
+        if (!target || !countriesData || !countriesData.features) return null;
+        return countriesData.features.find((f) =>
+            f &&
+            f.properties &&
+            f.properties.Name &&
+            !f.properties.RegionName &&
+            normalizeCountryKey(f.properties.Name) === target
+        ) || null;
+    }
+
+    function focusMapFromQueryIfNeeded() {
+        if (mapFocusHandled) return;
+        if (!document.body.classList.contains('map-page')) return;
+        if (!mapFocusParams.country && !mapFocusParams.region) return;
+        if (!window.map || !countriesData || !Array.isArray(countriesData.features)) return;
+
+        const countryName = mapFocusParams.country || mapFocusParams.region;
+        const countryFeature = findCountryFeatureByName(countryName);
+        if (!countryFeature) {
+            mapFocusHandled = true;
+            return;
+        }
+
+        mapFocusHandled = true;
+        handleCountrySelect(countryFeature);
+
+        const regionTarget = normalizeCountryKey(mapFocusParams.region);
+        if (!regionTarget || regionTarget === normalizeCountryKey(countryFeature.properties.Name)) return;
+
+        let tries = 0;
+        const maxTries = 50;
+        const timer = setInterval(() => {
+            tries += 1;
+            if (!regionsData || !Array.isArray(regionsData.features) || !regionsData.features.length) {
+                if (tries >= maxTries) clearInterval(timer);
+                return;
+            }
+
+            const found = regionsData.features.find((f) =>
+                normalizeCountryKey((f.properties && f.properties.Name) || '') === regionTarget
+            );
+            if (found && found.id !== undefined) {
+                selectRegion(found.id, found.properties || {});
+                clearInterval(timer);
+                return;
+            }
+            if (tries >= maxTries) clearInterval(timer);
+        }, 150);
     }
 
     function buildOverviewMapData() {
@@ -149,7 +213,6 @@
 
     const sidebar = document.getElementById('sidebar'); 
     const sidebarCloseBtn = document.getElementById('sidebar-close');
-    const sidebarResetBtn = document.getElementById('sidebar-reset');
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
     // const closeBtn = document.getElementById('closeBtn'); 
@@ -182,13 +245,6 @@
     // tocSearch.addEventListener('input', debounce(updateTOCList, 200)); 
     if (sidebarCloseBtn) {
         sidebarCloseBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            overviewReset();
-        });
-    }
-    if (sidebarResetBtn) {
-        sidebarResetBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
             overviewReset();
@@ -304,7 +360,9 @@
         overviewBtn.onclick = overviewReset;
     }
     if (tabs.help && tabs.help.tagName === 'BUTTON') {
-        tabs.help.addEventListener('click', () => showTab('help'));
+        tabs.help.addEventListener('click', () => {
+            window.open('contribute.html', '_blank', 'noopener');
+        });
     }
 
     const dataTab = document.getElementById('tab-data');
@@ -851,6 +909,7 @@
 
                 overviewReset();
             });
+            focusMapFromQueryIfNeeded();
         }); 
     } 
 
@@ -1488,7 +1547,7 @@ function initCatalogueTable() {
         if (national && urban) return `${national} to ${urban} ppsm`;
         if (national) return `${national} ppsm`;
         if (urban) return `${urban} ppsm`;
-        return 'N/A';
+        return '-';
     };
 
     fetch('data/catalogue.csv')
@@ -1514,48 +1573,69 @@ function initCatalogueTable() {
                 });
 
             if (!records.length) {
-                body.innerHTML = '<tr><td colspan="7">No catalogue rows found in CSV.</td></tr>';
+                body.innerHTML = '<tr><td colspan="8">No catalogue rows found in CSV.</td></tr>';
                 status.textContent = 'Catalogue loaded, but no data rows were found.';
                 return;
             }
 
             const isNA = (value) => {
                 const v = String(value || '').trim().toLowerCase();
-                return !v || v === 'n/a';
+                return !v || v === 'n/a' || v === '-';
+            };
+            const formatDataVersion = (value) => {
+                const v = String(value || '').trim().toLowerCase();
+                if (!v || v === 'n/a' || v === '-') return '-';
+                if (v === 'region' || v === 'regional') return 'Region';
+                if (v.includes('dense') || v === 'dm' || v.includes('matching')) return 'Dense matching';
+                if (v.includes('dem') || v.includes('elevation')) return 'Point cloud elevation model (DEM)';
+                if (v.includes('point')) return 'Point cloud';
+                return String(value).trim();
             };
 
             const html = records.map((row) => {
-                const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || 'N/A';
-                const rawYear = readFirst(row, 'year') || 'N/A';
-                const rawAgency = readFirst(row, 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || 'N/A';
+                const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || '-';
+                const rawMainCountry = readFirst(row, 'main_country', 'country') || '';
+                const rawDataVersion = formatDataVersion(readFirst(row, 'dataversion', 'data_version', 'data', 'datasettype', 'dataset_type', 'type'));
+                if (String(rawDataVersion).toLowerCase() === 'region') return '';
+                const rawYear = readFirst(row, 'year') || '-';
+                const rawAgency = readFirst(row, 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || '-';
                 const rawSpatial = spatialDistribution(row);
-                const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || 'N/A';
-                const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || 'N/A';
+                const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
+                const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || '-';
                 const link = readFirst(row, 'dataroom', 'link', 'access');
 
-                const allNA = [
-                    rawName,
+                const allDataNA = [
+                    rawDataVersion,
                     rawYear,
                     rawAgency,
                     rawSpatial,
                     rawPlanimetric,
                     rawAltimetric,
-                    link || 'N/A'
+                    link || '-'
                 ].every(isNA);
-                if (allNA) return '';
+                if (allDataNA) return '';
 
                 const name = escapeHtml(rawName);
+                const mapCountry = rawMainCountry || rawName;
+                const mapHref = (mapCountry && rawName && rawName !== '-')
+                    ? `map.html?focusCountry=${encodeURIComponent(mapCountry)}&focusRegion=${encodeURIComponent(rawName)}`
+                    : '';
+                const nameHtml = mapHref
+                    ? `<a href="${mapHref}" title="Go to maps location -->">${name}</a>`
+                    : name;
+                const dataVersion = escapeHtml(rawDataVersion);
                 const year = escapeHtml(rawYear);
                 const agency = escapeHtml(rawAgency);
                 const spatial = escapeHtml(rawSpatial);
                 const planimetric = escapeHtml(rawPlanimetric);
                 const altimetric = escapeHtml(rawAltimetric);
                 const linkHtml = link
-                    ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
-                    : 'N/A';
+                    ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Link to local dataset</a>`
+                    : '-';
 
                 return `<tr>
-                    <td>${name}</td>
+                    <td>${nameHtml}</td>
+                    <td>${dataVersion}</td>
                     <td>${year}</td>
                     <td>${agency}</td>
                     <td>${spatial}</td>
@@ -1565,11 +1645,10 @@ function initCatalogueTable() {
                 </tr>`;
             }).join('');
 
-            body.innerHTML = html || '<tr><td colspan="7">No catalogue rows to display after filtering empty data.</td></tr>';
-            status.textContent = `Loaded ${records.length} catalogue rows from data/catalogue.csv.`;
+            body.innerHTML = html || '<tr><td colspan="8">No catalogue rows to display after filtering empty data.</td></tr>';
         })
         .catch(() => {
-            body.innerHTML = '<tr><td colspan="7">Could not load data/catalogue.csv. Add the CSV file to show catalogue rows.</td></tr>';
+            body.innerHTML = '<tr><td colspan="8">Could not load data/catalogue.csv. Add the CSV file to show catalogue rows.</td></tr>';
             status.textContent = 'Catalogue CSV not found. Expected file: data/catalogue.csv';
         });
 }
