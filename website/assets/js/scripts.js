@@ -28,6 +28,8 @@
     let selectedRegionFeatureId = null; 
     let activeCategory = null; 
     let activeLegendCategories = new Set();
+    let locationSearchIndex = [];
+    let locationSearchIndexPromise = null;
     const mapFocusParams = (() => {
         try {
             const qp = new URLSearchParams(window.location.search || '');
@@ -73,6 +75,104 @@
         return tryAt(0);
     }
 
+    function loadLocationSearchIndex() {
+        if (locationSearchIndexPromise) return locationSearchIndexPromise;
+        locationSearchIndexPromise = fetch('data/catalogue.csv')
+            .then((response) => {
+                if (!response.ok) throw new Error('catalogue missing');
+                return response.text();
+            })
+            .then((csvText) => {
+                const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
+                const commaCount = (firstLine.match(/,/g) || []).length;
+                const semicolonCount = (firstLine.match(/;/g) || []).length;
+                const delimiter = semicolonCount > commaCount ? ';' : ',';
+                const rows = parseCsvText(csvText, delimiter);
+                if (!rows.length || rows[0].length === 0) return [];
+
+                const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
+                const headers = rows[0].map((h) => key(h));
+                const readFirst = (row, ...candidates) => {
+                    for (let i = 0; i < candidates.length; i += 1) {
+                        const value = row[candidates[i]];
+                        if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+                    }
+                    return '';
+                };
+
+                const seen = new Set();
+                const items = [];
+                rows.slice(1).forEach((r) => {
+                    const row = {};
+                    headers.forEach((h, i) => {
+                        row[h] = r[i] !== undefined ? r[i] : '';
+                    });
+                    const name = readFirst(row, 'name', 'regionname', 'country');
+                    const mainCountry = readFirst(row, 'main_country', 'country') || name;
+                    if (!name || !mainCountry) return;
+
+                    const nameKey = normalizeCountryKey(name);
+                    const countryKey = normalizeCountryKey(mainCountry);
+                    const dedupeKey = `${nameKey}|${countryKey}`;
+                    if (seen.has(dedupeKey)) return;
+                    seen.add(dedupeKey);
+
+                    items.push({
+                        label: name,
+                        country: mainCountry,
+                        region: name,
+                        searchText: `${name} ${mainCountry}`.toLowerCase()
+                    });
+                });
+
+                return items.sort((a, b) => a.label.localeCompare(b.label));
+            })
+            .catch(() => []);
+        return locationSearchIndexPromise.then((items) => {
+            locationSearchIndex = Array.isArray(items) ? items : [];
+            return locationSearchIndex;
+        });
+    }
+
+    function ensureSearchDatalist() {
+        const id = 'globalLocationSuggestions';
+        let list = document.getElementById(id);
+        if (!list) {
+            list = document.createElement('datalist');
+            list.id = id;
+            document.body.appendChild(list);
+        }
+        if (tocSearch) tocSearch.setAttribute('list', id);
+        if (mobileSearchInput) mobileSearchInput.setAttribute('list', id);
+        return list;
+    }
+
+    function updateSearchSuggestions(query) {
+        const list = ensureSearchDatalist();
+        const q = String(query || '').trim().toLowerCase();
+        const esc = (value) => String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        if (!q) {
+            list.innerHTML = '';
+            return;
+        }
+        loadLocationSearchIndex().then((items) => {
+            const matches = items
+                .filter((it) => it.searchText.includes(q))
+                .slice(0, 15);
+            list.innerHTML = matches.map((it) => {
+                const suffix = normalizeCountryKey(it.label) === normalizeCountryKey(it.country)
+                    ? it.country
+                    : `${it.label} - ${it.country}`;
+                return `<option value="${esc(it.label)}" label="${esc(suffix)}"></option>`;
+            }).join('');
+        });
+    }
+
     function findCountryFeatureByName(name) {
         const target = normalizeCountryKey(name);
         if (!target || !countriesData || !countriesData.features) return null;
@@ -85,24 +185,14 @@
         ) || null;
     }
 
-    function focusMapFromQueryIfNeeded() {
-        if (mapFocusHandled) return;
-        if (!document.body.classList.contains('map-page')) return;
-        if (!mapFocusParams.country && !mapFocusParams.region) return;
-        if (!window.map || !countriesData || !Array.isArray(countriesData.features)) return;
+    function focusCountryAndRegion(countryName, regionName) {
+        const baseName = countryName || regionName;
+        const countryFeature = findCountryFeatureByName(baseName);
+        if (!countryFeature) return false;
 
-        const countryName = mapFocusParams.country || mapFocusParams.region;
-        const countryFeature = findCountryFeatureByName(countryName);
-        if (!countryFeature) {
-            mapFocusHandled = true;
-            return;
-        }
-
-        mapFocusHandled = true;
         handleCountrySelect(countryFeature);
-
-        const regionTarget = normalizeCountryKey(mapFocusParams.region);
-        if (!regionTarget || regionTarget === normalizeCountryKey(countryFeature.properties.Name)) return;
+        const regionTarget = normalizeCountryKey(regionName);
+        if (!regionTarget || regionTarget === normalizeCountryKey(countryFeature.properties.Name)) return true;
 
         let tries = 0;
         const maxTries = 50;
@@ -123,6 +213,16 @@
             }
             if (tries >= maxTries) clearInterval(timer);
         }, 150);
+        return true;
+    }
+
+    function focusMapFromQueryIfNeeded() {
+        if (mapFocusHandled) return;
+        if (!document.body.classList.contains('map-page')) return;
+        if (!mapFocusParams.country && !mapFocusParams.region) return;
+        if (!window.map || !countriesData || !Array.isArray(countriesData.features)) return;
+        mapFocusHandled = true;
+        focusCountryAndRegion(mapFocusParams.country, mapFocusParams.region);
     }
 
     function buildOverviewMapData() {
@@ -250,7 +350,17 @@
             overviewReset();
         });
     }
-    tocSearch.addEventListener('input', renderCountriesList); 
+    if (document.body.classList.contains('map-page')) {
+        tocSearch.addEventListener('input', renderCountriesList);
+    }
+    tocSearch.addEventListener('input', () => updateSearchSuggestions(tocSearch.value));
+    tocSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const result = searchAndSelectCountry(tocSearch.value);
+            if (result.ok) closeSearch();
+        }
+    });
     const positionSearch = (anchorEl) => {
         const anchor = anchorEl || tocSearchToggle;
         if (!anchor) return;
@@ -270,13 +380,35 @@
     const searchAndSelectCountry = (query) => {
         const q = String(query || '').trim().toLowerCase();
         if (!q) return { ok: false, reason: 'empty' };
-        if (!countriesData || !Array.isArray(countriesData.features)) return { ok: false, reason: 'loading' };
-        const countries = countriesData.features.filter(f => f.properties && f.properties.Name && !f.properties.RegionName);
-        const exact = countries.find(f => String(f.properties.Name).toLowerCase() === q);
-        const partial = countries.find(f => String(f.properties.Name).toLowerCase().includes(q));
-        const match = exact || partial;
-        if (!match) return { ok: false, reason: 'notfound' };
-        handleCountrySelect(match);
+        const onMapPage = document.body.classList.contains('map-page');
+
+        if (onMapPage && countriesData && Array.isArray(countriesData.features)) {
+            const countries = countriesData.features.filter(f => f.properties && f.properties.Name && !f.properties.RegionName);
+            const exact = countries.find(f => String(f.properties.Name).toLowerCase() === q);
+            const partial = countries.find(f => String(f.properties.Name).toLowerCase().includes(q));
+            const match = exact || partial;
+            if (match) {
+                handleCountrySelect(match);
+                return { ok: true };
+            }
+        }
+
+        const indexedItems = Array.isArray(locationSearchIndex) ? locationSearchIndex : [];
+        if (!indexedItems.length && locationSearchIndexPromise) {
+            return { ok: false, reason: 'loading' };
+        }
+        const exactIndexed = indexedItems.find((it) => String(it.label).toLowerCase() === q || String(it.searchText).toLowerCase() === q);
+        const partialIndexed = indexedItems.find((it) => String(it.searchText).toLowerCase().includes(q));
+        const indexedMatch = exactIndexed || partialIndexed;
+        if (!indexedMatch) return { ok: false, reason: 'notfound' };
+
+        if (onMapPage && countriesData && Array.isArray(countriesData.features) && window.map) {
+            const ok = focusCountryAndRegion(indexedMatch.country, indexedMatch.region);
+            return ok ? { ok: true } : { ok: false, reason: 'notfound' };
+        }
+
+        const href = `map.html?focusCountry=${encodeURIComponent(indexedMatch.country)}&focusRegion=${encodeURIComponent(indexedMatch.region)}`;
+        window.location.href = href;
         return { ok: true };
     };
     const openSearch = (anchorEl) => {
@@ -316,6 +448,7 @@
         });
     }
     if (mobileSearchOverlay && mobileSearchInput) {
+        mobileSearchInput.addEventListener('input', () => updateSearchSuggestions(mobileSearchInput.value));
         mobileSearchOverlay.addEventListener('click', (e) => {
             if (e.target === mobileSearchOverlay) {
                 closeSearch();
@@ -356,6 +489,7 @@
     window.addEventListener('resize', () => {
         if (tabSearch && tabSearch.classList.contains('open')) positionSearch(tocSearchToggle);
     });
+    loadLocationSearchIndex();
     if (overviewBtn) {
         overviewBtn.onclick = overviewReset;
     }
@@ -573,6 +707,7 @@
 
     // AANGEPAST: kleuren in landenlijst via getCatColor 
     function renderCountriesList() { 
+        if (!countriesData || !countryListEl || !dividerLine || !tocSearch) return;
         showCountryTOC(); 
         let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName); 
         const q = tocSearch.value.trim().toLowerCase(); 
