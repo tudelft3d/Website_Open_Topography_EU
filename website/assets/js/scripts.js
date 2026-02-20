@@ -7,18 +7,27 @@
         }; 
     } 
 
-    const categoryColors = { 
-        Region: '#0072B2', 
+    const standardCategoryColors = { 
+        Region: '#9CA3AF', 
         Pointcloud: '#1B9E77', 
-        DEM: '#7570B3', 
+        DEM: '#0072B2', 
         'No Info':'#7F7F7F' 
     }; 
+    const colorblindCategoryColors = {
+        Region: '#9CA3AF',
+        Pointcloud: '#E69F00',
+        DEM: '#0072B2',
+        'No Info': '#999999'
+    };
+    let useColorblindPalette = false;
+    let categoryColors = { ...standardCategoryColors };
 
     // State 
     let countriesData, regionsData, overviewMapData; 
     let selectedCountryFeature = null; 
     let selectedRegionFeatureId = null; 
     let activeCategory = null; 
+    let activeLegendCategories = new Set();
 
     // DOM 
     function showCountryTOC() { 
@@ -101,13 +110,17 @@
         });
     }
 
-    function overviewReset() { 
+    function overviewReset(keepView) { 
         activeCategory = null; 
+        activeLegendCategories.clear();
         selectedCountryFeature = null; 
         selectedRegionFeatureId = null; 
         regionsData = null; 
         document.getElementById('tocSearch').value = ''; 
         document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
+        if (legendPanel) {
+            legendPanel.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+        }
         showCountryTOC(); 
         const mapRef = window.map;
         if (mapRef) { 
@@ -120,7 +133,9 @@
             if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
             if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
             applyCategoryFilterToMap(); 
-            mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
+            if (!keepView) {
+                mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
+            }
             mapRef.setMinZoom(2); 
         } 
         sidebar.style.display = 'none'; // Sidebar sluiten bij reset 
@@ -134,6 +149,7 @@
 
     const sidebar = document.getElementById('sidebar'); 
     const sidebarCloseBtn = document.getElementById('sidebar-close');
+    const sidebarResetBtn = document.getElementById('sidebar-reset');
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
     // const closeBtn = document.getElementById('closeBtn'); 
@@ -171,6 +187,13 @@
             overviewReset();
         });
     }
+    if (sidebarResetBtn) {
+        sidebarResetBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            overviewReset();
+        });
+    }
     tocSearch.addEventListener('input', renderCountriesList); 
     const positionSearch = (anchorEl) => {
         const anchor = anchorEl || tocSearchToggle;
@@ -190,14 +213,15 @@
     };
     const searchAndSelectCountry = (query) => {
         const q = String(query || '').trim().toLowerCase();
-        if (!q || !countriesData || !Array.isArray(countriesData.features)) return false;
+        if (!q) return { ok: false, reason: 'empty' };
+        if (!countriesData || !Array.isArray(countriesData.features)) return { ok: false, reason: 'loading' };
         const countries = countriesData.features.filter(f => f.properties && f.properties.Name && !f.properties.RegionName);
         const exact = countries.find(f => String(f.properties.Name).toLowerCase() === q);
         const partial = countries.find(f => String(f.properties.Name).toLowerCase().includes(q));
         const match = exact || partial;
-        if (!match) return false;
+        if (!match) return { ok: false, reason: 'notfound' };
         handleCountrySelect(match);
-        return true;
+        return { ok: true };
     };
     const openSearch = (anchorEl) => {
         const isMobile = window.matchMedia('(max-width: 768px)').matches;
@@ -220,7 +244,11 @@
         tocSearchToggle.addEventListener('click', () => openSearch(tocSearchToggle));
     }
     if (mobileSearchToggle) {
-        mobileSearchToggle.addEventListener('click', () => openSearch(mobileSearchToggle));
+        mobileSearchToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openSearch(mobileSearchToggle);
+        });
     }
     if (mobileMenuToggle && mobileMenu) {
         mobileMenuToggle.addEventListener('click', (e) => {
@@ -243,11 +271,13 @@
                 return;
             }
             if (e.key === 'Enter') {
-                const ok = searchAndSelectCountry(mobileSearchInput.value);
-                if (ok) {
+                const result = searchAndSelectCountry(mobileSearchInput.value);
+                if (result.ok) {
                     closeSearch();
                 } else if (mobileSearchHint) {
-                    mobileSearchHint.textContent = 'Country not found.';
+                    mobileSearchHint.textContent = result.reason === 'loading'
+                        ? 'Data is still loading, try again in a moment.'
+                        : 'Country not found.';
                 }
             }
         });
@@ -395,6 +425,10 @@
                 btn.textContent = label; 
             } 
             btn.onclick = () => { 
+                activeLegendCategories.clear();
+                if (legendPanel) {
+                    legendPanel.querySelectorAll('li').forEach(li => li.classList.remove('active'));
+                }
                 document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
                 if (activeCategory === cat) { 
                     activeCategory = null; 
@@ -425,12 +459,69 @@
         return (categoryColors[normalizeCat(cat)] || '#7F7F7F'); 
     } 
 
+    function buildCountryFillExpression() {
+        return [
+            'case',
+            ['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'),
+            ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
+            ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
+            ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
+            getCatColor('No Info')
+        ];
+    }
+
+    function buildRegionFillExpression() {
+        return [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#ffe900',
+            ['==', ['downcase', ['get', 'Data']], 'region'], getCatColor('Region'),
+            ['==', ['downcase', ['get', 'Data']], 'pointcloud'], getCatColor('Pointcloud'),
+            ['==', ['downcase', ['get', 'Data']], 'dem'], getCatColor('DEM'),
+            ['==', ['downcase', ['get', 'Data']], 'no info'], getCatColor('No Info'),
+            getCatColor('No Info')
+        ];
+    }
+
+    function updateLegendSwatches() {
+        const swatchMap = {
+            '.swatch.pc': 'Pointcloud',
+            '.swatch.dem': 'DEM',
+            '.swatch.region': 'Region',
+            '.swatch.noinfo': 'No Info'
+        };
+        Object.keys(swatchMap).forEach((selector) => {
+            const el = document.querySelector(selector);
+            if (el) el.style.background = getCatColor(swatchMap[selector]);
+        });
+    }
+
+    function applyCategoryPalette() {
+        categoryColors = useColorblindPalette ? { ...colorblindCategoryColors } : { ...standardCategoryColors };
+        updateLegendSwatches();
+
+        if (window.map) {
+            if (map.getLayer('country-fill')) {
+                map.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
+            }
+            if (map.getLayer('region-fill')) {
+                map.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+            }
+        }
+
+        if (typeof renderCategoryButtons === 'function') renderCategoryButtons();
+        if (typeof renderCountriesList === 'function' && countriesData) renderCountriesList();
+        if (selectedCountryFeature && regionsData && typeof renderRegionList === 'function') renderRegionList();
+    }
+
     // AANGEPAST: kleuren in landenlijst via getCatColor 
     function renderCountriesList() { 
         showCountryTOC(); 
         let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName); 
         const q = tocSearch.value.trim().toLowerCase(); 
-        if (!q && !activeCategory) { 
+        const selectedCats = activeLegendCategories.size
+            ? Array.from(activeLegendCategories)
+            : (activeCategory ? [activeCategory] : []);
+        if (!q && !selectedCats.length) { 
             countryListEl.innerHTML = ''; 
             dividerLine.style.display = 'none'; 
             return; 
@@ -438,8 +529,8 @@
         if (q) { 
             countries = countries.filter(f => f.properties.Name.toLowerCase().includes(q)); 
         } 
-        if (activeCategory) { 
-            countries = countries.filter(f => normalizeCat(f.properties.Data || 'No Info') === activeCategory); 
+        if (selectedCats.length) { 
+            countries = countries.filter(f => selectedCats.includes(normalizeCat(f.properties.Data || 'No Info'))); 
             dividerLine.style.display = 'block'; 
         } else { 
             dividerLine.style.display = 'none'; 
@@ -705,7 +796,7 @@
                 type: 'fill', 
                 source: 'countries', 
                 paint: { 
-                    'fill-color': ['case', ['boolean', ['feature-state', 'highlightAllGreen'], false], '#0072B2', ['==', ['get', 'Data'], 'Region'], '#0072B2', ['==', ['get', 'Data'], 'Pointcloud'], '#1B9E77', ['==', ['get', 'Data'], 'DEM'], '#7570B3', '#7F7F7F'], 
+                    'fill-color': buildCountryFillExpression(), 
                     'fill-opacity': 0.6 
                 } 
             }); 
@@ -785,14 +876,7 @@
             source: 'regions', 
             filter: ['!=', ['get', 'Name'], selectedCountryFeature.properties.Name], 
             paint: { 
-                'fill-color': [ 
-                    'case', ['boolean', ['feature-state', 'selected'], false], '#ffe900', 
-                    ['==', ['downcase', ['get', 'Data']], 'region'], '#0072B2', 
-                    ['==', ['downcase', ['get', 'Data']], 'pointcloud'], '#1B9E77', 
-                    ['==', ['downcase', ['get', 'Data']], 'dem'], '#7570B3', 
-                    ['==', ['downcase', ['get', 'Data']], 'no info'], '#7F7F7F', 
-                    /* else */ '#7F7F7F' 
-                ], 
+                'fill-color': buildRegionFillExpression(), 
                 'fill-opacity': 0.75 
             } 
         }); 
@@ -1190,6 +1274,8 @@ const legendBookmark = document.getElementById('legend-bookmark');
 const legendToggle = document.getElementById('legend-toggle');
 const legendPanel  = document.getElementById('legend-panel');
 const legendClose  = document.getElementById('legend-close');
+const legendResetBtn = document.getElementById('legendResetBtn');
+const legendColorModeBtn = document.getElementById('legendColorModeBtn');
 if (legendBookmark && legendToggle && legendPanel && legendClose) {
   const legendTitle = legendPanel.querySelector('.legend-header span');
 
@@ -1213,24 +1299,52 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
   // Koppelt direct aan bestaande category-logica
   legendPanel.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => {
-      activeCategory = normalizeCat(li.dataset.cat);
+      const cat = normalizeCat(li.dataset.cat);
+      activeCategory = null;
+      if (activeLegendCategories.has(cat)) {
+        activeLegendCategories.delete(cat);
+        li.classList.remove('active');
+      } else {
+        activeLegendCategories.add(cat);
+        li.classList.add('active');
+      }
       renderCountriesList();
-      applyCategoryFilterToMap();
-
-      legendPanel.querySelectorAll('li')
-        .forEach(x => x.classList.remove('active'));
-      li.classList.add('active');
       applyCategoryFilterToMap();
     });
   });
+
+  if (legendColorModeBtn) {
+    const updateLegendColorBtn = () => {
+      legendColorModeBtn.classList.toggle('active', useColorblindPalette);
+      legendColorModeBtn.setAttribute('data-tip', useColorblindPalette ? 'Standard colors' : 'Colorblind mode');
+      legendColorModeBtn.setAttribute('aria-label', useColorblindPalette ? 'Switch to standard colors' : 'Switch to colorblind mode');
+    };
+    legendColorModeBtn.addEventListener('click', () => {
+      useColorblindPalette = !useColorblindPalette;
+      applyCategoryPalette();
+      updateLegendColorBtn();
+    });
+    updateLegendColorBtn();
+  }
+
+  if (legendResetBtn) {
+    legendResetBtn.addEventListener('click', () => {
+      overviewReset(true);
+    });
+  }
+
+  applyCategoryPalette();
 }
 
 function applyCategoryFilterToMap() {
   if (!window.map || !map.getLayer('country-fill')) return;
-  if (activeCategory) {
+  const selectedCats = activeLegendCategories.size
+    ? Array.from(activeLegendCategories)
+    : (activeCategory ? [activeCategory] : []);
+  if (selectedCats.length) {
     map.setFilter('country-fill', [
       'all',
-      ['==', ['get', 'Data'], activeCategory],
+      ['in', ['get', 'Data'], ['literal', selectedCats]],
       ['!', ['has', 'RegionName']]
     ]);
     map.setFilter('country-border', [

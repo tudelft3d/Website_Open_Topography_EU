@@ -478,6 +478,29 @@ body.home-page {
   background: rgba(255, 255, 255, 0.25);
 }
 
+#sidebar-reset {
+  position: absolute;
+  top: 8px;
+  right: 46px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+  pointer-events: auto;
+  transition: transform 0.25s ease, background 0.2s ease;
+}
+
+#sidebar-reset:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: rotate(180deg);
+}
+
 #sidebar a {
   color: #fff;
   font-weight: bold;
@@ -849,12 +872,15 @@ body.home-page {
 }
 
 #mobileSearchOverlay.open {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 72px;
 }
 
 #mobileSearchCard {
   width: min(92vw, 360px);
-  margin: 86px auto 0;
+  margin: 0;
   background: #ffffff;
   border-radius: 12px;
   padding: 14px;
@@ -950,14 +976,16 @@ body.home-page {
 
 #tocSearchToggle {
   flex: 0 0 40px;
+  width: 40px;
   height: 40px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  background: #ffe900 url("../images/search_icon.png") center/24px 24px no-repeat;
+  background: #ffe900 url("../images/search_icon.png") center/24px 24px no-repeat !important;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   margin: 0;
-  padding: 0;
+  padding: 0 !important;
+  display: inline-block;
 }
 
 #tocSearch {
@@ -1403,6 +1431,46 @@ li a:hover {
   margin-bottom: 10px;
 }
 
+.legend-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-icon-btn {
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  position: relative;
+}
+
+.legend-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.legend-icon-btn[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  right: 0;
+  top: 28px;
+  white-space: nowrap;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 4px 6px;
+  z-index: 5;
+}
+
 .legend-list {
   list-style: none;
   padding: 0;
@@ -1422,6 +1490,12 @@ li a:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
+#legendColorModeBtn.active {
+  background: #ffe900;
+  color: #222;
+  border-color: #ffe900;
+}
+
 .swatch {
   width: 18px;
   height: 18px;
@@ -1433,11 +1507,11 @@ li a:hover {
 }
 
 .swatch.dem {
-  background: #7570B3;
+  background: #0072B2;
 }
 
 .swatch.region {
-  background: #0072B2;
+  background: #9CA3AF;
 }
 
 .swatch.noinfo {

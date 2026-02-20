@@ -33,6 +33,7 @@
         <ul id="regionList" class="country-list"></ul> 
         <button id="regionOverviewBtn" class="overview-btn">Return to national overview</button> </div> 
       </div> <div id="sidebar" class="panel"> 
+        <button id="sidebar-reset" aria-label="Reset overview">&#8635;</button>
         <button id="sidebar-close" aria-label="Close information panel">&times;</button>
         <div id="info">Select a country.</div> 
         </div> <div id="helpModal" class="panel"> 
@@ -140,7 +141,11 @@
   <div id="legend-panel">
     <div class="legend-header">
       <span>Legend</span>
-      <button id="legend-close" aria-label="Close legend">&times;</button>
+      <div class="legend-actions">
+        <button id="legendResetBtn" class="legend-icon-btn" type="button" aria-label="Reset overview" data-tip="Reset overview">&#8635;</button>
+        <button id="legendColorModeBtn" class="legend-icon-btn" type="button" aria-label="Toggle colorblind mode" data-tip="Colorblind mode">&#9681;</button>
+        <button id="legend-close" class="legend-icon-btn" aria-label="Close legend">&times;</button>
+      </div>
     </div>
 
     <ul class="legend-list">
@@ -148,10 +153,7 @@
         <span class="swatch pc"></span> Point cloud
       </li>
       <li data-cat="DEM">
-        <span class="swatch dem"></span> Elevation model
-      </li>
-      <li data-cat="Region">
-        <span class="swatch region"></span> Regional dataset
+        <span class="swatch dem"></span> PC Based Digital Elevation Model
       </li>
       <li data-cat="No Info">
         <span class="swatch noinfo"></span> No data / unknown
