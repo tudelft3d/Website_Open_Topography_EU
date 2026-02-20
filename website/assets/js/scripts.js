@@ -312,6 +312,7 @@
     } 
 
     const sidebar = document.getElementById('sidebar'); 
+    const sidebarBackBtn = document.getElementById('sidebar-back');
     const sidebarCloseBtn = document.getElementById('sidebar-close');
     const infoBox = document.getElementById('info'); 
     const infoTitleEl = document.getElementById('infoTitle'); 
@@ -348,6 +349,29 @@
             e.preventDefault();
             e.stopPropagation();
             overviewReset();
+        });
+    }
+    if (sidebarBackBtn) {
+        let showBackBtn = false;
+        try {
+            const ref = document.referrer ? new URL(document.referrer) : null;
+            const here = window.location;
+            const fromPcOnMapButton = new URLSearchParams(here.search || '').get('skipIntro') === '1';
+            const refPath = ref ? ref.pathname.toLowerCase() : '';
+            const herePath = (here.pathname || '').toLowerCase();
+            showBackBtn = !fromPcOnMapButton && !!(ref && ref.origin === here.origin && refPath !== herePath);
+        } catch (e) {
+            showBackBtn = false;
+        }
+        sidebarBackBtn.style.display = showBackBtn ? 'inline-flex' : 'none';
+        sidebarBackBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = 'index.html';
+            }
         });
     }
     if (document.body.classList.contains('map-page')) {
@@ -1555,7 +1579,12 @@ function applyCategoryFilterToMap() {
 // Banner/Carousel functionality for home page
 function initBannerCarousel() {
     const slides = [
-        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map example' }
+        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map example' },
+        { src: 'assets/images/Banner_index/Avignon_LidarHD.png', alt: 'Avignon LiDAR example' },
+        { src: 'assets/images/Banner_index/Banner_Germany.png', alt: 'Germany point cloud example' },
+        { src: 'assets/images/Banner_index/Banner_Norway.png', alt: 'Norway point cloud example' },
+        { src: 'assets/images/Banner_index/Banner_portugal.png', alt: 'Portugal point cloud example' },
+        { src: 'assets/images/Banner_index/Barca_YY.png', alt: 'Barcelona point cloud example' }
     ];
     const imgEl = document.getElementById('bannerImage');
     const dotsEl = document.getElementById('bannerDots');

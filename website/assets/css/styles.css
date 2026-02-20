@@ -1,8 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap');
+/* Font aligned with https://3d.bk.tudelft.nl/:
+   Lato is licensed under SIL Open Font License 1.1 (OFL). */
+
 html,
 body {
   height: 100%;
   margin: 0;
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Lato', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   background: #f6f8fb;
 }
 
@@ -166,7 +170,7 @@ body.home-page {
   padding: 10px 20px;
   font-size: 1rem;
   font-weight: bold;
-  background: #ffe900;
+  background: #ffffff;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -174,7 +178,7 @@ body.home-page {
 }
 
 #introModal button:hover {
-  background: #ffef33;
+  background: #f3f4f6;
 }
 
 #toc {
@@ -345,7 +349,7 @@ body.home-page {
 }
 
 .legend-btn:hover::before {
-  border-color: #ffe900;
+  border-color: #ffffff;
   /* Rijkswaterstaat-geel */
 }
 
@@ -373,7 +377,7 @@ body.home-page {
   /* volle breedte van de TOC */
   text-align: center;
   /* tekst in het midden */
-  background: #ffe900;
+  background: #ffffff;
   color: #333;
   font-weight: bold;
   border-radius: 8px;
@@ -386,17 +390,17 @@ body.home-page {
 }
 
 .legend-btn.overview-home-btn {
-  background: #ffe900;
+  background: #ffffff;
   color: #333;
   font-weight: bold;
 }
 
 .legend-btn.overview-home-btn:hover {
-  background: #ffef33;
+  background: #f3f4f6;
 }
 
 .overview-btn:hover {
-  background: #ffe666;
+  background: #f3f4f6;
 }
 
 .divider {
@@ -475,6 +479,27 @@ body.home-page {
 }
 
 #sidebar-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+#sidebar-back {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+#sidebar-back:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
@@ -791,7 +816,7 @@ body.home-page {
 }
 
 #mobileMenuToggle {
-  background: #ffe900 !important;
+  background: #ffffff !important;
   position: relative;
 }
 
@@ -807,7 +832,7 @@ body.home-page {
 }
 
 #mobileSearchToggle {
-  background: #ffe900 url("../images/search_icon.png") center/22px 22px no-repeat !important;
+  background: #ffffff url("../images/search_icon.png") center/22px 22px no-repeat !important;
 }
 
 #mobileMenu {
@@ -903,19 +928,35 @@ body.home-page {
   text-decoration: none;
 }
 
-/* Data dropdown */
+/* DATA tab + dropdown (styled like 3d.bk.tudelft.nl navbar/dropdown palette) */
+#tab-data {
+  color: #ffffff;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+#tab-data:hover,
+#tab-data:focus {
+  color: #30bfeb;
+}
+
+#tab-data.active {
+  color: #30bfeb;
+}
+
 #dataMenu {
   position: absolute;
   top: 0;
   left: 0;
-  background: #2c3e50;
-  color: #fff;
-  padding: 14px;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  background: #ffffff;
+  color: #2c3e50;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #d9e2ec;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   display: none;
   z-index: 1600;
-  min-width: max-content;
+  min-width: 230px;
 }
 
 #dataMenu button,
@@ -924,17 +965,26 @@ body.home-page {
   width: 100%;
   box-sizing: border-box;
   text-align: left;
-  background: #ffe900;
-  color: #222;
+  background: transparent;
+  color: #2c3e50;
   border: none;
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 10px 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.25;
-  white-space: nowrap;
+  white-space: normal;
   text-decoration: none;
   cursor: pointer;
-  margin-bottom: 8px;
+  margin-bottom: 0;
+}
+
+#dataMenu button:hover,
+#dataMenu a:hover,
+#dataMenu button:focus,
+#dataMenu a:focus {
+  background: #ecf0f1;
+  color: #18bc9c;
+  text-decoration: none;
 }
 
 #dataMenu button:last-child,
@@ -958,7 +1008,7 @@ body.home-page {
   border-radius: 50%;
   border: none;
   cursor: pointer;
-  background: #ffe900 url("../images/search_icon.png") center/24px 24px no-repeat !important;
+  background: #ffffff url("../images/search_icon.png") center/24px 24px no-repeat !important;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
   margin: 0;
   padding: 0 !important;
@@ -1130,7 +1180,7 @@ li a:hover {
 }
 
 #logo-bar-bottom a#logo-rws img {
-  background: #ffe900 !important;
+  background: #ffffff !important;
 }
 
 /* used for differnet devices */
@@ -1468,9 +1518,9 @@ li a:hover {
 }
 
 #legendColorModeBtn.active {
-  background: #ffe900;
+  background: #ffffff;
   color: #222;
-  border-color: #ffe900;
+  border-color: #ffffff;
 }
 
 .swatch {
@@ -1505,7 +1555,7 @@ li a:hover {
   padding: 10px 20px;
   font-size: 1rem;
   font-weight: bold;
-  background: #ffe900;
+  background: #ffffff;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -1513,7 +1563,7 @@ li a:hover {
 }
 
 #helpModal button:hover {
-  background: #f8ec61;
+  background: #f3f4f6;
 }
 
 /* Catalogue page specific styles */
@@ -1639,7 +1689,7 @@ li a:hover {
   --card: #f8fafc;
   --text: #1e293b;
   --muted: #64748b;
-  --accent: #ffe900;
+  --accent: #ffffff;
   
   background: linear-gradient(135deg, #e7edf5 0%, #f6f8fb 100%);
   color: var(--text);
@@ -1712,7 +1762,7 @@ li a:hover {
   --card: #ffffff;
   --text: #1e293b;
   --muted: #64748b;
-  --accent: #ffe900;
+  --accent: #ffffff;
   
   background: linear-gradient(135deg, #e7edf5 0%, #f6f8fb 100%);
   color: var(--text);
@@ -1971,4 +2021,5 @@ li a:hover {
     position: static !important;
   }
 }
+
 
