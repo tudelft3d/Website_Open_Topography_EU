@@ -35,6 +35,87 @@
       border-radius: 0;
       display: block;
     }
+
+    .a11y-controls {
+      position: fixed;
+      right: 0;
+      bottom: 64px;
+      z-index: 1900;
+      display: grid;
+      gap: 0;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      border-right: 0;
+      border-radius: 8px 0 0 8px;
+      overflow: hidden;
+    }
+
+    .a11y-btn {
+      width: 84px;
+      min-height: 48px;
+      border: 0;
+      border-radius: 0;
+      background: #233240;
+      color: #fff;
+      cursor: pointer;
+      padding: 6px 5px;
+      display: grid;
+      gap: 4px;
+      justify-items: center;
+      align-content: center;
+      text-align: center;
+      font-family: inherit;
+    }
+
+    .a11y-btn:hover,
+    .a11y-btn:focus {
+      background: #2f4153;
+      outline: none;
+    }
+
+    .a11y-btn.active {
+      background: #ffffff;
+      color: #1e293b;
+    }
+
+    .a11y-label {
+      font-size: 0.66rem;
+      line-height: 1.15;
+      font-weight: 700;
+    }
+
+    .a11y-icon {
+      font-size: 1.2rem;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .a11y-icon-eye {
+      font-size: 1.7rem;
+      line-height: 1;
+    }
+
+    .a11y-icon-aa {
+      letter-spacing: 0.02em;
+    }
+
+    html.a11y-colorblind .form-wrap iframe {
+      filter: contrast(1.15) saturate(0.85);
+    }
+
+    @media (max-width: 430px) {
+      .a11y-controls {
+        bottom: 56px;
+      }
+
+      .a11y-btn {
+        width: 78px;
+        min-height: 44px;
+      }
+
+      .a11y-label {
+        font-size: 0.62rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -53,5 +134,70 @@
       msallowfullscreen>
     </iframe>
   </div>
+  <div id="a11y-controls" class="a11y-controls">
+    <button id="a11yColorBlindBtn" class="a11y-btn" type="button" aria-pressed="false">
+      <span class="a11y-label">Color blindness mode</span>
+      <span class="a11y-icon a11y-icon-eye" aria-hidden="true">&#128065;</span>
+    </button>
+    <button id="a11yTextBtn" class="a11y-btn" type="button" aria-pressed="false">
+      <span class="a11y-label">Increase text size</span>
+      <span class="a11y-icon a11y-icon-aa" aria-hidden="true">AA</span>
+    </button>
+  </div>
+  <script>
+    (function () {
+      const root = document.documentElement;
+      const colorBlindBtn = document.getElementById('a11yColorBlindBtn');
+      const textBtn = document.getElementById('a11yTextBtn');
+      if (!colorBlindBtn || !textBtn) return;
+
+      const storageKeys = {
+        colorBlind: 'a11yColorBlindEnabled',
+        legacyContrast: 'a11yContrastEnabled',
+        largeText: 'a11yLargeTextEnabled'
+      };
+      const getStored = (key, fallbackKey) => {
+        const primary = localStorage.getItem(key);
+        if (primary !== null) return primary === '1';
+        if (fallbackKey) return localStorage.getItem(fallbackKey) === '1';
+        return false;
+      };
+      const setStored = (key, enabled) => {
+        localStorage.setItem(key, enabled ? '1' : '0');
+      };
+      const setState = (button, enabled, enableLabel, disableLabel) => {
+        button.classList.toggle('active', enabled);
+        button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        button.setAttribute('aria-label', enabled ? disableLabel : enableLabel);
+        button.setAttribute('title', enabled ? disableLabel : enableLabel);
+      };
+      const applyColorBlind = (enabled) => {
+        root.classList.toggle('a11y-colorblind', enabled);
+        setStored(storageKeys.colorBlind, enabled);
+        localStorage.removeItem(storageKeys.legacyContrast);
+        setState(
+          colorBlindBtn,
+          enabled,
+          'Enable color blindness mode',
+          'Disable color blindness mode'
+        );
+      };
+      const applyLargeText = (enabled) => {
+        root.classList.toggle('a11y-large-text', enabled);
+        setStored(storageKeys.largeText, enabled);
+        setState(textBtn, enabled, 'Enable large text', 'Disable large text');
+      };
+
+      colorBlindBtn.addEventListener('click', function () {
+        applyColorBlind(!root.classList.contains('a11y-colorblind'));
+      });
+      textBtn.addEventListener('click', function () {
+        applyLargeText(!root.classList.contains('a11y-large-text'));
+      });
+
+      applyColorBlind(getStored(storageKeys.colorBlind, storageKeys.legacyContrast));
+      applyLargeText(getStored(storageKeys.largeText));
+    }());
+  </script>
 </body>
 </html>

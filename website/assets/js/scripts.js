@@ -13,11 +13,12 @@
         DEM: '#0072B2', 
         'No Info':'#7F7F7F' 
     }; 
+    // Paul Tol (Bright) qualitative colors, adapted for our 4 map categories.
     const colorblindCategoryColors = {
-        Region: '#9CA3AF',
-        Pointcloud: '#E69F00',
-        DEM: '#0072B2',
-        'No Info': '#999999'
+        Region: '#AA3377',     // Tol bright purple
+        Pointcloud: '#EE6677', // Tol bright red
+        DEM: '#66CCEE',        // Tol bright cyan
+        'No Info': '#BBBBBB'   // Tol bright grey
     };
     let useColorblindPalette = false;
     let categoryColors = { ...standardCategoryColors };
@@ -625,6 +626,7 @@
     }
 
     function renderCategoryButtons() { 
+        if (!legendCatsEl) return;
         legendCatsEl.innerHTML = ''; 
         const orderedCats = ['Pointcloud', 'DEM', 'No Info', 'Region']; 
         orderedCats.forEach(cat => { 
@@ -711,16 +713,25 @@
         });
     }
 
+    function getMapInstance() {
+        const m = window.map;
+        if (!m) return null;
+        if (typeof m.getLayer !== 'function') return null;
+        if (typeof m.setPaintProperty !== 'function') return null;
+        return m;
+    }
+
     function applyCategoryPalette() {
         categoryColors = useColorblindPalette ? { ...colorblindCategoryColors } : { ...standardCategoryColors };
         updateLegendSwatches();
 
-        if (window.map) {
-            if (map.getLayer('country-fill')) {
-                map.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
+        const mapRef = getMapInstance();
+        if (mapRef) {
+            if (mapRef.getLayer('country-fill')) {
+                mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
             }
-            if (map.getLayer('region-fill')) {
-                map.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+            if (mapRef.getLayer('region-fill')) {
+                mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
             }
         }
 
@@ -1493,7 +1504,6 @@ const legendToggle = document.getElementById('legend-toggle');
 const legendPanel  = document.getElementById('legend-panel');
 const legendClose  = document.getElementById('legend-close');
 const legendResetBtn = document.getElementById('legendResetBtn');
-const legendColorModeBtn = document.getElementById('legendColorModeBtn');
 if (legendBookmark && legendToggle && legendPanel && legendClose) {
   const legendTitle = legendPanel.querySelector('.legend-header span');
 
@@ -1531,20 +1541,6 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
     });
   });
 
-  if (legendColorModeBtn) {
-    const updateLegendColorBtn = () => {
-      legendColorModeBtn.classList.toggle('active', useColorblindPalette);
-      legendColorModeBtn.setAttribute('data-tip', useColorblindPalette ? 'Standard colors' : 'Colorblind mode');
-      legendColorModeBtn.setAttribute('aria-label', useColorblindPalette ? 'Switch to standard colors' : 'Switch to colorblind mode');
-    };
-    legendColorModeBtn.addEventListener('click', () => {
-      useColorblindPalette = !useColorblindPalette;
-      applyCategoryPalette();
-      updateLegendColorBtn();
-    });
-    updateLegendColorBtn();
-  }
-
   if (legendResetBtn) {
     legendResetBtn.addEventListener('click', () => {
       overviewReset(true);
@@ -1554,24 +1550,153 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
   applyCategoryPalette();
 }
 
+function initAccessibilityControls() {
+  if (!document.body) return;
+  const storageKeys = {
+    colorBlind: 'a11yColorBlindEnabled',
+    legacyContrast: 'a11yContrastEnabled',
+    largeText: 'a11yLargeTextEnabled'
+  };
+  const root = document.documentElement;
+  const getStored = (key, fallbackKey) => {
+    const primary = localStorage.getItem(key);
+    if (primary !== null) return primary === '1';
+    if (fallbackKey) return localStorage.getItem(fallbackKey) === '1';
+    return false;
+  };
+  const setStored = (key, enabled) => {
+    localStorage.setItem(key, enabled ? '1' : '0');
+  };
+  const applyMode = (className, enabled) => {
+    root.classList.toggle(className, enabled);
+  };
+  const updateButtonState = (button, enabled, labels) => {
+    button.classList.toggle('active', enabled);
+    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    button.setAttribute('aria-label', enabled ? labels.disable : labels.enable);
+    button.setAttribute('title', enabled ? labels.disable : labels.enable);
+  };
+
+  let controls = document.getElementById('a11y-controls');
+  if (!controls) {
+    controls = document.createElement('div');
+    controls.id = 'a11y-controls';
+    controls.className = 'a11y-controls';
+    controls.innerHTML = `
+      <button id="a11yColorBlindBtn" class="a11y-btn" type="button" aria-pressed="false">
+        <span class="a11y-label">Color blindness mode</span>
+        <span class="a11y-icon a11y-icon-eye" aria-hidden="true">&#128065;</span>
+      </button>
+      <button id="a11yTextBtn" class="a11y-btn" type="button" aria-pressed="false">
+        <span class="a11y-label">Increase text size</span>
+        <span class="a11y-icon a11y-icon-aa" aria-hidden="true">AA</span>
+      </button>
+    `;
+    document.body.appendChild(controls);
+  }
+
+  const colorBlindBtn = document.getElementById('a11yColorBlindBtn');
+  const textBtn = document.getElementById('a11yTextBtn');
+  if (!colorBlindBtn || !textBtn) return;
+
+  const refreshButtons = () => {
+    const colorBlindEnabled = root.classList.contains('a11y-colorblind');
+    const largeTextEnabled = root.classList.contains('a11y-large-text');
+    updateButtonState(colorBlindBtn, colorBlindEnabled, {
+      enable: 'Enable color blindness mode',
+      disable: 'Disable color blindness mode'
+    });
+    updateButtonState(textBtn, largeTextEnabled, {
+      enable: 'Enable large text',
+      disable: 'Disable large text'
+    });
+  };
+
+  const setColorBlind = (enabled) => {
+    applyMode('a11y-colorblind', enabled);
+    useColorblindPalette = enabled;
+    if (typeof applyCategoryPalette === 'function') applyCategoryPalette();
+    setStored(storageKeys.colorBlind, enabled);
+    localStorage.removeItem(storageKeys.legacyContrast);
+    refreshButtons();
+  };
+  const setLargeText = (enabled) => {
+    applyMode('a11y-large-text', enabled);
+    setStored(storageKeys.largeText, enabled);
+    refreshButtons();
+  };
+
+  const initMapAwarePositioning = () => {
+    if (!document.body.classList.contains('map-page')) return;
+    const trackedPanels = ['sidebar', 'infoPanel', 'helpModal']
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+    if (!trackedPanels.length) return;
+
+    const placeControls = () => {
+      const visiblePanel = trackedPanels.find((panel) => {
+        const style = window.getComputedStyle(panel);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+      });
+      if (!visiblePanel) {
+        controls.classList.remove('a11y-under-popup');
+        controls.style.top = '';
+        controls.style.bottom = '';
+        return;
+      }
+
+      const rect = visiblePanel.getBoundingClientRect();
+      const margin = 8;
+      const maxTop = window.innerHeight - controls.offsetHeight - margin;
+      const desiredTop = Math.round(rect.bottom + margin);
+      const finalTop = Math.max(72, Math.min(desiredTop, maxTop));
+
+      controls.classList.add('a11y-under-popup');
+      controls.style.top = `${finalTop}px`;
+      controls.style.bottom = 'auto';
+    };
+
+    const schedulePlaceControls = () => window.requestAnimationFrame(placeControls);
+    const observer = new MutationObserver(schedulePlaceControls);
+    trackedPanels.forEach((panel) => observer.observe(panel, { attributes: true, attributeFilter: ['style', 'class'] }));
+    window.addEventListener('resize', schedulePlaceControls);
+    document.addEventListener('click', schedulePlaceControls);
+    schedulePlaceControls();
+  };
+
+  window.toggleColorBlindMode = () => setColorBlind(!root.classList.contains('a11y-colorblind'));
+  window.toggleContrastMode = window.toggleColorBlindMode;
+  window.toggleTextSizeMode = () => setLargeText(!root.classList.contains('a11y-large-text'));
+
+  colorBlindBtn.addEventListener('click', window.toggleColorBlindMode);
+  textBtn.addEventListener('click', window.toggleTextSizeMode);
+
+  setColorBlind(getStored(storageKeys.colorBlind, storageKeys.legacyContrast));
+  setLargeText(getStored(storageKeys.largeText));
+  initMapAwarePositioning();
+}
+
+initAccessibilityControls();
+
 function applyCategoryFilterToMap() {
-  if (!window.map || !map.getLayer('country-fill')) return;
+  const mapRef = (typeof getMapInstance === 'function') ? getMapInstance() : null;
+  if (!mapRef || !mapRef.getLayer('country-fill')) return;
   const selectedCats = activeLegendCategories.size
     ? Array.from(activeLegendCategories)
     : (activeCategory ? [activeCategory] : []);
   if (selectedCats.length) {
-    map.setFilter('country-fill', [
+    mapRef.setFilter('country-fill', [
       'all',
       ['in', ['get', 'Data'], ['literal', selectedCats]],
       ['!', ['has', 'RegionName']]
     ]);
-    map.setFilter('country-border', [
+    mapRef.setFilter('country-border', [
       'all',
       ['!', ['has', 'RegionName']]
     ]);
   } else {
-    map.setFilter('country-fill', null);
-    map.setFilter('country-border', null);
+    mapRef.setFilter('country-fill', null);
+    mapRef.setFilter('country-border', null);
   }
 }
 }()); 

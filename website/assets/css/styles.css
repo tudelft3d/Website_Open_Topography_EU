@@ -1385,6 +1385,25 @@ li a:hover {
   .map-page #info .info-row strong {
     font-size: 0.8rem;
   }
+
+  .a11y-controls {
+    right: 0;
+    left: auto;
+    bottom: 56px;
+  }
+
+  .map-page .a11y-controls {
+    bottom: 230px;
+  }
+
+  .a11y-btn {
+    width: 78px;
+    min-height: 44px;
+  }
+
+  .a11y-label {
+    font-size: 0.62rem;
+  }
 }
 
 .legend-bookmark {
@@ -1517,10 +1536,131 @@ li a:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-#legendColorModeBtn.active {
+.a11y-controls {
+  position: fixed;
+  right: 0;
+  left: auto;
+  bottom: 64px;
+  z-index: 1900;
+  display: grid;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-right: 0;
+  border-radius: 8px 0 0 8px;
+  overflow: hidden;
+}
+
+.map-page .a11y-controls {
+  bottom: 260px;
+  z-index: 900;
+}
+
+.map-page .a11y-controls.a11y-under-popup {
+  bottom: auto !important;
+}
+
+.a11y-btn {
+  width: 84px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 0;
+  background: #233240;
+  color: #fff;
+  cursor: pointer;
+  padding: 6px 5px;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  align-content: center;
+  font-family: inherit;
+  text-align: center;
+}
+
+.a11y-btn:first-child {
+  border-radius: 0;
+}
+
+.a11y-btn:last-child {
+  border-radius: 0;
+}
+
+.a11y-btn:hover,
+.a11y-btn:focus {
+  background: #2f4153;
+  outline: none;
+}
+
+.a11y-btn.active {
   background: #ffffff;
-  color: #222;
+  color: #1e293b;
   border-color: #ffffff;
+}
+
+.a11y-label {
+  font-size: 0.66rem;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.a11y-icon {
+  font-size: 1.2rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.a11y-icon-eye {
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.a11y-icon-aa {
+  letter-spacing: 0.02em;
+}
+
+html.a11y-colorblind {
+  filter: contrast(1.05);
+}
+
+html.a11y-colorblind #tabs {
+  background: #4477AA;
+}
+
+html.a11y-colorblind #tab-data:hover,
+html.a11y-colorblind #tab-data:focus,
+html.a11y-colorblind #tab-data.active {
+  color: #EE6677;
+}
+
+html.a11y-colorblind .home-page {
+  --bg: #4477AA;
+  --muted: #334155;
+  background: linear-gradient(135deg, #eaf0f7 0%, #f8fafc 100%);
+}
+
+html.a11y-colorblind .home-page .card,
+html.a11y-colorblind .catalogue-table-wrap,
+html.a11y-colorblind .catalogue-page .note,
+html.a11y-colorblind .getting-started-page .card {
+  border: 1px solid #BBBBBB;
+}
+
+html.a11y-colorblind .home-page .cta {
+  background: #CCBB44;
+  color: #111827;
+}
+
+html.a11y-colorblind .home-page .cta.secondary {
+  background: #ffffff;
+  border-color: #4477AA;
+  color: #4477AA;
+}
+
+html.a11y-colorblind a {
+  color: #4477AA;
+}
+
+html.a11y-large-text {
+  font-size: 112.5%;
 }
 
 .swatch {
