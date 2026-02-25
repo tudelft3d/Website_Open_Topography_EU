@@ -1704,13 +1704,13 @@ function applyCategoryFilterToMap() {
 // Banner/Carousel functionality for home page
 function initBannerCarousel() {
     const slides = [
-        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map example' },
-        { src: 'assets/images/Banner_index/Avignon_LidarHD.png', alt: 'Avignon LiDAR example' },
-        { src: 'assets/images/Banner_index/Banner_Germany.png', alt: 'Germany point cloud example' },
-        { src: 'assets/images/Banner_index/Banner_Norway.png', alt: 'Norway point cloud example' },
-        { src: 'assets/images/Banner_index/Banner_portugal.png', alt: 'Portugal point cloud example' },
-        { src: 'assets/images/Banner_index/Barca_YY.png', alt: 'Barcelona point cloud example' }
+        { src: 'assets/images/Banner_index/Helmond_AHN5.png', alt: 'Banner map example', href: 'map.html?skipIntro=1&focusCountry=Netherlands' },
+        { src: 'assets/images/Banner_index/Avignon_LidarHD.png', alt: 'Avignon LiDAR example', href: 'map.html?skipIntro=1&focusCountry=France' },
+        { src: 'assets/images/Banner_index/Banner_Norway.png', alt: 'Norway point cloud example', href: 'map.html?skipIntro=1&focusCountry=Norway' },
+        { src: 'assets/images/Banner_index/Banner_portugal.png', alt: 'Portugal point cloud example', href: 'map.html?skipIntro=1&focusCountry=Portugal' },
+        { src: 'assets/images/Banner_index/Barca_YY.png', alt: 'Barcelona point cloud example', href: 'map.html?skipIntro=1&focusCountry=Spain' }
     ];
+    const bannerEl = document.querySelector('.home-page .banner');
     const imgEl = document.getElementById('bannerImage');
     const dotsEl = document.getElementById('bannerDots');
     const prevBtn = document.getElementById('bannerPrev');
@@ -1742,6 +1742,10 @@ function initBannerCarousel() {
 
     function next() { goTo(current + 1); }
     function prev() { goTo(current - 1); }
+    function openCurrentMapLocation() {
+        const target = slides[current] && slides[current].href;
+        if (target) window.location.href = target;
+    }
 
     function restartTimer() {
         if (timer) clearInterval(timer);
@@ -1750,6 +1754,21 @@ function initBannerCarousel() {
 
     if (prevBtn) prevBtn.addEventListener('click', prev);
     if (nextBtn) nextBtn.addEventListener('click', next);
+    if (bannerEl) {
+        bannerEl.style.cursor = 'pointer';
+        bannerEl.setAttribute('role', 'link');
+        bannerEl.setAttribute('tabindex', '0');
+        bannerEl.addEventListener('click', (event) => {
+            if (event.target && event.target.closest('button')) return;
+            openCurrentMapLocation();
+        });
+        bannerEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openCurrentMapLocation();
+            }
+        });
+    }
 
     renderDots();
     restartTimer();
