@@ -16,3 +16,6 @@ data/AHN3.zip
 data/AHN2.zip
 data/AHN1.zip
 website/assets/images/icons/color_blindness.png
+.venv/
+config
+data/

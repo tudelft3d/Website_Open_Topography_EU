@@ -116,7 +116,7 @@ def match_names_and_export(gadm_gpkg, excel_file, name_column, output_dir, speci
             region_match['geometry'] = region_match['geometry'].simplify(tolerance=0.001)
             output_region_gpkg = os.path.join(
                 output_dir,
-                f"region_map_data_{nation.lower()}.geojson"
+                f"region_map_data_{nation.lower().replace(" ", "_")}.geojson"
             )
             region_match.to_file(output_region_gpkg, driver='GeoJSON')
 

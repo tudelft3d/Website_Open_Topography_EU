@@ -52,6 +52,6 @@ python MapMaker.py --gadm-gpkg <path-to-gadm-db> --excel-file <path-to-excel-fil
 ## Locally
 ```
 cd website
-python3 -m http.server 800
+python3 -m http.server 8000
 ```
 
