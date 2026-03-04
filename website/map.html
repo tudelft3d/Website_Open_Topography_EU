@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="assets/images/european_pointclouds_icon.ico">
     <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
-    <link href="assets/css/styles.css?v=20260224h" rel="stylesheet" />
+    <link href="assets/css/styles.css?v=20260303a" rel="stylesheet" />
 </head>
 
 <body class="map-page">
@@ -27,7 +27,13 @@
       
       <!-- Regio-TOC --> 
       <div id="toc-region"> 
-        <h2>National level data overview</h2> 
+        <div class="region-header">
+          <button id="regionBackToCountryBtn" class="region-back-btn" type="button" aria-label="Return to country view" title="Return to country view">
+            <span aria-hidden="true">&#8592;</span>
+            <span>Back to country</span>
+          </button>
+          <h2>National level data overview</h2> 
+        </div>
         <div id="regionFilterBtns"></div> 
         <div id="regionDividerLine" class="divider">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
         <ul id="regionList" class="country-list"></ul> 
@@ -172,7 +178,7 @@
 </div>
     <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <script src="assets/js/scripts.js?v=20260224h"></script>
+    <script src="assets/js/scripts.js?v=20260303a"></script>
 </body>
 
 </html>
