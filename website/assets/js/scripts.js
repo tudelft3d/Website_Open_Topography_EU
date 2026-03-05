@@ -44,6 +44,22 @@
         }
     })();
     let mapFocusHandled = false;
+    let countryFilterMetrics = new Map();
+    let countryFilterMetricsPromise = null;
+    const mapFilterState = {
+        spatialMin: null,
+        spatialMax: null,
+        accuracyMin: null,
+        accuracyMax: null,
+        yearMin: null,
+        yearMax: null,
+        classifications: new Set()
+    };
+    const mapFilterBounds = {
+        spatial: { min: 0, max: 100, ready: false },
+        accuracy: { min: 0, max: 1, ready: false },
+        year: { min: 2000, max: 2026, ready: false }
+    };
 
     // DOM 
     function showCountryTOC() { 
@@ -227,6 +243,205 @@
         focusCountryAndRegion(mapFocusParams.country, mapFocusParams.region);
     }
 
+    function toNumeric(value) {
+        const text = String(value || '').trim().replace(',', '.');
+        if (!text) return null;
+        const match = text.match(/-?\d+(\.\d+)?/);
+        if (!match) return null;
+        const n = Number(match[0]);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function parseYearValues(value) {
+        return String(value || '')
+            .match(/\b(19|20)\d{2}\b/g)
+            ?.map((token) => Number(token))
+            .filter((year) => Number.isInteger(year)) || [];
+    }
+
+    function detectClassificationTags(infoText) {
+        const text = String(infoText || '').toLowerCase();
+        const tags = new Set();
+        if (!text) return tags;
+        if (/classification|class 2|ground/.test(text)) tags.add('ground');
+        if (/class 3|class 4|class 5|vegetation/.test(text)) tags.add('vegetation');
+        if (/class 6|building/.test(text)) tags.add('building');
+        if (/class 9|water/.test(text)) tags.add('water');
+        return tags;
+    }
+
+    function computeRange(values) {
+        const nums = (values || []).filter((n) => Number.isFinite(n));
+        if (!nums.length) return { min: null, max: null };
+        return { min: Math.min(...nums), max: Math.max(...nums) };
+    }
+
+    function isFilterActive() {
+        const eps = 1e-9;
+        if (mapFilterState.classifications && mapFilterState.classifications.size > 0) return true;
+        if (mapFilterBounds.spatial.ready) {
+            if (Math.abs(mapFilterState.spatialMin - mapFilterBounds.spatial.min) > eps) return true;
+            if (Math.abs(mapFilterState.spatialMax - mapFilterBounds.spatial.max) > eps) return true;
+        }
+        if (mapFilterBounds.accuracy.ready) {
+            if (Math.abs(mapFilterState.accuracyMin - mapFilterBounds.accuracy.min) > eps) return true;
+            if (Math.abs(mapFilterState.accuracyMax - mapFilterBounds.accuracy.max) > eps) return true;
+        }
+        if (mapFilterBounds.year.ready) {
+            if (Math.abs(mapFilterState.yearMin - mapFilterBounds.year.min) > eps) return true;
+            if (Math.abs(mapFilterState.yearMax - mapFilterBounds.year.max) > eps) return true;
+        }
+        return false;
+    }
+
+    function rangeOverlaps(metricRange, selectedMin, selectedMax) {
+        if (!Number.isFinite(selectedMin) || !Number.isFinite(selectedMax)) return true;
+        if (!metricRange || !Number.isFinite(metricRange.min) || !Number.isFinite(metricRange.max)) return false;
+        return metricRange.max >= selectedMin && metricRange.min <= selectedMax;
+    }
+
+    function countryPassesMapFilters(feature) {
+        if (!feature || !feature.properties || !feature.properties.Name) return false;
+        if (!isFilterActive()) return true;
+        const key = normalizeCountryKey(feature.properties.Name);
+        const metrics = countryFilterMetrics.get(key);
+        if (!metrics) return false;
+        if (!rangeOverlaps(metrics.spatial, mapFilterState.spatialMin, mapFilterState.spatialMax)) return false;
+        if (!rangeOverlaps(metrics.accuracy, mapFilterState.accuracyMin, mapFilterState.accuracyMax)) return false;
+        if (!rangeOverlaps(metrics.year, mapFilterState.yearMin, mapFilterState.yearMax)) return false;
+        if (mapFilterState.classifications && mapFilterState.classifications.size > 0) {
+            const selected = Array.from(mapFilterState.classifications);
+            const matches = selected.some((selectedClass) => {
+                if (selectedClass === 'has') return !!metrics.hasClassification;
+                return metrics.classifications.has(selectedClass);
+            });
+            if (!matches) return false;
+        }
+        return true;
+    }
+
+    function getFilteredCountryNamesLowercase() {
+        if (!countriesData || !Array.isArray(countriesData.features)) return [];
+        return countriesData.features
+            .filter((f) => f && f.properties && f.properties.Name && !f.properties.RegionName)
+            .filter((f) => countryPassesMapFilters(f))
+            .map((f) => String(f.properties.Name).toLowerCase());
+    }
+
+    function loadCountryFilterMetrics() {
+        if (countryFilterMetricsPromise) return countryFilterMetricsPromise;
+        countryFilterMetricsPromise = fetch('data/catalogue.csv')
+            .then((response) => {
+                if (!response.ok) throw new Error('catalogue missing');
+                return response.text();
+            })
+            .then((csvText) => {
+                const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
+                const commaCount = (firstLine.match(/,/g) || []).length;
+                const semicolonCount = (firstLine.match(/;/g) || []).length;
+                const delimiter = semicolonCount > commaCount ? ';' : ',';
+                const rows = parseCsvText(csvText, delimiter);
+                if (!rows.length || !rows[0].length) return new Map();
+
+                const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
+                const headers = rows[0].map((h) => key(h));
+                const readFirst = (row, ...candidates) => {
+                    for (let i = 0; i < candidates.length; i += 1) {
+                        const value = row[candidates[i]];
+                        if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+                    }
+                    return '';
+                };
+
+                const metrics = new Map();
+                rows.slice(1).forEach((rawRow) => {
+                    if (!rawRow.some((v) => String(v).trim() !== '')) return;
+                    const row = {};
+                    headers.forEach((h, i) => { row[h] = rawRow[i] !== undefined ? rawRow[i] : ''; });
+                    const countryName = readFirst(row, 'main_country', 'country', 'name');
+                    if (!countryName) return;
+                    const countryKey = normalizeCountryKey(countryName);
+                    if (!countryKey) return;
+
+                    if (!metrics.has(countryKey)) {
+                        metrics.set(countryKey, {
+                            spatialValues: [],
+                            accuracyValues: [],
+                            years: [],
+                            classifications: new Set(),
+                            hasClassification: false
+                        });
+                    }
+                    const item = metrics.get(countryKey);
+                    [row.avg_dens, row.national, row.urban].forEach((value) => {
+                        const n = toNumeric(value);
+                        if (Number.isFinite(n)) item.spatialValues.push(n);
+                    });
+                    [row.avg_plan, row.avg_alti, row.planimetric, row.altimetric].forEach((value) => {
+                        const n = toNumeric(value);
+                        if (Number.isFinite(n)) item.accuracyValues.push(n);
+                    });
+                    parseYearValues(row.year).forEach((year) => item.years.push(year));
+                    const classes = detectClassificationTags(row.info);
+                    if (classes.size) {
+                        item.hasClassification = true;
+                        classes.forEach((tag) => item.classifications.add(tag));
+                    }
+                });
+
+                const spatialPool = [];
+                const accuracyPool = [];
+                const yearPool = [];
+                metrics.forEach((item, countryKey) => {
+                    const spatial = computeRange(item.spatialValues);
+                    const accuracy = computeRange(item.accuracyValues);
+                    const year = computeRange(item.years);
+                    if (Number.isFinite(spatial.min)) spatialPool.push(spatial.min, spatial.max);
+                    if (Number.isFinite(accuracy.min)) accuracyPool.push(accuracy.min, accuracy.max);
+                    if (Number.isFinite(year.min)) yearPool.push(year.min, year.max);
+                    metrics.set(countryKey, {
+                        spatial,
+                        accuracy,
+                        year,
+                        classifications: item.classifications,
+                        hasClassification: item.hasClassification
+                    });
+                });
+
+                if (spatialPool.length) {
+                    mapFilterBounds.spatial = {
+                        min: Number(Math.min(...spatialPool).toFixed(2)),
+                        max: Number(Math.max(...spatialPool).toFixed(2)),
+                        ready: true
+                    };
+                    mapFilterState.spatialMin = mapFilterBounds.spatial.min;
+                    mapFilterState.spatialMax = mapFilterBounds.spatial.max;
+                }
+                if (accuracyPool.length) {
+                    mapFilterBounds.accuracy = {
+                        min: Number(Math.min(...accuracyPool).toFixed(2)),
+                        max: Number(Math.max(...accuracyPool).toFixed(2)),
+                        ready: true
+                    };
+                    mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
+                    mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
+                }
+                if (yearPool.length) {
+                    mapFilterBounds.year = { min: Math.min(...yearPool), max: Math.max(...yearPool), ready: true };
+                    mapFilterState.yearMin = mapFilterBounds.year.min;
+                    mapFilterState.yearMax = mapFilterBounds.year.max;
+                }
+
+                countryFilterMetrics = metrics;
+                return metrics;
+            })
+            .catch(() => {
+                countryFilterMetrics = new Map();
+                return countryFilterMetrics;
+            });
+        return countryFilterMetricsPromise;
+    }
+
     function buildOverviewMapData() {
         const baseCountries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName);
         const regionalCountries = baseCountries.filter(f => normalizeCat(f.properties.Data) === 'Region');
@@ -285,9 +500,7 @@
         regionsData = null; 
         document.getElementById('tocSearch').value = ''; 
         document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
-        if (legendPanel) {
-            legendPanel.querySelectorAll('li').forEach(li => li.classList.remove('active'));
-        }
+        syncLegendSelectionVisuals();
         showCountryTOC(); 
         const mapRef = window.map;
         if (mapRef) { 
@@ -300,6 +513,7 @@
             if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
             if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
             applyCategoryFilterToMap(); 
+            syncLegendSelectionVisuals();
             if (!keepView) {
                 mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
             }
@@ -312,6 +526,7 @@
             document.getElementById('infoPanel').style.display = 'none'; 
         } 
         renderCountriesList(); 
+        syncLegendSelectionVisuals();
     } 
 
     const sidebar = document.getElementById('sidebar'); 
@@ -330,10 +545,33 @@
     const mobileSearchToggle = document.getElementById('mobileSearchToggle');
     const mobileMenuToggle = document.getElementById('mobileMenuToggle');
     const mobileMenu = document.getElementById('mobileMenu');
+    const mobileFilterBtn = document.getElementById('mobileFilterBtn');
+    const filterDockToggle = document.getElementById('filterDockToggle');
     const mobileSearchOverlay = document.getElementById('mobileSearchOverlay');
     const mobileSearchInput = document.getElementById('mobileSearchInput');
     const mobileSearchHint = document.getElementById('mobileSearchHint');
     const tabSearch = document.getElementById('tab-search');
+    const tabFilter = document.getElementById('tab-filter');
+    const filterMenu = document.getElementById('filterMenu');
+    const filterCloseBtn = document.getElementById('filterCloseBtn');
+    const filterResetBtn = document.getElementById('filterResetBtn');
+    const filterClassificationToggle = document.getElementById('filterClassificationToggle');
+    const filterClassificationMenu = document.getElementById('filterClassificationMenu');
+    const filterClassificationChecks = filterClassificationMenu
+        ? Array.from(filterClassificationMenu.querySelectorAll('input[type="checkbox"]'))
+        : [];
+    const filterSpatialMin = document.getElementById('filterSpatialMin');
+    const filterSpatialMax = document.getElementById('filterSpatialMax');
+    const filterAccuracyMin = document.getElementById('filterAccuracyMin');
+    const filterAccuracyMax = document.getElementById('filterAccuracyMax');
+    const filterYearMin = document.getElementById('filterYearMin');
+    const filterYearMax = document.getElementById('filterYearMax');
+    const filterSpatialRangeValue = document.getElementById('filterSpatialRangeValue');
+    const filterAccuracyRangeValue = document.getElementById('filterAccuracyRangeValue');
+    const filterYearRangeValue = document.getElementById('filterYearRangeValue');
+    const filterSpatialTrack = document.getElementById('filterSpatialTrack');
+    const filterAccuracyTrack = document.getElementById('filterAccuracyTrack');
+    const filterYearTrack = document.getElementById('filterYearTrack');
     const tabs = { 
         toc: document.getElementById('tab-toc'), 
         info: document.getElementById('tab-info'), 
@@ -456,6 +694,174 @@
         }
         document.getElementById('tab-title').classList.add('hidden');
     };
+
+    const updateTrackFill = (minInput, maxInput, trackEl) => {
+        if (!minInput || !maxInput || !trackEl) return;
+        const minBound = Number(minInput.min);
+        const maxBound = Number(minInput.max);
+        const minValue = Number(minInput.value);
+        const maxValue = Number(maxInput.value);
+        const leftPct = ((minValue - minBound) / (maxBound - minBound)) * 100;
+        const rightPct = ((maxValue - minBound) / (maxBound - minBound)) * 100;
+        trackEl.style.left = `${Math.max(0, Math.min(100, leftPct))}%`;
+        trackEl.style.right = `${Math.max(0, Math.min(100, 100 - rightPct))}%`;
+    };
+
+    const updateClassificationLabel = () => {
+        if (!filterClassificationToggle) return;
+        const selected = mapFilterState.classifications ? Array.from(mapFilterState.classifications) : [];
+        if (!selected.length) {
+            filterClassificationToggle.textContent = 'Any classification';
+            return;
+        }
+        const labels = {
+            has: 'Has classification info',
+            ground: 'Ground',
+            vegetation: 'Vegetation',
+            building: 'Building',
+            water: 'Water'
+        };
+        if (selected.length <= 2) {
+            filterClassificationToggle.textContent = selected.map((key) => labels[key] || key).join(', ');
+            return;
+        }
+        filterClassificationToggle.textContent = `${selected.length} classes selected`;
+    };
+
+    const formatRangeValue = (value) => {
+        if (!Number.isFinite(value)) return '-';
+        if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+        return Number(value.toFixed(2)).toString();
+    };
+
+    const updateRangeValueLabels = () => {
+        if (filterSpatialRangeValue && Number.isFinite(mapFilterState.spatialMin) && Number.isFinite(mapFilterState.spatialMax)) {
+            filterSpatialRangeValue.textContent = `${formatRangeValue(mapFilterState.spatialMin)} to ${formatRangeValue(mapFilterState.spatialMax)}`;
+        }
+        if (filterAccuracyRangeValue && Number.isFinite(mapFilterState.accuracyMin) && Number.isFinite(mapFilterState.accuracyMax)) {
+            filterAccuracyRangeValue.textContent = `${formatRangeValue(mapFilterState.accuracyMin)} to ${formatRangeValue(mapFilterState.accuracyMax)}`;
+        }
+        if (filterYearRangeValue && Number.isFinite(mapFilterState.yearMin) && Number.isFinite(mapFilterState.yearMax)) {
+            filterYearRangeValue.textContent = `${formatRangeValue(mapFilterState.yearMin)} to ${formatRangeValue(mapFilterState.yearMax)}`;
+        }
+        updateTrackFill(filterSpatialMin, filterSpatialMax, filterSpatialTrack);
+        updateTrackFill(filterAccuracyMin, filterAccuracyMax, filterAccuracyTrack);
+        updateTrackFill(filterYearMin, filterYearMax, filterYearTrack);
+    };
+
+    const syncFilterControlsFromState = () => {
+        if (filterSpatialMin && mapFilterBounds.spatial.ready) {
+            filterSpatialMin.min = String(mapFilterBounds.spatial.min);
+            filterSpatialMin.max = String(mapFilterBounds.spatial.max);
+            filterSpatialMin.value = String(mapFilterState.spatialMin);
+        }
+        if (filterSpatialMax && mapFilterBounds.spatial.ready) {
+            filterSpatialMax.min = String(mapFilterBounds.spatial.min);
+            filterSpatialMax.max = String(mapFilterBounds.spatial.max);
+            filterSpatialMax.value = String(mapFilterState.spatialMax);
+        }
+        if (filterAccuracyMin && mapFilterBounds.accuracy.ready) {
+            filterAccuracyMin.min = String(mapFilterBounds.accuracy.min);
+            filterAccuracyMin.max = String(mapFilterBounds.accuracy.max);
+            filterAccuracyMin.value = String(mapFilterState.accuracyMin);
+        }
+        if (filterAccuracyMax && mapFilterBounds.accuracy.ready) {
+            filterAccuracyMax.min = String(mapFilterBounds.accuracy.min);
+            filterAccuracyMax.max = String(mapFilterBounds.accuracy.max);
+            filterAccuracyMax.value = String(mapFilterState.accuracyMax);
+        }
+        if (filterYearMin && mapFilterBounds.year.ready) {
+            filterYearMin.min = String(mapFilterBounds.year.min);
+            filterYearMin.max = String(mapFilterBounds.year.max);
+            filterYearMin.value = String(mapFilterState.yearMin);
+        }
+        if (filterYearMax && mapFilterBounds.year.ready) {
+            filterYearMax.min = String(mapFilterBounds.year.min);
+            filterYearMax.max = String(mapFilterBounds.year.max);
+            filterYearMax.value = String(mapFilterState.yearMax);
+        }
+        if (filterClassificationChecks.length) {
+            filterClassificationChecks.forEach((check) => {
+                check.checked = mapFilterState.classifications.has(check.value);
+            });
+        }
+        updateClassificationLabel();
+        updateRangeValueLabels();
+    };
+
+    const normalizeRangeInputs = (minInput, maxInput) => {
+        if (!minInput || !maxInput) return;
+        const minV = Number(minInput.value);
+        const maxV = Number(maxInput.value);
+        if (minV > maxV) {
+            if (document.activeElement === minInput) {
+                maxInput.value = minInput.value;
+            } else {
+                minInput.value = maxInput.value;
+            }
+        }
+    };
+
+    const positionFilterMenu = () => {
+        if (!filterMenu) return;
+        if (filterMenu.classList.contains('filter-dock')) return;
+        if (!tabFilter) return;
+        const rect = tabFilter.getBoundingClientRect();
+        filterMenu.style.left = `${Math.max(10, rect.left + window.scrollX - 220)}px`;
+        filterMenu.style.top = `${rect.bottom + window.scrollY + 2}px`;
+    };
+
+    const openFilterMenu = () => {
+        if (!filterMenu) return;
+        closeSearch();
+        syncFilterControlsFromState();
+        positionFilterMenu();
+        if (filterMenu.classList.contains('filter-dock')) {
+            filterMenu.classList.add('open');
+            filterMenu.style.display = '';
+        } else {
+            filterMenu.style.display = 'block';
+        }
+        filterMenu.setAttribute('aria-hidden', 'false');
+        if (tabFilter) {
+            tabFilter.classList.add('active');
+            tabFilter.setAttribute('aria-expanded', 'true');
+        }
+        if (filterDockToggle) {
+            filterDockToggle.classList.add('hidden');
+            filterDockToggle.setAttribute('aria-expanded', 'true');
+        }
+    };
+
+    const closeFilterMenu = () => {
+        if (!filterMenu) return;
+        if (filterMenu.classList.contains('filter-dock')) {
+            filterMenu.classList.remove('open');
+            filterMenu.style.display = '';
+        } else {
+            filterMenu.style.display = 'none';
+        }
+        filterMenu.setAttribute('aria-hidden', 'true');
+        if (tabFilter) {
+            tabFilter.classList.remove('active');
+            tabFilter.setAttribute('aria-expanded', 'false');
+        }
+        if (filterDockToggle) {
+            filterDockToggle.classList.remove('hidden');
+            filterDockToggle.setAttribute('aria-expanded', 'false');
+        }
+        if (filterClassificationMenu) {
+            filterClassificationMenu.classList.remove('open');
+        }
+        if (filterClassificationToggle) {
+            filterClassificationToggle.setAttribute('aria-expanded', 'false');
+        }
+    };
+
+    const applyMapFilters = () => {
+        if (typeof renderCountriesList === 'function') renderCountriesList();
+        if (typeof applyCategoryFilterToMap === 'function') applyCategoryFilterToMap();
+    };
     if (tocSearchToggle) {
         tocSearchToggle.addEventListener('click', () => openSearch(tocSearchToggle));
     }
@@ -473,6 +879,55 @@
         });
         mobileMenu.querySelectorAll('a').forEach((link) => {
             link.addEventListener('click', () => mobileMenu.classList.remove('open'));
+        });
+    }
+    if (mobileFilterBtn) {
+        mobileFilterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (mobileMenu) mobileMenu.classList.remove('open');
+            openFilterMenu();
+        });
+    }
+    if (filterClassificationToggle && filterClassificationMenu) {
+        const positionClassificationMenu = () => {
+            const dropdown = filterClassificationToggle.closest('.class-dropdown');
+            const firstGroup = filterMenu ? filterMenu.querySelector('.filter-group') : null;
+            if (!dropdown || !firstGroup) return;
+            const offset = dropdown.offsetTop - firstGroup.offsetTop;
+            filterClassificationMenu.style.top = `${-Math.max(0, offset)}px`;
+        };
+        filterClassificationToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const open = filterClassificationMenu.classList.contains('open');
+            if (!open) positionClassificationMenu();
+            filterClassificationMenu.classList.toggle('open', !open);
+            filterClassificationToggle.setAttribute('aria-expanded', open ? 'false' : 'true');
+        });
+        window.addEventListener('resize', () => {
+            if (filterClassificationMenu.classList.contains('open')) {
+                positionClassificationMenu();
+            }
+        });
+    }
+    if (filterClassificationChecks.length) {
+        filterClassificationChecks.forEach((check) => {
+            check.addEventListener('change', () => {
+                const selected = filterClassificationChecks
+                    .filter((c) => c.checked)
+                    .map((c) => c.value);
+                mapFilterState.classifications = new Set(selected);
+                updateClassificationLabel();
+                applyMapFilters();
+            });
+        });
+    }
+    if (filterDockToggle) {
+        filterDockToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openFilterMenu();
         });
     }
     if (mobileSearchOverlay && mobileSearchInput) {
@@ -512,6 +967,18 @@
         const menu = document.getElementById('dataMenu');
         if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !dataTab.contains(e.target)) {
             menu.style.display = 'none';
+        }
+        if (tabFilter && filterMenu && filterMenu.style.display === 'block' &&
+            !filterMenu.contains(e.target) &&
+            (!tabFilter || !tabFilter.contains(e.target)) &&
+            (!mobileFilterBtn || !mobileFilterBtn.contains(e.target))) {
+            closeFilterMenu();
+        }
+        if (filterClassificationMenu && filterClassificationMenu.classList.contains('open') &&
+            !filterClassificationMenu.contains(e.target) &&
+            (!filterClassificationToggle || !filterClassificationToggle.contains(e.target))) {
+            filterClassificationMenu.classList.remove('open');
+            if (filterClassificationToggle) filterClassificationToggle.setAttribute('aria-expanded', 'false');
         }
     }, true);
     window.addEventListener('resize', () => {
@@ -556,9 +1023,10 @@
         });
     }
     const positionDataMenu = () => {
-        const rect = dataTab.getBoundingClientRect();
-        dataMenu.style.left = `${rect.left + window.scrollX}px`;
-        dataMenu.style.top = `${rect.bottom + window.scrollY + 2}px`;
+        const tabRect = dataTab.getBoundingClientRect();
+        const bannerRect = document.getElementById('tabs').getBoundingClientRect();
+        dataMenu.style.left = `${tabRect.left + window.scrollX}px`;
+        dataMenu.style.top = `${bannerRect.bottom + window.scrollY}px`;
     };
     dataTab.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -584,7 +1052,77 @@
     });
     window.addEventListener('resize', () => {
         if (dataMenu.style.display === 'block') positionDataMenu();
+        if (filterMenu && filterMenu.style.display === 'block') positionFilterMenu();
     });
+    if (tabFilter && filterMenu) {
+        tabFilter.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = filterMenu.style.display === 'block';
+            if (open) closeFilterMenu();
+            else openFilterMenu();
+        });
+    }
+    if (filterCloseBtn) {
+        filterCloseBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeFilterMenu();
+        });
+    }
+    if (filterSpatialMin && filterSpatialMax) {
+        const onSpatialInput = () => {
+            normalizeRangeInputs(filterSpatialMin, filterSpatialMax);
+            mapFilterState.spatialMin = Number(filterSpatialMin.value);
+            mapFilterState.spatialMax = Number(filterSpatialMax.value);
+            updateRangeValueLabels();
+            applyMapFilters();
+        };
+        filterSpatialMin.addEventListener('input', onSpatialInput);
+        filterSpatialMax.addEventListener('input', onSpatialInput);
+    }
+    if (filterAccuracyMin && filterAccuracyMax) {
+        const onAccuracyInput = () => {
+            normalizeRangeInputs(filterAccuracyMin, filterAccuracyMax);
+            mapFilterState.accuracyMin = Number(filterAccuracyMin.value);
+            mapFilterState.accuracyMax = Number(filterAccuracyMax.value);
+            updateRangeValueLabels();
+            applyMapFilters();
+        };
+        filterAccuracyMin.addEventListener('input', onAccuracyInput);
+        filterAccuracyMax.addEventListener('input', onAccuracyInput);
+    }
+    if (filterYearMin && filterYearMax) {
+        const onYearInput = () => {
+            normalizeRangeInputs(filterYearMin, filterYearMax);
+            mapFilterState.yearMin = Number(filterYearMin.value);
+            mapFilterState.yearMax = Number(filterYearMax.value);
+            updateRangeValueLabels();
+            applyMapFilters();
+        };
+        filterYearMin.addEventListener('input', onYearInput);
+        filterYearMax.addEventListener('input', onYearInput);
+    }
+    if (filterResetBtn) {
+        filterResetBtn.addEventListener('click', () => {
+            if (mapFilterBounds.spatial.ready) {
+                mapFilterState.spatialMin = mapFilterBounds.spatial.min;
+                mapFilterState.spatialMax = mapFilterBounds.spatial.max;
+            }
+            if (mapFilterBounds.accuracy.ready) {
+                mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
+                mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
+            }
+            if (mapFilterBounds.year.ready) {
+                mapFilterState.yearMin = mapFilterBounds.year.min;
+                mapFilterState.yearMax = mapFilterBounds.year.max;
+            }
+            mapFilterState.classifications = new Set();
+            syncFilterControlsFromState();
+            applyMapFilters();
+        });
+    }
+    if (filterMenu && filterMenu.classList.contains('filter-dock')) {
+        closeFilterMenu();
+    }
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
     function showTab(name) { 
@@ -625,6 +1163,10 @@
             initMap(); 
             updateTOCList(); 
             showTab('toc'); 
+            loadCountryFilterMetrics().then(() => {
+                syncFilterControlsFromState();
+                applyMapFilters();
+            });
         }); 
     }
 
@@ -647,18 +1189,17 @@
             } 
             btn.onclick = () => { 
                 activeLegendCategories.clear();
-                if (legendPanel) {
-                    legendPanel.querySelectorAll('li').forEach(li => li.classList.remove('active'));
-                }
                 document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
                 if (activeCategory === cat) { 
                     activeCategory = null; 
                     renderCountriesList(); 
+                    syncLegendSelectionVisuals();
                     return; 
                 } 
                 activeCategory = cat; 
                 btn.classList.add('active'); 
                 renderCountriesList(); 
+                syncLegendSelectionVisuals();
             }; 
             legendCatsEl.appendChild(btn); 
         }); 
@@ -792,7 +1333,8 @@
         const selectedCats = activeLegendCategories.size
             ? Array.from(activeLegendCategories)
             : (activeCategory ? [activeCategory] : []);
-        if (!q && !selectedCats.length) { 
+        const hasFilter = isFilterActive();
+        if (!q && !selectedCats.length && !hasFilter) { 
             countryListEl.innerHTML = ''; 
             dividerLine.style.display = 'none'; 
             return; 
@@ -806,6 +1348,10 @@
         } else { 
             dividerLine.style.display = 'none'; 
         } 
+        if (hasFilter) {
+            countries = countries.filter((f) => countryPassesMapFilters(f));
+            dividerLine.style.display = 'block';
+        }
         countries = countries.sort((a, b) => a.properties.Name.localeCompare(b.properties.Name)); 
         countryListEl.innerHTML = ''; 
         countries.forEach((c, idx) => { 
@@ -1955,11 +2501,10 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
       activeCategory = null;
       if (activeLegendCategories.has(cat)) {
         activeLegendCategories.delete(cat);
-        li.classList.remove('active');
       } else {
         activeLegendCategories.add(cat);
-        li.classList.add('active');
       }
+      syncLegendSelectionVisuals();
       renderCountriesList();
       applyCategoryFilterToMap();
     });
@@ -1972,6 +2517,7 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
   }
 
   applyCategoryPalette();
+  syncLegendSelectionVisuals();
 }
 
 function initAccessibilityControls() {
@@ -2108,20 +2654,57 @@ function applyCategoryFilterToMap() {
   const selectedCats = activeLegendCategories.size
     ? Array.from(activeLegendCategories)
     : (activeCategory ? [activeCategory] : []);
+  const filterParts = [['!', ['has', 'RegionName']]];
   if (selectedCats.length) {
-    mapRef.setFilter('country-fill', [
-      'all',
-      ['in', ['get', 'Data'], ['literal', selectedCats]],
-      ['!', ['has', 'RegionName']]
-    ]);
-    mapRef.setFilter('country-border', [
-      'all',
-      ['!', ['has', 'RegionName']]
-    ]);
-  } else {
-    mapRef.setFilter('country-fill', null);
-    mapRef.setFilter('country-border', null);
+    filterParts.push(['in', ['get', 'Data'], ['literal', selectedCats]]);
   }
+  if (typeof isFilterActive === 'function' && isFilterActive()) {
+    const names = (typeof getFilteredCountryNamesLowercase === 'function')
+      ? getFilteredCountryNamesLowercase()
+      : [];
+    filterParts.push(['in', ['downcase', ['get', 'Name']], ['literal', names]]);
+  }
+  mapRef.setFilter('country-fill', ['all', ...filterParts]);
+  mapRef.setFilter('country-border', ['all', ...filterParts]);
+}
+
+function syncLegendSelectionVisuals() {
+  const panel = document.getElementById('legend-panel');
+  if (!panel) return;
+  const items = Array.from(panel.querySelectorAll('li[data-cat]'));
+  if (!items.length) return;
+
+  if (activeLegendCategories.size > 0) {
+    items.forEach((li) => {
+      const cat = normalizeCat(li.dataset.cat);
+      li.classList.toggle('active', activeLegendCategories.has(cat));
+    });
+    // continue to apply merged-border classes
+  } else if (activeCategory) {
+    items.forEach((li) => {
+      const cat = normalizeCat(li.dataset.cat);
+      li.classList.toggle('active', cat === activeCategory);
+    });
+  } else {
+    // No explicit category filter means all categories are shown.
+    items.forEach((li) => li.classList.add('active'));
+  }
+
+  items.forEach((li, index) => {
+    li.classList.remove('active-start', 'active-middle', 'active-end');
+    if (!li.classList.contains('active')) return;
+    const prevActive = index > 0 && items[index - 1].classList.contains('active');
+    const nextActive = index < items.length - 1 && items[index + 1].classList.contains('active');
+    if (!prevActive && !nextActive) {
+      li.classList.add('active-start', 'active-end');
+    } else if (!prevActive && nextActive) {
+      li.classList.add('active-start');
+    } else if (prevActive && nextActive) {
+      li.classList.add('active-middle');
+    } else {
+      li.classList.add('active-end');
+    }
+  });
 }
 }()); 
 
