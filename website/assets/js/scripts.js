@@ -22,6 +22,26 @@
     };
     let useColorblindPalette = false;
     let categoryColors = { ...standardCategoryColors };
+    const CLASSIFICATION_DEFINITIONS = [
+        { code: 0, label: 'Never classified', patterns: ['never classified'], filterTags: [] },
+        { code: 1, label: 'Unclassified', patterns: ['unclassified'], filterTags: [] },
+        { code: 2, label: 'Ground', patterns: ['class 2', 'ground class', 'classified as ground', ' ground '], filterTags: ['ground'] },
+        { code: 3, label: 'Low vegetation', patterns: ['class 3', 'low vegetation'], filterTags: ['vegetation'] },
+        { code: 4, label: 'Medium vegetation', patterns: ['class 4', 'medium vegetation'], filterTags: ['vegetation'] },
+        { code: 5, label: 'High vegetation', patterns: ['class 5', 'high vegetation'], filterTags: ['vegetation'] },
+        { code: 6, label: 'Building', patterns: ['class 6', 'classification: building', 'classified as building', ' building ', ' buildings'], filterTags: ['building'] },
+        { code: 7, label: 'Low point / noise', patterns: ['class 7', 'low point', 'low points', 'noise'], filterTags: [] },
+        { code: 9, label: 'Water', patterns: ['class 9', 'classification: water', 'classified as water', ' water surface', ' water bodies'], filterTags: ['water'] },
+        { code: 10, label: 'Rail', patterns: ['class 10', 'rail'], filterTags: [] },
+        { code: 11, label: 'Road surface', patterns: ['class 11', 'road surface'], filterTags: [] },
+        { code: 12, label: 'Overlap', patterns: ['class 12', 'overlap'], filterTags: [] },
+        { code: 13, label: 'Wire guard / shield', patterns: ['class 13', 'wire guard', 'shield wire'], filterTags: [] },
+        { code: 14, label: 'Wire conductor / phase', patterns: ['class 14', 'wire conductor', 'wire phase', 'conductor'], filterTags: [] },
+        { code: 15, label: 'Transmission tower', patterns: ['class 15', 'transmission tower'], filterTags: [] },
+        { code: 16, label: 'Wire-structure connector', patterns: ['class 16', 'wire-structure connector', 'wire structure connector'], filterTags: [] },
+        { code: 17, label: 'Bridge deck', patterns: ['class 17', 'bridge deck'], filterTags: [] },
+        { code: 18, label: 'High noise', patterns: ['class 18', 'high noise'], filterTags: [] }
+    ];
 
     // State 
     let countriesData, regionsData, overviewMapData; 
@@ -46,6 +66,12 @@
     let mapFocusHandled = false;
     let countryFilterMetrics = new Map();
     let countryFilterMetricsPromise = null;
+    let availableClassificationFilterOptions = new Set();
+    const REGION_DRILLDOWN_ZOOM = 6.5;
+    const REGION_DRILLDOWN_EXIT_ZOOM = 6.2;
+    let regionDrilldownVisible = false;
+    let autoDrilldownCountryFeature = null;
+    const regionDataCache = new Map();
     const mapFilterState = {
         spatialMin: null,
         spatialMax: null,
@@ -60,6 +86,23 @@
         accuracy: { min: 0, max: 1, ready: false },
         year: { min: 2000, max: 2026, ready: false }
     };
+    const CATALOGUE_DATA_PATHS = [
+        '../data/catalogue.csv',
+        '../data/Quality_parameters_v10022026.csv'
+    ];
+
+    function fetchFirstAvailableText(paths) {
+        const tryAt = (index) => {
+            if (!Array.isArray(paths) || index >= paths.length) {
+                return Promise.reject(new Error('No data file found'));
+            }
+            return fetch(paths[index]).then((response) => {
+                if (!response.ok) return tryAt(index + 1);
+                return response.text();
+            });
+        };
+        return tryAt(0);
+    }
 
     // DOM 
     function showCountryTOC() { 
@@ -72,17 +115,189 @@
         document.getElementById('toc-region').style.display = 'block'; 
     } 
 
+    function getActiveRegionCountryFeature() {
+        return selectedCountryFeature || autoDrilldownCountryFeature || null;
+    }
+
+    function isStandardMapOverviewMode() {
+        return !selectedCountryFeature;
+    }
+
+    function getDrilldownRegionFeatures() {
+        if (!regionsData || !Array.isArray(regionsData.features)) return [];
+        const activeCountry = getActiveRegionCountryFeature();
+        const selectedName = normalizeCountryKey(activeCountry && activeCountry.properties && activeCountry.properties.Name);
+        return regionsData.features.filter((feature) => {
+            const featureName = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
+            return featureName && featureName !== selectedName;
+        });
+    }
+
+    function hasDrilldownRegions() {
+        return getDrilldownRegionFeatures().length > 0;
+    }
+
+    function ensureRegionsSource(rd) {
+        const mapRef = getMapInstance();
+        const activeCountry = getActiveRegionCountryFeature();
+        const activeCountryName = activeCountry && activeCountry.properties && activeCountry.properties.Name
+            ? activeCountry.properties.Name
+            : '';
+        if (!mapRef) return;
+        if (mapRef.getSource('regions')) {
+            mapRef.getSource('regions').setData(rd);
+            return;
+        }
+
+        mapRef.addSource('regions', { type: 'geojson', data: rd, generateId: true });
+        mapRef.addLayer({
+            id: 'region-fill',
+            type: 'fill',
+            source: 'regions',
+            filter: ['!=', ['get', 'Name'], activeCountryName],
+            layout: { visibility: 'none' },
+            paint: {
+                'fill-color': buildRegionFillExpression(),
+                'fill-opacity': 0.6
+            }
+        });
+        mapRef.addLayer({
+            id: 'region-border',
+            type: 'line',
+            source: 'regions',
+            layout: { visibility: 'none' },
+            paint: {
+                'line-color': ['case', ['==', ['get', 'Name'], activeCountryName], '#0367ff', '#003399'],
+                'line-width': ['case', ['==', ['get', 'Name'], activeCountryName], 4, 2]
+            }
+        });
+    }
+
+    function hideRegionsOnMap() {
+        const mapRef = getMapInstance();
+        if (!mapRef) return;
+        clearSelectedRegionHighlight();
+        if (mapRef.getLayer('region-fill')) mapRef.setLayoutProperty('region-fill', 'visibility', 'none');
+        if (mapRef.getLayer('region-border')) mapRef.setLayoutProperty('region-border', 'visibility', 'none');
+        if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
+        if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
+        applyCategoryFilterToMap();
+    }
+
+    function resolveCountryFeatureFromMapFeature(feature) {
+        if (!feature || !feature.properties) return null;
+        const parentCountryName = String(feature.properties.ParentCountry || '').trim();
+        const countryName = parentCountryName || String(feature.properties.Name || '').trim();
+        if (!countryName || !countriesData || !Array.isArray(countriesData.features)) return null;
+        const lookup = normalizeCountryKey(countryName);
+        return countriesData.features.find((candidate) =>
+            candidate &&
+            candidate.properties &&
+            candidate.properties.Name &&
+            !candidate.properties.RegionName &&
+            normalizeCountryKey(candidate.properties.Name) === lookup
+        ) || null;
+    }
+
+    function getCenteredCountryFeature() {
+        const mapRef = getMapInstance();
+        if (!mapRef || !mapRef.getLayer('country-fill')) return null;
+        const center = mapRef.project(mapRef.getCenter());
+        const features = mapRef.queryRenderedFeatures(center, { layers: ['country-fill'] });
+        if (!features || !features.length) return null;
+        return resolveCountryFeatureFromMapFeature(features[0]);
+    }
+
+    function syncRegionDrilldownForZoom() {
+        const mapRef = getMapInstance();
+        if (!mapRef) return;
+
+        if (!isStandardMapOverviewMode()) {
+            if (regionDrilldownVisible || autoDrilldownCountryFeature) {
+                regionDrilldownVisible = false;
+                autoDrilldownCountryFeature = null;
+                hideRegionsOnMap();
+            }
+            return;
+        }
+
+        const zoom = mapRef.getZoom();
+        if (zoom < REGION_DRILLDOWN_EXIT_ZOOM) {
+            regionDrilldownVisible = false;
+            autoDrilldownCountryFeature = null;
+            hideRegionsOnMap();
+            return;
+        }
+
+        if (zoom < REGION_DRILLDOWN_ZOOM) {
+            if (regionDrilldownVisible) {
+                regionDrilldownVisible = false;
+                autoDrilldownCountryFeature = null;
+                hideRegionsOnMap();
+            }
+            return;
+        }
+
+        const targetCountry = getCenteredCountryFeature();
+        if (!targetCountry || !targetCountry.properties || !targetCountry.properties.Name) {
+            regionDrilldownVisible = false;
+            autoDrilldownCountryFeature = null;
+            hideRegionsOnMap();
+            return;
+        }
+
+        const targetKey = normalizeCountryKey(targetCountry.properties.Name);
+        const activeCountry = getActiveRegionCountryFeature();
+        const activeKey = normalizeCountryKey(activeCountry && activeCountry.properties && activeCountry.properties.Name);
+        if (regionDrilldownVisible && activeKey === targetKey && hasDrilldownRegions()) return;
+
+        autoDrilldownCountryFeature = targetCountry;
+
+        fetchCountryRegions(targetCountry.properties.Name)
+            .then((rd) => {
+                const currentMap = getMapInstance();
+                const currentActiveCountry = getActiveRegionCountryFeature();
+                const currentKey = normalizeCountryKey(currentActiveCountry && currentActiveCountry.properties && currentActiveCountry.properties.Name);
+                if (!currentMap || currentMap.getZoom() < REGION_DRILLDOWN_ZOOM || currentKey !== targetKey) return;
+
+                if (rd && rd.features) {
+                    rd.features.forEach((f, i) => {
+                        if (f.id === undefined) f.id = i;
+                        f.properties.RawDataTypes = f.properties.Data || 'No Info';
+                        f.properties.DataDisplay = getDisplayDataType(f.properties.Data || 'No Info');
+                        f.properties.Data = normalizeCat(f.properties.Data);
+                        setFeatureCategorySupport(f.properties);
+                    });
+                }
+
+                regionsData = rd;
+                regionDrilldownVisible = hasDrilldownRegions();
+                if (!regionDrilldownVisible) {
+                    hideRegionsOnMap();
+                    return;
+                }
+                showRegionsOnMap(regionsData);
+            })
+            .catch(() => {
+                if (!selectedCountryFeature) autoDrilldownCountryFeature = null;
+                regionDrilldownVisible = false;
+                hideRegionsOnMap();
+            });
+    }
+
     function buildRegionFileCandidates(countryName) {
         const base = String(countryName || '').toLowerCase().trim();
         const underscored = base.replace(/\s+/g, '_');
         return [
-            `data/region_map_data_${underscored}.geojson`,
-            `data/region_map_data_${base}.geojson`
+            `../data/region_map_data_${underscored}.geojson`,
+            `../data/region_map_data_${base}.geojson`
         ];
     }
 
     function fetchCountryRegions(countryName) {
         const candidates = buildRegionFileCandidates(countryName);
+        const cacheKey = normalizeCountryKey(countryName);
+        if (regionDataCache.has(cacheKey)) return regionDataCache.get(cacheKey);
         const tryAt = (index) => {
             if (index >= candidates.length) return Promise.reject(new Error('No region file found'));
             return fetch(candidates[index]).then((res) => {
@@ -90,16 +305,14 @@
                 return res.json();
             });
         };
-        return tryAt(0);
+        const request = tryAt(0);
+        regionDataCache.set(cacheKey, request);
+        return request;
     }
 
     function loadLocationSearchIndex() {
         if (locationSearchIndexPromise) return locationSearchIndexPromise;
-        locationSearchIndexPromise = fetch('data/catalogue.csv')
-            .then((response) => {
-                if (!response.ok) throw new Error('catalogue missing');
-                return response.text();
-            })
+        locationSearchIndexPromise = fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
             .then((csvText) => {
                 const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
                 const commaCount = (firstLine.match(/,/g) || []).length;
@@ -259,14 +472,182 @@
             .filter((year) => Number.isInteger(year)) || [];
     }
 
+    function splitLinkedSeries(value) {
+        if (value === null || value === undefined) return [];
+        const text = String(value).trim();
+        if (!text || !text.includes(' || ')) return [];
+        return text.split(/\s*\|\|\s*/).map((part) => String(part || '').trim()).filter(Boolean);
+    }
+
+    function getLatestYearScore(...values) {
+        for (let i = 0; i < values.length; i += 1) {
+            const years = parseYearValues(values[i]);
+            if (years.length) return Math.max(...years);
+        }
+        return Number.NEGATIVE_INFINITY;
+    }
+
+    function getLatestRepresentativeIndex(properties) {
+        if (!properties) return 0;
+
+        const yearEndParts = splitLinkedSeries(
+            properties.year_end ||
+            properties['Year end'] ||
+            properties['Acquisition end'] ||
+            properties['End year']
+        );
+        const yearBeginParts = splitLinkedSeries(
+            properties.year_begin ||
+            properties['Year begin'] ||
+            properties['Acquisition start'] ||
+            properties['Start year']
+        );
+        const legacyYearParts = splitLinkedSeries(properties.Year);
+        const datasetNameParts = splitLinkedSeries(
+            properties['Data Name'] ||
+            properties['Data name'] ||
+            properties.Dataset ||
+            properties['Dataset Name'] ||
+            properties.dataset_name
+        );
+        const dataTypeParts = splitLinkedSeries(properties.DataDisplay || properties['Data display'] || properties.Data);
+
+        const partCount = Math.max(
+            yearEndParts.length,
+            yearBeginParts.length,
+            legacyYearParts.length,
+            datasetNameParts.length,
+            dataTypeParts.length
+        );
+        if (partCount <= 1) return 0;
+
+        let bestIndex = 0;
+        let bestScore = Number.NEGATIVE_INFINITY;
+        for (let index = 0; index < partCount; index += 1) {
+            const score = getLatestYearScore(
+                yearEndParts[index],
+                yearBeginParts[index],
+                legacyYearParts[index]
+            );
+            if (score > bestScore || (score === bestScore && index > bestIndex)) {
+                bestScore = score;
+                bestIndex = index;
+            }
+        }
+        return bestIndex;
+    }
+
+    function valueAtRepresentativeIndex(value, index) {
+        const parts = splitLinkedSeries(value);
+        if (!parts.length) return value;
+        const safeIndex = Math.max(0, Math.min(index, parts.length - 1));
+        return parts[safeIndex];
+    }
+
+    function getAvailableDataCategories(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return ['No Info'];
+        const tokens = raw
+            .replace(/\s*\|\|\s*/g, ',')
+            .split(/\s*,\s*/)
+            .map((token) => token.trim())
+            .filter(Boolean);
+        const categories = new Set();
+        tokens.forEach((token) => {
+            const category = normalizeCat(token);
+            if (category) categories.add(category);
+        });
+        return categories.size ? Array.from(categories) : ['No Info'];
+    }
+
+    function categorySupportProperty(category) {
+        switch (normalizeCat(category)) {
+            case 'Pointcloud': return 'SupportsPointcloud';
+            case 'DEM': return 'SupportsDEM';
+            case 'Region': return 'SupportsRegion';
+            default: return 'SupportsNoInfo';
+        }
+    }
+
+    function setFeatureCategorySupport(properties, extraCategories) {
+        if (!properties) return properties;
+        const rawCategories = getAvailableDataCategories(
+            properties.RawDataTypes ||
+            properties.DataDisplay ||
+            properties['Data display'] ||
+            properties.Data
+        );
+        const mergedCategories = new Set(rawCategories);
+        (extraCategories || []).forEach((category) => {
+            const normalized = normalizeCat(category);
+            if (normalized) mergedCategories.add(normalized);
+        });
+        if (!mergedCategories.size) mergedCategories.add('No Info');
+        properties.SupportsPointcloud = mergedCategories.has('Pointcloud');
+        properties.SupportsDEM = mergedCategories.has('DEM');
+        properties.SupportsRegion = mergedCategories.has('Region');
+        properties.SupportsNoInfo = mergedCategories.has('No Info');
+        properties.AvailableCategories = Array.from(mergedCategories).join('|');
+        return properties;
+    }
+
+    function featureSupportsCategory(featureOrProperties, category) {
+        const properties = featureOrProperties && featureOrProperties.properties
+            ? featureOrProperties.properties
+            : featureOrProperties;
+        if (!properties) return false;
+        const propName = categorySupportProperty(category);
+        if (Object.prototype.hasOwnProperty.call(properties, propName)) {
+            return !!properties[propName];
+        }
+        return getAvailableDataCategories(
+            properties.RawDataTypes ||
+            properties.DataDisplay ||
+            properties['Data display'] ||
+            properties.Data
+        ).includes(normalizeCat(category));
+    }
+
+    function getFeatureAvailableCategories(featureOrProperties) {
+        const properties = featureOrProperties && featureOrProperties.properties
+            ? featureOrProperties.properties
+            : featureOrProperties;
+        if (!properties) return [];
+        return ['Pointcloud', 'DEM', 'No Info', 'Region'].filter((category) =>
+            featureSupportsCategory(properties, category)
+        );
+    }
+
+    function getActiveCategorySelection() {
+        return activeLegendCategories.size
+            ? Array.from(activeLegendCategories)
+            : (activeCategory ? [activeCategory] : []);
+    }
+
+    function getFeatureDisplayColor(featureOrProperties) {
+        const properties = featureOrProperties && featureOrProperties.properties
+            ? featureOrProperties.properties
+            : featureOrProperties;
+        const selectedCats = getActiveCategorySelection();
+        if (selectedCats.length === 1 && featureSupportsCategory(properties, selectedCats[0])) {
+            return getCatColor(selectedCats[0]);
+        }
+        return getCatColor((properties && properties.Data) || 'No Info');
+    }
+
+    function getAvailableClassifications(infoText) {
+        const text = ` ${String(infoText || '').toLowerCase()} `;
+        if (!text.trim()) return [];
+        return CLASSIFICATION_DEFINITIONS.filter((entry) =>
+            Array.isArray(entry.patterns) && entry.patterns.some((pattern) => text.includes(pattern))
+        );
+    }
+
     function detectClassificationTags(infoText) {
-        const text = String(infoText || '').toLowerCase();
         const tags = new Set();
-        if (!text) return tags;
-        if (/classification|class 2|ground/.test(text)) tags.add('ground');
-        if (/class 3|class 4|class 5|vegetation/.test(text)) tags.add('vegetation');
-        if (/class 6|building/.test(text)) tags.add('building');
-        if (/class 9|water/.test(text)) tags.add('water');
+        getAvailableClassifications(infoText).forEach((entry) => {
+            (entry.filterTags || []).forEach((tag) => tags.add(tag));
+        });
         return tags;
     }
 
@@ -330,11 +711,7 @@
 
     function loadCountryFilterMetrics() {
         if (countryFilterMetricsPromise) return countryFilterMetricsPromise;
-        countryFilterMetricsPromise = fetch('data/catalogue.csv')
-            .then((response) => {
-                if (!response.ok) throw new Error('catalogue missing');
-                return response.text();
-            })
+        countryFilterMetricsPromise = fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
             .then((csvText) => {
                 const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
                 const commaCount = (firstLine.match(/,/g) || []).length;
@@ -354,6 +731,8 @@
                 };
 
                 const metrics = new Map();
+                const availableFilterTags = new Set();
+                let hasAnyClassificationInfo = false;
                 rows.slice(1).forEach((rawRow) => {
                     if (!rawRow.some((v) => String(v).trim() !== '')) return;
                     const row = {};
@@ -363,29 +742,31 @@
                     const countryKey = normalizeCountryKey(countryName);
                     if (!countryKey) return;
 
-                    if (!metrics.has(countryKey)) {
-                        metrics.set(countryKey, {
-                            spatialValues: [],
-                            accuracyValues: [],
-                            years: [],
-                            classifications: new Set(),
-                            hasClassification: false
-                        });
-                    }
-                    const item = metrics.get(countryKey);
-                    [row.avg_dens, row.national, row.urban].forEach((value) => {
-                        const n = toNumeric(value);
-                        if (Number.isFinite(n)) item.spatialValues.push(n);
-                    });
-                    [row.avg_plan, row.avg_alti, row.planimetric, row.altimetric].forEach((value) => {
-                        const n = toNumeric(value);
-                        if (Number.isFinite(n)) item.accuracyValues.push(n);
-                    });
-                    parseYearValues(row.year).forEach((year) => item.years.push(year));
+                    const filterYearValue = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear', 'year');
                     const classes = detectClassificationTags(row.info);
-                    if (classes.size) {
-                        item.hasClassification = true;
-                        classes.forEach((tag) => item.classifications.add(tag));
+                    const spatialValues = [row.avg_dens, row.national, row.urban]
+                        .map((value) => toNumeric(value))
+                        .filter((value) => Number.isFinite(value));
+                    const accuracyValues = [row.avg_plan, row.avg_alti, row.planimetric, row.altimetric]
+                        .map((value) => toNumeric(value))
+                        .filter((value) => Number.isFinite(value));
+                    const years = parseYearValues(filterYearValue);
+                    const representativeYearScore = getLatestYearScore(
+                        filterYearValue,
+                        readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear'),
+                        readFirst(row, 'year')
+                    );
+
+                    const current = metrics.get(countryKey);
+                    if (!current || representativeYearScore > current.representativeYearScore || (representativeYearScore === current.representativeYearScore && years.length)) {
+                        metrics.set(countryKey, {
+                            spatial: computeRange(spatialValues),
+                            accuracy: computeRange(accuracyValues),
+                            year: computeRange(years),
+                            classifications: classes,
+                            hasClassification: classes.size > 0,
+                            representativeYearScore
+                        });
                     }
                 });
 
@@ -393,12 +774,16 @@
                 const accuracyPool = [];
                 const yearPool = [];
                 metrics.forEach((item, countryKey) => {
-                    const spatial = computeRange(item.spatialValues);
-                    const accuracy = computeRange(item.accuracyValues);
-                    const year = computeRange(item.years);
+                    const spatial = item.spatial;
+                    const accuracy = item.accuracy;
+                    const year = item.year;
                     if (Number.isFinite(spatial.min)) spatialPool.push(spatial.min, spatial.max);
                     if (Number.isFinite(accuracy.min)) accuracyPool.push(accuracy.min, accuracy.max);
                     if (Number.isFinite(year.min)) yearPool.push(year.min, year.max);
+                    if (item.hasClassification) {
+                        hasAnyClassificationInfo = true;
+                        item.classifications.forEach((tag) => availableFilterTags.add(tag));
+                    }
                     metrics.set(countryKey, {
                         spatial,
                         accuracy,
@@ -407,6 +792,8 @@
                         hasClassification: item.hasClassification
                     });
                 });
+                availableClassificationFilterOptions = new Set(availableFilterTags);
+                if (hasAnyClassificationInfo) availableClassificationFilterOptions.add('has');
 
                 if (spatialPool.length) {
                     mapFilterBounds.spatial = {
@@ -458,15 +845,22 @@
                     const features = (rd && rd.features ? rd.features : [])
                         .filter((rf) => String((rf.properties && rf.properties.Name) || '').toLowerCase() !== countryNameLc)
                         .map((rf) => ({
+                            ...(rf || {}),
                             type: 'Feature',
                             properties: {
                                 ...(rf.properties || {}),
+                                RawDataTypes: (rf.properties || {}).Data || 'No Info',
+                                DataDisplay: getDisplayDataType((rf.properties || {}).Data || 'No Info'),
                                 Data: normalizeCat((rf.properties || {}).Data || 'No Info'),
                                 ParentCountry: countryName,
                                 infoStatus: 'regionchild'
                             },
                             geometry: rf.geometry
-                        }));
+                        }))
+                        .map((feature) => {
+                            setFeatureCategorySupport(feature.properties);
+                            return feature;
+                        });
                     return { countryName, features };
                 })
                 .catch(() => ({ countryName, features: [] }));
@@ -481,6 +875,10 @@
             baseCountries.forEach((country) => {
                 const countryName = country.properties.Name;
                 const replacement = replacementByCountry[countryName];
+                const regionalCategories = Array.isArray(replacement)
+                    ? replacement.flatMap((feature) => getFeatureAvailableCategories(feature.properties))
+                    : [];
+                setFeatureCategorySupport(country.properties, regionalCategories);
                 if (Array.isArray(replacement) && replacement.length) {
                     merged.push(...replacement);
                 } else {
@@ -494,8 +892,10 @@
     function overviewReset(keepView) { 
         activeCategory = null; 
         activeLegendCategories.clear();
+        clearSelectedRegionHighlight();
         selectedCountryFeature = null; 
-        selectedRegionFeatureId = null; 
+        autoDrilldownCountryFeature = null;
+        regionDrilldownVisible = false;
         clearDatasetRegionSelection();
         regionsData = null; 
         document.getElementById('tocSearch').value = ''; 
@@ -506,13 +906,7 @@
         if (mapRef) { 
             if (mapRef.getLayer('country-fill')) mapRef.setLayoutProperty('country-fill', 'visibility', 'visible'); 
             if (mapRef.getLayer('country-border')) mapRef.setLayoutProperty('country-border', 'visibility', 'visible'); 
-            if (mapRef.getLayer('region-fill')) mapRef.removeLayer('region-fill'); 
-            if (mapRef.getLayer('region-border')) mapRef.removeLayer('region-border'); 
-            if (mapRef.getSource('regions')) mapRef.removeSource('regions'); 
-            // clear any filters that may hide countries
-            if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
-            if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
-            applyCategoryFilterToMap(); 
+            hideRegionsOnMap();
             syncLegendSelectionVisuals();
             if (!keepView) {
                 mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
@@ -545,11 +939,16 @@
     const mobileSearchToggle = document.getElementById('mobileSearchToggle');
     const mobileMenuToggle = document.getElementById('mobileMenuToggle');
     const mobileMenu = document.getElementById('mobileMenu');
+    const mobileContactToggle = document.getElementById('mobileContactToggle');
     const mobileFilterBtn = document.getElementById('mobileFilterBtn');
     const filterDockToggle = document.getElementById('filterDockToggle');
     const mobileSearchOverlay = document.getElementById('mobileSearchOverlay');
     const mobileSearchInput = document.getElementById('mobileSearchInput');
     const mobileSearchHint = document.getElementById('mobileSearchHint');
+    const contactToggle = document.getElementById('tab-contact');
+    const contactDrawer = document.getElementById('contactDrawer');
+    const contactDrawerOverlay = document.getElementById('contactDrawerOverlay');
+    const contactDrawerClose = document.getElementById('contactDrawerClose');
     const tabSearch = document.getElementById('tab-search');
     const tabFilter = document.getElementById('tab-filter');
     const filterMenu = document.getElementById('filterMenu');
@@ -694,6 +1093,26 @@
         }
         document.getElementById('tab-title').classList.add('hidden');
     };
+    const closeContactDrawer = () => {
+        if (!contactDrawer || !contactDrawerOverlay) return;
+        contactDrawer.classList.remove('open');
+        contactDrawerOverlay.classList.remove('open');
+        contactDrawer.setAttribute('aria-hidden', 'true');
+        contactDrawerOverlay.setAttribute('aria-hidden', 'true');
+        if (contactToggle) contactToggle.setAttribute('aria-expanded', 'false');
+        document.body.classList.remove('contact-drawer-open');
+    };
+    const openContactDrawer = () => {
+        if (!contactDrawer || !contactDrawerOverlay) return;
+        closeSearch();
+        if (mobileMenu) mobileMenu.classList.remove('open');
+        contactDrawer.classList.add('open');
+        contactDrawerOverlay.classList.add('open');
+        contactDrawer.setAttribute('aria-hidden', 'false');
+        contactDrawerOverlay.setAttribute('aria-hidden', 'false');
+        if (contactToggle) contactToggle.setAttribute('aria-expanded', 'true');
+        document.body.classList.add('contact-drawer-open');
+    };
 
     const updateTrackFill = (minInput, maxInput, trackEl) => {
         if (!minInput || !maxInput || !trackEl) return;
@@ -726,6 +1145,20 @@
             return;
         }
         filterClassificationToggle.textContent = `${selected.length} classes selected`;
+    };
+
+    const refreshClassificationFilterMenu = () => {
+        if (!filterClassificationChecks.length) return;
+        filterClassificationChecks.forEach((check) => {
+            const wrapper = check.closest('label');
+            const isAvailable = availableClassificationFilterOptions.has(check.value);
+            if (wrapper) wrapper.style.display = isAvailable ? '' : 'none';
+            if (!isAvailable) {
+                check.checked = false;
+                mapFilterState.classifications.delete(check.value);
+            }
+        });
+        updateClassificationLabel();
     };
 
     const formatRangeValue = (value) => {
@@ -785,6 +1218,7 @@
                 check.checked = mapFilterState.classifications.has(check.value);
             });
         }
+        refreshClassificationFilterMenu();
         updateClassificationLabel();
         updateRangeValueLabels();
     };
@@ -881,6 +1315,30 @@
             link.addEventListener('click', () => mobileMenu.classList.remove('open'));
         });
     }
+    if (contactToggle) {
+        contactToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (contactDrawer && contactDrawer.classList.contains('open')) closeContactDrawer();
+            else openContactDrawer();
+        });
+    }
+    if (mobileContactToggle) {
+        mobileContactToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openContactDrawer();
+        });
+    }
+    if (contactDrawerClose) {
+        contactDrawerClose.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeContactDrawer();
+        });
+    }
+    if (contactDrawerOverlay) {
+        contactDrawerOverlay.addEventListener('click', closeContactDrawer);
+    }
     if (mobileFilterBtn) {
         mobileFilterBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -964,6 +1422,12 @@
         if (mobileMenu && mobileMenu.classList.contains('open') && !mobileMenu.contains(e.target) && !mobileMenuToggle.contains(e.target)) {
             mobileMenu.classList.remove('open');
         }
+        if (contactDrawer && contactDrawer.classList.contains('open') &&
+            !contactDrawer.contains(e.target) &&
+            (!contactToggle || !contactToggle.contains(e.target)) &&
+            (!mobileContactToggle || !mobileContactToggle.contains(e.target))) {
+            closeContactDrawer();
+        }
         const menu = document.getElementById('dataMenu');
         if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !dataTab.contains(e.target)) {
             menu.style.display = 'none';
@@ -981,6 +1445,11 @@
             if (filterClassificationToggle) filterClassificationToggle.setAttribute('aria-expanded', 'false');
         }
     }, true);
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && contactDrawer && contactDrawer.classList.contains('open')) {
+            closeContactDrawer();
+        }
+    });
     window.addEventListener('resize', () => {
         if (tabSearch && tabSearch.classList.contains('open')) positionSearch(tocSearchToggle);
     });
@@ -1143,17 +1612,26 @@
 
     // Load data 
     if (document.body.classList.contains('map-page')) {
-        fetch('data/map_data_overview.geojson')
+        fetch('../data/map_data_overview.geojson')
         .then(r => r.json()) 
         .then(cd => { 
             countriesData = cd; 
             countriesData.features.forEach((f, i) => { 
                 if (f.id === undefined) f.id = i; 
-                const d = f.properties.Data; 
-                if (!d || d.trim() === '') { 
+                const representativeIndex = getLatestRepresentativeIndex(f.properties);
+                const rawDataValue = f.properties.Data;
+                const representativeDataValue = valueAtRepresentativeIndex(rawDataValue, representativeIndex);
+                f.properties.RepresentativeSeriesIndex = representativeIndex;
+                f.properties.RawDataTypes = rawDataValue || 'No Info';
+                f.properties.DataDisplay = getDisplayDataType(rawDataValue || 'No Info');
+                if (!representativeDataValue || representativeDataValue.trim() === '') { 
                     f.properties.Data = 'No Info'; // altijd zelfde notatie 
+                    f.properties.DataDisplay = 'No Info';
+                } else {
+                    f.properties.Data = normalizeCat(representativeDataValue);
                 } 
-                f.properties.infoStatus = d ? (d.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
+                setFeatureCategorySupport(f.properties);
+                f.properties.infoStatus = representativeDataValue ? (representativeDataValue.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
             }); 
             return buildOverviewMapData();
         })
@@ -1194,27 +1672,54 @@
                     activeCategory = null; 
                     renderCountriesList(); 
                     syncLegendSelectionVisuals();
+                    applyCategoryFilterToMap();
                     return; 
                 } 
                 activeCategory = cat; 
                 btn.classList.add('active'); 
                 renderCountriesList(); 
                 syncLegendSelectionVisuals();
+                applyCategoryFilterToMap();
             }; 
             legendCatsEl.appendChild(btn); 
         }); 
     } 
 
+    function getDisplayDataType(value) {
+        return String(value || '').trim();
+    }
+
+    function getPrimaryDataCategory(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return 'No Info';
+        const tokens = raw.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean);
+        if (!tokens.length) return 'No Info';
+        if (tokens.includes('region')) return 'Region';
+        if (tokens.includes('pointcloud') || tokens.includes('point cloud')) return 'Pointcloud';
+        if (tokens.includes('dem') || tokens.includes('digital elevation model')) return 'DEM';
+        if (tokens.includes('no info') || tokens.includes('noinfo') || tokens.includes('geen info')) return 'No Info';
+        return raw;
+    }
+
     // NIEUW: normaliseer categorie-naam naar vaste set 
     function normalizeCat(cat) { 
-        if (!cat) return 'No Info'; 
-        const n = String(cat).trim().toLowerCase(); 
-        if (n === 'region') return 'Region'; 
-        if (n === 'pointcloud' || n === 'point cloud') return 'Pointcloud'; 
-        if (n === 'dem' || n === 'digital elevation model') return 'DEM'; 
-        if (n === 'no info' || n === 'noinfo' || n === 'geen info') return 'No Info'; 
-        return cat; // laat onbekende labels intact 
+        return getPrimaryDataCategory(cat);
     } 
+
+    function formatDatasetTypeLabel(value) {
+        const raw = String(value || '').trim();
+        if (!raw) return 'N/A';
+        const tokens = raw.split(',').map((token) => token.trim()).filter(Boolean);
+        if (!tokens.length) return raw;
+        const normalized = tokens.map((token) => {
+            const lower = token.toLowerCase();
+            if (lower === 'pointcloud' || lower === 'point cloud') return 'Pointcloud';
+            if (lower === 'dem' || lower === 'digital elevation model') return 'DEM';
+            if (lower === 'region') return 'Region';
+            return token;
+        });
+        return normalized.join(' and ');
+    }
 
     // NIEUW: haal kleur op ongeacht hoofdletters/varianten 
     function getCatColor(cat) { 
@@ -1222,9 +1727,13 @@
     } 
 
     function buildCountryFillExpression() {
+        const selectedCats = getActiveCategorySelection();
+        const focusedCategory = selectedCats.length === 1 ? selectedCats[0] : null;
+        const focusedProperty = focusedCategory ? categorySupportProperty(focusedCategory) : null;
         return [
             'case',
             ['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'),
+            ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
             ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
             ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
             ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
@@ -1232,17 +1741,48 @@
         ];
     }
 
+    function hasCountrySummaryInfo(properties) {
+        const values = [
+            properties && properties.Info,
+            properties && properties.Type,
+            properties && properties.National,
+            properties && properties.Urban,
+            properties && properties.Planimetric,
+            properties && properties.Altimetric,
+            properties && properties.Year,
+            properties && properties.Link,
+            properties && properties['XY Ref'],
+            properties && properties['Z Ref']
+        ];
+        return values.some((value) => value !== null && value !== undefined && String(value).trim() !== '');
+    }
+
     function buildRegionFillExpression() {
+        const selectedCats = getActiveCategorySelection();
+        const focusedCategory = selectedCats.length === 1 ? selectedCats[0] : null;
+        const focusedProperty = focusedCategory ? categorySupportProperty(focusedCategory) : null;
         return [
             'case',
-            ['boolean', ['feature-state', 'selected'], false], '#ffe900',
             ['boolean', ['feature-state', 'datasetSelected'], false], '#ffb703',
-            ['==', ['downcase', ['get', 'Data']], 'region'], getCatColor('Region'),
-            ['==', ['downcase', ['get', 'Data']], 'pointcloud'], getCatColor('Pointcloud'),
-            ['==', ['downcase', ['get', 'Data']], 'dem'], getCatColor('DEM'),
-            ['==', ['downcase', ['get', 'Data']], 'no info'], getCatColor('No Info'),
+            ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
+            ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
+            ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
+            ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
+            ['==', ['get', 'Data'], 'No Info'], getCatColor('No Info'),
             getCatColor('No Info')
         ];
+    }
+
+    function clearSelectedRegionHighlight() {
+        const mapRef = getMapInstance();
+        if (!mapRef || selectedRegionFeatureId === null || !mapRef.getSource('regions')) {
+            selectedRegionFeatureId = null;
+            return;
+        }
+        try {
+            mapRef.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false });
+        } catch (e) {}
+        selectedRegionFeatureId = null;
     }
 
     function clearDatasetRegionSelection() {
@@ -1330,9 +1870,7 @@
         showCountryTOC(); 
         let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName); 
         const q = tocSearch.value.trim().toLowerCase(); 
-        const selectedCats = activeLegendCategories.size
-            ? Array.from(activeLegendCategories)
-            : (activeCategory ? [activeCategory] : []);
+        const selectedCats = getActiveCategorySelection();
         const hasFilter = isFilterActive();
         if (!q && !selectedCats.length && !hasFilter) { 
             countryListEl.innerHTML = ''; 
@@ -1343,7 +1881,7 @@
             countries = countries.filter(f => f.properties.Name.toLowerCase().includes(q)); 
         } 
         if (selectedCats.length) { 
-            countries = countries.filter(f => selectedCats.includes(normalizeCat(f.properties.Data || 'No Info'))); 
+            countries = countries.filter((f) => selectedCats.some((category) => featureSupportsCategory(f, category))); 
             dividerLine.style.display = 'block'; 
         } else { 
             dividerLine.style.display = 'none'; 
@@ -1357,7 +1895,7 @@
         countries.forEach((c, idx) => { 
             const li = document.createElement('li'); 
             li.className = 'country-item'; 
-            li.style.setProperty('--cat-color', getCatColor(c.properties.Data)); 
+            li.style.setProperty('--cat-color', getFeatureDisplayColor(c.properties)); 
             const a = document.createElement('a'); 
             a.href = '#'; 
             a.textContent = c.properties.Name; 
@@ -1376,7 +1914,7 @@
         const regionFilterBtns = document.getElementById('regionFilterBtns'); 
         regionFilterBtns.innerHTML = ''; 
         regionFilterBtns.className = 'legend-categories'; 
-        const countryDataType = selectedCountryFeature?.properties?.Data || 'No Info'; 
+            const countryDataType = selectedCountryFeature?.properties?.Data || 'No Info'; 
 
         // Overview knop (altijd) 
         const homeBtn = document.createElement('button'); 
@@ -1399,8 +1937,8 @@
 
         // Bepaal beschikbare categorieën 
         if (regionsData && regionsData.features && regionsData.features.length > 0) { 
-            const catsAvailable = [...new Set( 
-                regionsData.features.map(f => normalizeCat(f.properties.Data || 'No Info')) 
+            const catsAvailable = [...new Set(
+                regionsData.features.flatMap((f) => getFeatureAvailableCategories(f.properties))
             )]; 
             catsAvailable.forEach(cat => { 
                 if (cat === 'Country data') return; 
@@ -1412,7 +1950,7 @@
                     [...regionFilterBtns.children].forEach(b => b.classList.remove('active')); 
                     btn.classList.add('active'); 
                     const filteredRegions = regionsData.features.filter( 
-                        f => normalizeCat(f.properties.Data || 'No Info') === cat 
+                        f => featureSupportsCategory(f, cat)
                     ); 
                     showRegionList(filteredRegions, cat); 
                 }; 
@@ -1425,20 +1963,23 @@
 
     function returnToCountryView() {
         if (!selectedCountryFeature || !selectedCountryFeature.properties) return;
-        const mainRegion = regionsData && regionsData.features
-            ? regionsData.features.find(
-                f => (f.properties.Name || '').toLowerCase() === (selectedCountryFeature.properties.Name || '').toLowerCase()
-            )
-            : null;
-        if (mainRegion) {
-            selectRegion(mainRegion.id, mainRegion.properties);
-        } else {
-            clearDatasetRegionSelection();
-            showInfo(selectedCountryFeature.properties, false);
+        const mapRef = getMapInstance();
+        autoDrilldownCountryFeature = null;
+        regionDrilldownVisible = false;
+        if (mapRef && selectedRegionFeatureId !== null && mapRef.getSource('regions')) {
             try {
-                zoomTo(selectedCountryFeature, 45);
+                mapRef.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false });
             } catch (e) {}
         }
+        selectedRegionFeatureId = null;
+        hideRegionsOnMap();
+        showCountryTOC();
+        renderCountriesList();
+        clearDatasetRegionSelection();
+        showInfo(selectedCountryFeature.properties, false);
+        try {
+            zoomTo(selectedCountryFeature, 45);
+        } catch (e) {}
     }
 
     // AANGEPAST: kleurblokjes in de regio-lijst via getCatColor 
@@ -1457,7 +1998,7 @@
             const li = document.createElement('li'); 
             li.className = 'country-item'; 
             li.textContent = f.properties.Name; 
-            li.style.setProperty('--cat-color', getCatColor(normalizeCat(f.properties.Data))); 
+            li.style.setProperty('--cat-color', getFeatureDisplayColor(f.properties)); 
             li.onclick = () => { 
                 const region = regionsData.features.find(r => r.id === f.id); 
                 if (region) { 
@@ -1472,57 +2013,53 @@
     } 
 
     function handleCountrySelect(feature) { 
+        clearSelectedRegionHighlight();
         selectedCountryFeature = feature; 
-        fetch(`data/region_map_data_${feature.properties.Name.toLowerCase().replace(/\s+/g, '_')}.geojson`)
-
-
-        .then(r => r.ok ? r.json() : Promise.reject()) 
+        autoDrilldownCountryFeature = null;
+        regionDrilldownVisible = false;
+        fetchCountryRegions(feature.properties.Name)
         .then(rd => { 
             if (rd && rd.features) { 
                 rd.features.forEach((f, i) => { 
                     if (f.id === undefined) f.id = i; 
+                    f.properties.RawDataTypes = f.properties.Data || 'No Info';
+                    f.properties.DataDisplay = getDisplayDataType(f.properties.Data || 'No Info');
                     f.properties.Data = normalizeCat(f.properties.Data); 
+                    setFeatureCategorySupport(f.properties);
                 }); 
             } 
             regionsData = rd; 
             let mainRegion = regionsData.features.find( 
                 f => (f.properties.Name || '').toLowerCase() === (feature.properties.Name || '').toLowerCase() 
             ); 
+            const regionalChildren = regionsData.features.filter(
+                (f) => (f.properties.Name || '').toLowerCase() !== (feature.properties.Name || '').toLowerCase()
+            );
             selectedCountryFeature.mainRegion = mainRegion || null; 
-            if (mainRegion) { 
-                // Prefer the main region 
-                showInfo(mainRegion.properties, true); 
-                if (map.getSource('regions')) { 
-                    if (selectedRegionFeatureId !== null) { 
-                        map.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false }); 
-                    } 
-                    selectedRegionFeatureId = mainRegion.id; 
-                    map.setFeatureState({ source: 'regions', id: mainRegion.id }, { selected: true }); 
-                } else { 
-                    selectedRegionFeatureId = mainRegion.id; 
-                } 
-                try { 
-                    const bbox = turf.bbox(mainRegion); 
-                    map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 20, duration: 1000, pitch: 45, bearing: 0 }); 
-                } catch (e) {} 
-            } else { 
-                // Fallback: no region found 
-                showInfo(feature.properties, false); 
-            } 
-            renderRegionList(); 
-            showRegionsOnMap(regionsData); // These must always run 
-            if (mainRegion) {
-                showInfo(mainRegion.properties, true);
+            showRegionsOnMap(regionsData);
+            showRegionTOC();
+            renderRegionList();
+            if (!hasCountrySummaryInfo(feature.properties) && regionalChildren.length) {
+                showTab('toc');
+                selectRegion(regionalChildren[0].id, regionalChildren[0].properties);
+                map.setMinZoom(2);
+                return;
             }
+            showInfo(feature.properties, false);
             showTab('toc'); 
-            map.setMinZoom(5); 
+            zoomTo(feature, 0);
+            map.setMinZoom(2); 
         }) 
         .catch(() => { 
+            autoDrilldownCountryFeature = null;
+            regionDrilldownVisible = false;
             regionsData = { type: 'FeatureCollection', features: [] }; 
-            renderRegionList(); 
+            hideRegionsOnMap();
+            showCountryTOC();
             showInfo(feature.properties, false); 
             showTab('toc'); 
-            map.setMinZoom(5); 
+            zoomTo(feature, 0);
+            map.setMinZoom(2); 
         }); 
     } 
 
@@ -1663,6 +2200,10 @@
                     if (regionFeatures.length) {
                         const regionFeature = regionFeatures[0];
                         if (regionFeature && regionFeature.id !== undefined) {
+                            if (!selectedCountryFeature) {
+                                openOverviewDrilldownRegion(regionFeature.id, regionFeature.properties);
+                                return;
+                            }
                             selectRegion(regionFeature.id, regionFeature.properties);
                             return;
                         }
@@ -1672,77 +2213,75 @@
                 const countryFeatures = map.queryRenderedFeatures(e.point, { layers: ['country-fill'] });
                 if (countryFeatures.length) {
                     const feat = countryFeatures[0];
-                    if (feat.properties.ParentCountry) {
-                        const parentCountryName = String(feat.properties.ParentCountry).toLowerCase();
-                        const parentCountry = countriesData.features.find((f) =>
-                            f.properties &&
-                            f.properties.Name &&
-                            !f.properties.RegionName &&
-                            String(f.properties.Name).toLowerCase() === parentCountryName
-                        );
-                        if (parentCountry) {
-                            handleCountrySelect(parentCountry);
-                            return;
-                        }
-                    }
-                    if (feat.properties.infoStatus === 'hasinfo' || feat.properties.infoStatus === 'region') {
-                        handleCountrySelect(feat);
+                    const resolvedCountry = resolveCountryFeatureFromMapFeature(feat);
+                    if (resolvedCountry) {
+                        handleCountrySelect(resolvedCountry);
                         return;
                     }
                 }
 
                 overviewReset();
             });
+            map.on('moveend', syncRegionDrilldownForZoom);
             focusMapFromQueryIfNeeded();
         }); 
     } 
 
     // AANGEPAST: kaart-styling robuust tegen hoofdletters/varianten 
     function showRegionsOnMap(rd) { 
-        // keep countries visible so switching countries remains possible 
+        // Keep region layers warm and toggle visibility instead of rebuilding them.
+        const mapRef = getMapInstance();
+        const activeCountry = getActiveRegionCountryFeature();
+        if (!mapRef) return;
         clearDatasetRegionSelection();
-        if (map.getLayer('region-fill')) map.removeLayer('region-fill'); 
-        if (map.getLayer('region-border')) map.removeLayer('region-border'); 
-        if (map.getSource('regions')) map.removeSource('regions'); 
-        if (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) {
-            const selectedName = selectedCountryFeature.properties.Name;
-            if (map.getLayer('country-fill')) {
-                map.setFilter('country-fill', ['!=', ['get', 'Name'], selectedName]);
+        ensureRegionsSource(rd);
+        if (activeCountry && activeCountry.properties && activeCountry.properties.Name) {
+            const selectedName = activeCountry.properties.Name;
+            if (mapRef.getLayer('region-fill')) {
+                mapRef.setFilter('region-fill', ['!=', ['get', 'Name'], selectedName]);
             }
-            if (map.getLayer('country-border')) {
-                map.setFilter('country-border', ['!=', ['get', 'Name'], selectedName]);
+            if (mapRef.getLayer('region-fill')) {
+                mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+                mapRef.setLayoutProperty('region-fill', 'visibility', 'visible');
+            }
+            if (mapRef.getLayer('region-border')) {
+                mapRef.setPaintProperty('region-border', 'line-color', [
+                    'case',
+                    ['boolean', ['feature-state', 'selected'], false], '#ffe900',
+                    '#333'
+                ]);
+                mapRef.setPaintProperty('region-border', 'line-width', [
+                    'case',
+                    ['boolean', ['feature-state', 'selected'], false], 4,
+                    2
+                ]);
+                mapRef.setLayoutProperty('region-border', 'visibility', 'visible');
             }
         }
-        map.addSource('regions', { type: 'geojson', data: rd, generateId: true }); 
-        map.addLayer({ 
-            id: 'region-fill', 
-            type: 'fill', 
-            source: 'regions', 
-            filter: ['!=', ['get', 'Name'], selectedCountryFeature.properties.Name], 
-            paint: { 
-                'fill-color': buildRegionFillExpression(), 
-                'fill-opacity': 0.75 
-            } 
-        }); 
-        map.addLayer({ 
-            id: 'region-border', 
-            type: 'line', 
-            source: 'regions', 
-            paint: { 
-                'line-color': [ 'case', ['==', ['get', 'Name'], selectedCountryFeature.properties.Name], '#0367ff', '#003399' ], 
-                'line-width': [ 'case', ['==', ['get', 'Name'], selectedCountryFeature.properties.Name], 4, 2 ] 
-            } 
-        }); 
-        // Region selection is handled in the unified map click handler above.
     } 
+
+    function openOverviewDrilldownRegion(id, props) {
+        const activeCountry = getActiveRegionCountryFeature();
+        if (!activeCountry || !activeCountry.properties || !regionsData || !Array.isArray(regionsData.features)) return;
+
+        selectedCountryFeature = activeCountry;
+        autoDrilldownCountryFeature = null;
+        regionDrilldownVisible = false;
+        selectedCountryFeature.mainRegion = regionsData.features.find(
+            (f) => (f.properties.Name || '').toLowerCase() === (activeCountry.properties.Name || '').toLowerCase()
+        ) || null;
+        showRegionsOnMap(regionsData);
+        showRegionTOC();
+        renderRegionList();
+        showTab('toc');
+        selectRegion(id, props);
+    }
 
     function selectRegion(id, props) { 
         console.log('selectRegion', id, props.Name); 
         if (!regionsData || !regionsData.features || !regionsData.features[id]) return; 
         clearDatasetRegionSelection();
-        if (selectedRegionFeatureId !== null) { 
-            map.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: false }); 
-        } 
+        clearSelectedRegionHighlight();
         selectedRegionFeatureId = id; 
         map.setFeatureState({ source: 'regions', id }, { selected: true }); 
         const feature = regionsData.features[id]; 
@@ -1948,11 +2487,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     p && p.Planimetric,
     p && p.Altimetric,
     p && p.Year,
+    p && p.year_begin,
+    p && p.year_end,
     p && p.Link,
     p && p['XY Ref'],
     p && p['Z Ref']
   ].some((value) => value !== null && value !== undefined && String(value).trim() !== '');
   const objectName = p.Name || 'No name';
+  const isCountrySummaryContext = !regionMode && Number(p && p.ADM) === 0;
   const formatMeters = (value) => (value || value === 0 ? `${value} m` : 'N/A');
   const normalizeValue = (value) => {
     if (value === 0) return '0';
@@ -1975,6 +2517,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (value === null || value === undefined) return [];
     const text = String(value).trim();
     if (!text) return [];
+    if (text.includes(' || ')) return text.split(/\s*\|\|\s*/).filter(Boolean);
     return text.split(/\s*,\s*/).filter(Boolean);
   };
   const uniqueValues = (values) => {
@@ -2009,6 +2552,11 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     p && p.Dataset,
     p && p['Dataset Name'],
     p && p.dataset_name
+  );
+  const dataTypeValue = firstValue(
+    p && p.DataDisplay,
+    p && p['Data display'],
+    p && p.Data
   );
   const parseDatasetNamesFromInfo = (infoText) => {
     if (!infoText) return [];
@@ -2084,19 +2632,48 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
 
     return datasetMap;
   };
-  const datasetOptions = uniqueValues([
-    ...splitSeries(datasetFieldValue),
-    ...parseDatasetNamesFromInfo(p && p.Info),
-    ...parseDatasetNamesFromLink(p && p.Link)
-  ]);
-  const datasetRegionMap = parseDatasetRegionMap(p && p.Info, datasetOptions);
-  const yearSeries = splitSeries(p.Year);
+  const datasetOptions = isCountrySummaryContext
+    ? uniqueValues(splitSeries(datasetFieldValue))
+    : uniqueValues([
+        ...splitSeries(datasetFieldValue),
+        ...parseDatasetNamesFromInfo(p && p.Info),
+        ...parseDatasetNamesFromLink(p && p.Link)
+      ]);
+  const datasetRegionMap = isCountrySummaryContext
+    ? {}
+    : parseDatasetRegionMap(p && p.Info, datasetOptions);
+  const yearBeginRaw = firstValue(
+    p && p.year_begin,
+    p && p['Year begin'],
+    p && p['Acquisition start'],
+    p && p['Start year']
+  );
+  const yearEndRaw = firstValue(
+    p && p.year_end,
+    p && p['Year end'],
+    p && p['Acquisition end'],
+    p && p['End year']
+  );
+  const legacyYearSeries = splitSeries(p.Year);
+  const yearBeginSeries = splitSeries(yearBeginRaw);
+  const yearEndSeries = splitSeries(yearEndRaw);
+  const yearSeries = yearBeginSeries.length || yearEndSeries.length
+    ? Array.from({ length: Math.max(yearBeginSeries.length, yearEndSeries.length) }, (_, index) => {
+        const begin = yearBeginSeries[index] || '';
+        const end = yearEndSeries[index] || '';
+        if (begin && end) return begin === end ? begin : `${begin} - ${end}`;
+        return begin || end || legacyYearSeries[index] || '';
+      }).filter((value) => String(value || '').trim() !== '')
+    : legacyYearSeries;
   const hasYearSwitcher = yearSeries.length > 1;
   const hasDatasetSwitcher = datasetOptions.length > 1;
   const hasLinkedDatasetSeries = hasDatasetSwitcher && hasYearSwitcher && datasetOptions.length === yearSeries.length;
+  const defaultSeriesIndex = Number.isInteger(p && p.RepresentativeSeriesIndex)
+    ? p.RepresentativeSeriesIndex
+    : getLatestRepresentativeIndex(p);
   const requestedSeriesIndex = Number.isInteger(datasetIndex)
     ? datasetIndex
-    : (Number.isInteger(yearIndex) ? yearIndex : 0);
+    : (Number.isInteger(yearIndex) ? yearIndex : defaultSeriesIndex);
   const activeDatasetIndex = hasDatasetSwitcher
     ? Math.max(0, Math.min(requestedSeriesIndex, datasetOptions.length - 1))
     : 0;
@@ -2104,12 +2681,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     ? Math.max(0, Math.min(hasLinkedDatasetSeries ? activeDatasetIndex : requestedSeriesIndex, yearSeries.length - 1))
     : 0;
   const valueForYear = (rawValue) => {
+    if (isCountrySummaryContext) return rawValue;
     if (!hasYearSwitcher) return rawValue;
     const parts = splitSeries(rawValue);
     if (parts.length === yearSeries.length) return parts[activeYearIndex];
     return rawValue;
   };
   const valueForDataset = (rawValue) => {
+    if (isCountrySummaryContext) return rawValue;
     if (!hasDatasetSwitcher) return rawValue;
     const parts = splitSeries(rawValue);
     if (parts.length === datasetOptions.length) return parts[activeDatasetIndex];
@@ -2120,6 +2699,46 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (datasetScoped !== rawValue) return datasetScoped;
     return valueForYear(rawValue);
   };
+  const valueForDataTypeSelection = (rawValue) => {
+    if (rawValue === null || rawValue === undefined) return rawValue;
+    const text = String(rawValue);
+    if (!text.includes(' || ')) return rawValue;
+    return valueForSelection(rawValue);
+  };
+  const acquisitionStartValue = valueForSelection(yearBeginRaw) || valueForSelection(p.Year);
+  const acquisitionEndValue = valueForSelection(yearEndRaw) || valueForSelection(p.Year);
+  const acquisitionPeriodLabel = (() => {
+    const begin = String(acquisitionStartValue || '').trim();
+    const end = String(acquisitionEndValue || '').trim();
+    if (begin && end) return begin === end ? begin : `${begin} - ${end}`;
+    return begin || end || 'N/A';
+  })();
+  const acquisitionPeriodMeta = (() => {
+    const begin = String(acquisitionStartValue || '').trim();
+    const end = String(acquisitionEndValue || '').trim();
+    if (begin && end) {
+      return {
+        label: 'Acquisition period',
+        value: begin === end ? begin : `${begin} to ${end}`
+      };
+    }
+    if (end) {
+      return {
+        label: 'Time',
+        value: end
+      };
+    }
+    if (begin) {
+      return {
+        label: 'Time',
+        value: begin
+      };
+    }
+    return {
+      label: 'Time',
+      value: 'N/A'
+    };
+  })();
   const normalizeDatasetSlug = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '-');
   const getLinkDatasetSlug = () => {
     const linkValue = p && p.Link;
@@ -2137,6 +2756,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
   const activeDatasetSlug = normalizeDatasetSlug(datasetOptions[activeDatasetIndex] || '');
   const hasSingleDatasetSpecificFallback = hasDatasetSwitcher && linkedDatasetSlug && activeDatasetSlug && linkedDatasetSlug !== activeDatasetSlug;
   const valueForSpecs = (rawValue) => {
+    if (isCountrySummaryContext) return rawValue;
     const datasetParts = hasDatasetSwitcher ? splitSeries(rawValue) : [];
     if (hasDatasetSwitcher && datasetParts.length === datasetOptions.length) {
       return datasetParts[activeDatasetIndex];
@@ -2159,10 +2779,16 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (!typeText || !String(typeText).trim()) return '<strong>N/A</strong>';
     const tokens = String(typeText).split(',').map(t => t.trim()).filter(Boolean);
     if (!tokens.length) return '<strong>N/A</strong>';
+    const typeLabels = {
+      ALS: 'Airborne Laser Scanning',
+      MLS: 'Mobile laser scanning',
+      SLS: 'Statical laser scanning'
+    };
     const chips = tokens.map((token) => {
       const upper = token.toUpperCase();
       const iconSrc = `assets/images/icons/${upper.toLowerCase()}.png`;
-      return `<span class="type-pill" title="${escapeHtml(upper)}"><img class="type-icon" src="${iconSrc}" alt="${escapeHtml(upper)}" /></span>`;
+      const label = typeLabels[upper] || upper;
+      return `<span class="type-pill" title="${escapeHtml(label)}"><img class="type-icon" src="${iconSrc}" alt="${escapeHtml(label)}" /></span>`;
     }).join('');
     return `<div class="type-pillset">${chips}</div>`;
   };
@@ -2204,34 +2830,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (!matchingSentences.length) return normalized;
     return [...genericSentences, ...matchingSentences].join(' ');
   };
-  const getAsprsClassifications = (infoText) => {
-    const text = String(infoText || '').toLowerCase();
-    const definitions = [
-      { code: 0, label: 'Never classified', patterns: ['never classified'] },
-      { code: 1, label: 'Unclassified', patterns: ['unclassified'] },
-      { code: 2, label: 'Ground', patterns: ['ground class', 'classified as ground', ' ground '] },
-      { code: 3, label: 'Low vegetation', patterns: ['low vegetation'] },
-      { code: 4, label: 'Medium vegetation', patterns: ['medium vegetation'] },
-      { code: 5, label: 'High vegetation', patterns: ['high vegetation'] },
-      { code: 6, label: 'Building', patterns: ['classification: building', 'classified as building', ' buildings'] },
-      { code: 7, label: 'Low point / noise', patterns: ['low point', 'low points', 'noise'] },
-      { code: 8, label: 'Reserved', patterns: [] },
-      { code: 9, label: 'Water', patterns: ['classification: water', 'classified as water', ' water surface', ' water bodies'] },
-      { code: 10, label: 'Rail', patterns: ['rail'] },
-      { code: 11, label: 'Road surface', patterns: ['road surface'] },
-      { code: 12, label: 'Overlap', patterns: ['overlap'] },
-      { code: 13, label: 'Wire guard / shield', patterns: ['wire guard', 'shield wire'] },
-      { code: 14, label: 'Wire conductor / phase', patterns: ['wire conductor', 'wire phase', 'conductor'] },
-      { code: 15, label: 'Transmission tower', patterns: ['transmission tower'] },
-      { code: 16, label: 'Wire-structure connector', patterns: ['wire-structure connector', 'wire structure connector'] },
-      { code: 17, label: 'Bridge deck', patterns: ['bridge deck'] },
-      { code: 18, label: 'High noise', patterns: ['high noise'] }
-    ];
-    return definitions.map((entry) => ({
-      ...entry,
-      present: entry.patterns.some((pattern) => text.includes(pattern))
-    }));
-  };
+  const getAsprsClassifications = (infoText) => getAvailableClassifications(infoText);
   const resolveProviderName = () => {
     const scopedProviderValue = valueForSelection(providerValue);
     if (scopedProviderValue) return scopedProviderValue;
@@ -2244,10 +2843,32 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       return linkValue;
     }
   };
-  const resolveAccessLink = () => {
-    const scopedLink = valueForSelection(p && p.Link);
+  const resolveDataRoomLink = () => {
+    const scopedLink = valueForSelection(
+      (p && (
+        p.Dataroom ||
+        p.dataroom ||
+        p['Dataroom link'] ||
+        p['Data room'] ||
+        p.link_point_cloud ||
+        p['link_point cloud'] ||
+        p['Link point cloud'] ||
+        p.Link
+      )) || ''
+    );
     if (!scopedLink) return scopedLink;
-    const splitLinks = splitSeries(p && p.Link);
+    const splitLinks = splitSeries(
+      (p && (
+        p.Dataroom ||
+        p.dataroom ||
+        p['Dataroom link'] ||
+        p['Data room'] ||
+        p.link_point_cloud ||
+        p['link_point cloud'] ||
+        p['Link point cloud'] ||
+        p.Link
+      )) || ''
+    );
     if (!hasDatasetSwitcher || splitLinks.length > 1) return scopedLink;
 
     const baseLink = String(scopedLink);
@@ -2260,10 +2881,46 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     const matchedSlug = knownSlugs.find((slug) => baseLink.toLowerCase().includes(slug));
     return matchedSlug ? baseLink.replace(new RegExp(matchedSlug, 'i'), activeSlug) : baseLink;
   };
+  const resolveDocumentationLink = () => valueForSelection(
+    (p && (
+      p['Documentation link'] ||
+      p['Documentation Link'] ||
+      p.documentation_link ||
+      p.DocumentationLink ||
+      p.DocLink ||
+      p.doc_link
+    )) || ''
+  );
   const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || objectName;
-  const generalInfoText = buildDatasetSpecificInfo(p && p.Info, datasetOptions, activeDatasetName);
-  const asprsClassifications = getAsprsClassifications(generalInfoText);
-  const hasClassificationInfo = asprsClassifications.some((entry) => entry.present);
+  const resolveLicenceText = () => {
+    const licenceValue = valueForSelection(
+      (p && (
+        p.Licence ||
+        p.Licences ||
+        p.License ||
+        p.Licenses ||
+        p.license ||
+        p.licenses ||
+        p.licence ||
+        p.licences ||
+        p['Usage licence'] ||
+        p['Usage licenses'] ||
+        p['Usage license']
+      )) || ''
+    );
+    if (licenceValue) return licenceValue;
+    return 'No licence information available.';
+  };
+  const resolveProcessingFeeText = () => {
+    const feeValue = valueForSelection((p && (p.Fee || p.fee)) || '');
+    const normalizedFee = String(feeValue || '').trim().toLowerCase();
+    if (!normalizedFee || normalizedFee === 'nan') return 'No information available';
+    if (normalizedFee === 'yes') return '&euro;';
+    if (normalizedFee === 'no') return 'X';
+    return String(feeValue).trim();
+  };
+  const licenceText = resolveLicenceText();
+  const processingFeeText = resolveProcessingFeeText();
   const effectiveTab = hasInfo
     ? (activeTabOverride || (infoBox && infoBox.dataset && infoBox.dataset.activeTab) || 'general')
     : 'general';
@@ -2274,16 +2931,13 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
          </select>
        </label>`
     : escapeHtml(activeDatasetName || 'N/A');
-  const yearLabel = hasYearSwitcher ? yearSeries[activeYearIndex] : (p.Year || 'N/A');
-  const yearNavHtml = hasYearSwitcher
-    ? `<div class="info-year-nav">
-         <button class="info-year-btn" type="button" data-info-year-step="-1" aria-label="Previous year">â€¹</button>
-         <span class="info-year-label">${escapeHtml(yearLabel)}</span>
-         <button class="info-year-btn" type="button" data-info-year-step="1" aria-label="Next year">â€º</button>
-       </div>`
-    : '';
   const countryName = String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '').trim().toLowerCase();
-  const viewingCountrySummary = countryName && String(objectName || '').trim().toLowerCase() === countryName;
+  const viewingCountrySummary = isCountrySummaryContext || (countryName && String(objectName || '').trim().toLowerCase() === countryName);
+  const generalInfoText = viewingCountrySummary
+    ? String((p && p.Info) || '').trim()
+    : buildDatasetSpecificInfo(p && p.Info, datasetOptions, activeDatasetName);
+  const asprsClassifications = getAsprsClassifications(generalInfoText);
+  const hasClassificationInfo = asprsClassifications.length > 0;
   // Titel altijd tonen 
   if (infoTitleEl) infoTitleEl.textContent = objectName; 
   const flagCode = resolveFlagCodeForFeature(p);
@@ -2301,12 +2955,6 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     <section class="info-panel-section${effectiveTab === 'general' ? ' is-active' : ''}" data-info-panel="general">
       <div class="info-card info-card-general">
         <h4>General information</h4>
-        <div class="info-row">
-          <span>Data name</span>
-          <strong>${datasetControlHtml}</strong>
-        </div>
-        ${hasYearSwitcher ? `<div class="info-row"><span>Year</span><strong>${yearNavHtml}</strong></div>` : ''}
-        <div class="info-row"><span>Data provider</span><strong>${escapeHtml(resolveProviderName())}</strong></div>
         <div class="info-intro">${buildInfoParagraphs(generalInfoText)}</div>
       </div>
     </section>`;
@@ -2316,18 +2964,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
   } else { 
     const xyRef = p['XY Ref'] ? linkifyEPSG(valueForSelection(p['XY Ref'])) : 'N/A'; 
     const zRef = p['Z Ref'] ? linkifyEPSG(valueForSelection(p['Z Ref'])) : 'N/A'; 
-    const yearLabel = hasYearSwitcher ? yearSeries[activeYearIndex] : (p.Year || 'N/A');
-    const yearNavHtml = hasYearSwitcher
-      ? `<div class="info-year-nav">
-           <button id="infoYearPrev" class="info-year-btn" aria-label="Previous year">‹</button>
-           <span class="info-year-label">${escapeHtml(yearLabel)}</span>
-           <button id="infoYearNext" class="info-year-btn" aria-label="Next year">›</button>
-         </div>`
-      : '';
-    const linkValue = resolveAccessLink();
-    const accessHtml = linkValue
-      ? `<a href="${linkValue}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
+    const dataroomLinkValue = resolveDataRoomLink();
+    const documentationLinkValue = resolveDocumentationLink();
+    const accessHtml = dataroomLinkValue
+      ? `<a href="${dataroomLinkValue}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
       : 'N/A';
+    const documentationPageHtml = documentationLinkValue
+      ? `<a href="${documentationLinkValue}" target="_blank" rel="noopener noreferrer">Open documentation page</a>`
+      : 'No documentation page available';
 
     const tabsHtml = `
       <div class="info-tabs" role="tablist" aria-label="Information sections">
@@ -2344,7 +2988,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
               <div class="classification-row">
                 <span class="classification-code">${entry.code}</span>
                 <span class="classification-name">${escapeHtml(entry.label)}</span>
-                <strong class="classification-mark">${entry.present ? 'x' : ''}</strong>
+                <strong class="classification-mark">x</strong>
               </div>
             `).join('')}
           </div>
@@ -2353,27 +2997,35 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       </section>`;
     const dataHtml = `
       <section class="info-panel-section${effectiveTab === 'specs' ? ' is-active' : ''}" data-info-panel="specs">
+      <div class="info-card">
+        <h4>Dataset name</h4>
+        <div class="info-row info-row-dataset"><span>Data name</span><strong>${datasetControlHtml}</strong></div>
+      </div>
       <div class="info-sections">
         <section class="info-card">
           <h4>Acquisition & Coverage</h4>
-          <div class="info-row"><span>Dataset type</span><strong>${valueForSelection(p.Data) || 'N/A'}</strong></div>
-          <div class="info-row"><span>Acquisition platform</span>${buildTypeBadges(valueForSelection(p.Type))}</div>
+          <div class="info-row"><span>${escapeHtml(acquisitionPeriodMeta.label)}</span><strong>${escapeHtml(acquisitionPeriodMeta.value)}</strong></div>
+          <div class="info-row"><span>Dataset type</span><strong>${escapeHtml(formatDatasetTypeLabel(valueForDataTypeSelection(dataTypeValue)))}</strong></div>
+          <div class="info-platform-block">
+            <span class="info-platform-title">Acquisition platform</span>
+            ${buildTypeBadges(valueForSelection(p.Type))}
+          </div>
         </section>
         <section class="info-card">
           <h4>Quality descriptions</h4>
           <div class="info-row"><span>Spatial distribution</span><strong>${formatSpatialDistribution(valueForSpecs(p.National), valueForSpecs(p.Urban))}</strong></div>
           <div class="info-row"><span>Planimetric</span><strong>${formatMeters(valueForSpecs(p.Planimetric))}</strong></div>
           <div class="info-row"><span>Altimetric</span><strong>${formatMeters(valueForSpecs(p.Altimetric))}</strong></div>
+          <div class="info-row"><span>XY-ref</span><strong>${xyRef}</strong></div>
+          <div class="info-row"><span>Z-ref</span><strong>${zRef}</strong></div>
         </section>
         <section class="info-card">
           <h4>Additional Info</h4>
-          ${yearNavHtml}
-          <div class="info-row"><span>Data name</span><strong>${datasetControlHtml}</strong></div>
           <div class="info-row"><span>Data provider</span><strong>${escapeHtml(resolveProviderName())}</strong></div>
-          <div class="info-row"><span>Year</span><strong>${yearLabel}</strong></div>
+          <div class="info-row"><span>Documentation page</span><strong>${documentationPageHtml}</strong></div>
+          <div class="info-row"><span>Licence</span><strong>${escapeHtml(licenceText)}</strong></div>
+          <div class="info-row"><span>Processing fee</span><strong>${processingFeeText === '&euro;' ? processingFeeText : escapeHtml(processingFeeText)}</strong></div>
           <div class="info-row"><span>Access</span><strong>${accessHtml}</strong></div>
-          <div class="info-row"><span>XY-ref</span><strong>${xyRef}</strong></div>
-          <div class="info-row"><span>Z-ref</span><strong>${zRef}</strong></div>
         </section>
       </div>
       </section>`; 
@@ -2398,38 +3050,6 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       e.preventDefault();
       e.stopPropagation();
       navigateInfoBanner(1, p, regionMode);
-    });
-  }
-  const infoYearButtons = Array.from(infoBox.querySelectorAll('[data-info-year-step]'));
-  if (hasYearSwitcher && infoYearButtons.length) {
-    infoYearButtons.forEach((button) => {
-      button.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const step = Number(button.getAttribute('data-info-year-step') || '0');
-        if (!step) return;
-        const nextIndex = (activeYearIndex + step + yearSeries.length) % yearSeries.length;
-        const nextDatasetIndex = hasLinkedDatasetSeries ? nextIndex : activeDatasetIndex;
-        showInfo(p, regionMode, nextIndex, nextDatasetIndex, effectiveTab);
-      });
-    });
-  }
-  const legacyInfoYearPrev = infoBox.querySelector('#infoYearPrev');
-  const legacyInfoYearNext = infoBox.querySelector('#infoYearNext');
-  if (hasYearSwitcher && legacyInfoYearPrev && legacyInfoYearNext) {
-    legacyInfoYearPrev.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const nextIndex = (activeYearIndex - 1 + yearSeries.length) % yearSeries.length;
-      const nextDatasetIndex = hasLinkedDatasetSeries ? nextIndex : activeDatasetIndex;
-      showInfo(p, regionMode, nextIndex, nextDatasetIndex, effectiveTab);
-    });
-    legacyInfoYearNext.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const nextIndex = (activeYearIndex + 1) % yearSeries.length;
-      const nextDatasetIndex = hasLinkedDatasetSeries ? nextIndex : activeDatasetIndex;
-      showInfo(p, regionMode, nextIndex, nextDatasetIndex, effectiveTab);
     });
   }
   const infoDatasetSelects = Array.from(infoBox.querySelectorAll('[data-info-dataset-select]'));
@@ -2651,12 +3271,15 @@ initAccessibilityControls();
 function applyCategoryFilterToMap() {
   const mapRef = (typeof getMapInstance === 'function') ? getMapInstance() : null;
   if (!mapRef || !mapRef.getLayer('country-fill')) return;
-  const selectedCats = activeLegendCategories.size
-    ? Array.from(activeLegendCategories)
-    : (activeCategory ? [activeCategory] : []);
+  const selectedCats = getActiveCategorySelection();
+  mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
+  if (mapRef.getLayer('region-fill')) {
+    mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+  }
   const filterParts = [['!', ['has', 'RegionName']]];
   if (selectedCats.length) {
-    filterParts.push(['in', ['get', 'Data'], ['literal', selectedCats]]);
+    const categoryFilters = selectedCats.map((cat) => ['boolean', ['get', categorySupportProperty(cat)], false]);
+    filterParts.push(categoryFilters.length === 1 ? categoryFilters[0] : ['any', ...categoryFilters]);
   }
   if (typeof isFilterActive === 'function' && isFilterActive()) {
     const names = (typeof getFilteredCountryNamesLowercase === 'function')
@@ -2781,9 +3404,84 @@ function initBannerCarousel() {
     restartTimer();
 }
 
+function initHomePageEnhancements() {
+    if (!document.body || !document.body.classList.contains('home-page')) return;
+
+    const updatesList = document.querySelector('.home-page .updates-list');
+    if (updatesList) {
+        const now = new Date();
+        const isWorldLidarDay = now.getMonth() === 1 && now.getDate() === 12;
+        const existingSpecial = updatesList.querySelector('[data-update-special="world-lidar-day"]');
+        if (isWorldLidarDay && !existingSpecial) {
+            const specialUpdate = document.createElement('article');
+            specialUpdate.className = 'update-item special-update';
+            specialUpdate.setAttribute('data-update-special', 'world-lidar-day');
+            specialUpdate.innerHTML = `
+                <p class="update-date">12 February</p>
+                <h4>Happy World LiDAR Day!!</h4>
+                <p class="muted">Today we celebrate the value of LiDAR, elevation data, and the people building clearer views of our world.</p>
+            `;
+            updatesList.prepend(specialUpdate);
+        }
+    }
+
+    const randomPointcloudBtn = document.getElementById('randomPointcloudBtn');
+    if (randomPointcloudBtn) {
+        randomPointcloudBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
+                .then((csvText) => {
+                    const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
+                    const commaCount = (firstLine.match(/,/g) || []).length;
+                    const semicolonCount = (firstLine.match(/;/g) || []).length;
+                    const delimiter = semicolonCount > commaCount ? ';' : ',';
+                    const rows = parseCsvText(csvText, delimiter);
+                    if (!rows.length || rows[0].length === 0) throw new Error('CSV empty');
+                    const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
+                    const headers = rows[0].map((h) => key(h));
+                    const readFirst = (row, ...candidates) => {
+                        for (let i = 0; i < candidates.length; i += 1) {
+                            const value = row[candidates[i]];
+                            if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+                        }
+                        return '';
+                    };
+                    const candidates = rows.slice(1)
+                        .filter((r) => r.some((value) => String(value).trim() !== ''))
+                        .map((r) => {
+                            const row = {};
+                            headers.forEach((h, i) => {
+                                row[h] = r[i] !== undefined ? r[i] : '';
+                            });
+                            return row;
+                        })
+                        .map((row) => {
+                            const dataType = readFirst(row, 'data', 'dataversion', 'data_version', 'datasettype', 'dataset_type', 'type');
+                            return {
+                                region: readFirst(row, 'name', 'regionname', 'country'),
+                                country: readFirst(row, 'main_country', 'country', 'name'),
+                                dataType
+                            };
+                        })
+                        .filter((item) => {
+                            const type = String(item.dataType || '').toLowerCase();
+                            return item.region && item.country && type.includes('point');
+                        });
+                    if (!candidates.length) throw new Error('No point cloud locations found');
+                    const randomItem = candidates[Math.floor(Math.random() * candidates.length)];
+                    window.location.href = `map.html?skipIntro=1&focusCountry=${encodeURIComponent(randomItem.country)}&focusRegion=${encodeURIComponent(randomItem.region)}`;
+                })
+                .catch(() => {
+                    window.location.href = 'map.html?skipIntro=1';
+                });
+        });
+    }
+}
+
 // Initialize banner carousel if elements exist
 document.addEventListener('DOMContentLoaded', () => {
     initBannerCarousel();
+    initHomePageEnhancements();
 });
 
 function parseCsvText(text, delimiter) {
@@ -2832,6 +3530,7 @@ function initCatalogueTable() {
     const body = document.getElementById('catalogueBody');
     const status = document.getElementById('catalogueStatus');
     if (!body || !status || !document.body.classList.contains('catalogue-page')) return;
+    status.textContent = 'Loading catalogue data...';
 
     const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
     const readFirst = (row, ...candidates) => {
@@ -2865,11 +3564,7 @@ function initCatalogueTable() {
         return '-';
     };
 
-    fetch('data/catalogue.csv')
-        .then((response) => {
-            if (!response.ok) throw new Error('CSV not found');
-            return response.text();
-        })
+    fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
         .then((csvText) => {
             const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
             const commaCount = (firstLine.match(/,/g) || []).length;
@@ -2912,12 +3607,16 @@ function initCatalogueTable() {
                 const rawMainCountry = readFirst(row, 'main_country', 'country') || '';
                 const rawDataVersion = formatDataVersion(readFirst(row, 'dataversion', 'data_version', 'data', 'datasettype', 'dataset_type', 'type'));
                 if (String(rawDataVersion).toLowerCase() === 'region') return '';
-                const rawYear = readFirst(row, 'year') || '-';
-                const rawAgency = readFirst(row, 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || '-';
+                const rawYearBegin = readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear');
+                const rawYearEnd = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear');
+                const rawYear = rawYearBegin || rawYearEnd
+                    ? [rawYearBegin, rawYearEnd].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
+                    : (readFirst(row, 'year') || '-');
+                const rawAgency = readFirst(row, 'responsible', 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || '-';
                 const rawSpatial = spatialDistribution(row);
                 const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
                 const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || '-';
-                const link = readFirst(row, 'dataroom', 'link', 'access');
+                const link = readFirst(row, 'link_point_cloud', 'link_pointcloud', 'dataroom', 'link', 'access');
 
                 const allDataNA = [
                     rawDataVersion,
@@ -2961,13 +3660,18 @@ function initCatalogueTable() {
             }).join('');
 
             body.innerHTML = html || '<tr><td colspan="8">No catalogue rows to display after filtering empty data.</td></tr>';
+            status.textContent = html
+                ? `Catalogue loaded with ${records.length} source row${records.length === 1 ? '' : 's'}.`
+                : 'Catalogue loaded, but no displayable rows were found.';
         })
-        .catch(() => {
-            body.innerHTML = '<tr><td colspan="8">Could not load data/catalogue.csv. Add the CSV file to show catalogue rows.</td></tr>';
-            status.textContent = 'Catalogue CSV not found. Expected file: data/catalogue.csv';
+        .catch((error) => {
+            body.innerHTML = '<tr><td colspan="8">Could not load a catalogue CSV from ../data. Add catalogue.csv or Quality_parameters_v10022026.csv.</td></tr>';
+            status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected CSV in ../data.'}`;
         });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     initCatalogueTable();
 });
+
+

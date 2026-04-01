@@ -44,6 +44,8 @@ Then you can run the script with:
 ```bash
 cd script
 python MapMaker.py --gadm-gpkg <path-to-gadm-db> --excel-file <path-to-excel-file>  --special-dir <path-to-special-dir> --output-dir  <path-to-output-dir>
+
+python MapMaker.py --gadm-gpkg C:\Users\Daan\Documents\Local_Data\gadm_410_levels.gpkg --excel-file C:\Users\Daan\Documents\GitHub\Website_Open_Topography_EU\scripts\Quality_parameters_v12032026.xlsx  --special-dir C:\Users\Daan\Documents\Local_Data\special_gpkg --output-dir  C:\Users\Daan\Documents\GitHub\Website_Open_Topography_EU\data
 ```
 
 

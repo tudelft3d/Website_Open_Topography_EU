@@ -10,6 +10,32 @@
   const infoClass = isGettingStartedPage ? ' class="active"' : '';
   const helpLinkHtml = '    <a id="tab-help" href="contribute.html" target="_blank" rel="noopener noreferrer" title="fill in the MSForm and help us grow">Add Pointclouds</a>';
   const mobileHelpLinkHtml = '    <a href="contribute.html" target="_blank" rel="noopener noreferrer">Add Pointclouds</a>';
+  const contactDrawerHtml = [
+    '<div id="contactDrawerOverlay" aria-hidden="true"></div>',
+    '<aside id="contactDrawer" aria-hidden="true" aria-labelledby="contactDrawerTitle">',
+    '  <div class="contact-drawer-header">',
+    '    <div>',
+    '      <p class="contact-drawer-eyebrow">Contact</p>',
+    '      <h2 id="contactDrawerTitle">Get in touch with the team</h2>',
+    '    </div>',
+    '    <button id="contactDrawerClose" type="button" aria-label="Close contact panel">&times;</button>',
+    '  </div>',
+    '  <div class="contact-drawer-section">',
+    '    <h3>Email</h3>',
+    '    <a class="contact-drawer-link" href="mailto:eupc-bk@tudelft.nl">eupc-bk@tudelft.nl</a>',
+    '    <p>Use this address for questions, corrections, or suggestions for new point cloud datasets.</p>',
+    '  </div>',
+    '  <div class="contact-drawer-section">',
+    '    <h3>TU Delft group</h3>',
+    '    <a class="contact-drawer-link" href="https://3d.bk.tudelft.nl/" target="_blank" rel="noopener noreferrer">3D Geoinformation group website</a>',
+    '    <p>The website is hosted by TU Delft and connected to the 3D Geoinformation group.</p>',
+    '  </div>',
+    '  <div class="contact-drawer-section">',
+    '    <h3>About the team</h3>',
+    '    <p>European Point Clouds is hosted by the <a class="contact-drawer-link" href="https://3d.bk.tudelft.nl/" target="_blank" rel="noopener noreferrer">3D geoinformation group</a> at <a class="contact-drawer-link" href="https://www.tudelft.nl/" target="_blank" rel="noopener noreferrer">TU Delft</a> and built by Daan van der Heide for the completion of his doctoral work, with support from <a class="contact-drawer-link" href="https://www.rijkswaterstaat.nl/" target="_blank" rel="noopener noreferrer">Rijkswaterstaat</a> and <a class="contact-drawer-link" href="https://www.eurosdr.net/" target="_blank" rel="noopener noreferrer">EuroSDR</a> to improve access to elevation and point cloud data across Europe.</p>',
+    '  </div>',
+    '</aside>'
+  ].join('\n');
   const filterDockToggleHtml = isMapPage
     ? '<button id="filterDockToggle" type="button" aria-controls="filterMenu" aria-expanded="false">Filters</button>'
     : '';
@@ -98,6 +124,9 @@
     `    <a id="tab-info"${infoClass} href="getting-started.html">Getting started</a>`,
     helpLinkHtml,
     '  </div>',
+    '  <div id="tab-actions">',
+    '    <button id="tab-contact" type="button" aria-label="Open contact information" title="Contact">&#9993;</button>',
+    '  </div>',
     '  <div id="mobile-controls" aria-label="Mobile navigation controls">',
     '    <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>',
     '    <button id="mobileSearchToggle" aria-label="Open search"></button>',
@@ -106,6 +135,7 @@
     '  <div id="mobileMenu">',
     '    <a href="catalogue.html">Data</a>',
     '    <a href="getting-started.html">Getting started</a>',
+    '    <button id="mobileContactToggle" type="button">Contact</button>',
     mobileHelpLinkHtml,
     '  </div>',
     '  <div id="mobileSearchOverlay" aria-hidden="true">',
@@ -116,6 +146,7 @@
     '    </div>',
     '  </div>',
     '</div>',
+    contactDrawerHtml,
     dataMenuHtml,
     filterDockToggleHtml,
     filterMenuHtml
