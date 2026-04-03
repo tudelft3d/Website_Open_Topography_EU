@@ -2795,6 +2795,34 @@ html.a11y-large-text {
   background: #7F7F7F;
 }
 
+.swatch.research {
+  background: transparent;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.legend-research-pin {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px 999px 999px 0;
+  background: linear-gradient(180deg, #7dd3fc 0%, #2563eb 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.28);
+  transform: rotate(-45deg);
+}
+
+.legend-research-pin::after {
+  content: "";
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
 #helpModal button {
   display: inline-block;
   /* button only as wide as content */

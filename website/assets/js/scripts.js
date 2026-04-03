@@ -83,6 +83,7 @@
     let activeResearchMarkers = [];
     let activeCategory = null; 
     let activeLegendCategories = new Set();
+    const RESEARCH_LEGEND_CATEGORY = 'Research';
     let locationSearchIndex = [];
     let locationSearchIndexPromise = null;
     const mapFocusParams = (() => {
@@ -113,7 +114,6 @@
         accuracyMax: null,
         yearMin: null,
         yearMax: null,
-        includeResearch: false,
         classifications: new Set()
     };
     const mapFilterBounds = {
@@ -467,46 +467,74 @@
         }
     }
 
+    function isResearchLegendActive() {
+        return activeLegendCategories.has(RESEARCH_LEGEND_CATEGORY);
+    }
+
+    function createResearchMarkerElement(datasetName) {
+        const markerEl = document.createElement('button');
+        markerEl.type = 'button';
+        markerEl.className = 'research-marker';
+        markerEl.setAttribute('aria-label', `Open ${datasetName}`);
+        markerEl.innerHTML = `
+          <span class="research-marker-pin"></span>
+        `;
+        return markerEl;
+    }
+
+    function getResearchDatasetName(feature) {
+        return String(
+            (feature && feature.properties && (
+                feature.properties.Dataset_name ||
+                feature.properties.dataset_name ||
+                feature.properties['Data Name'] ||
+                feature.properties.Name
+            )) || ''
+        ).trim() || 'Unknown dataset';
+    }
+
     function renderResearchMarkers() {
         clearResearchMarkers();
         const mapRef = getMapInstance();
-        if (!mapRef || !selectedCountryFeature || !regionsData || !Array.isArray(regionsData.features)) return;
+        if (!mapRef || !isResearchLegendActive()) return;
 
-        const pointFeatures = regionsData.features.filter((feature) => {
+        const inCountryView = !!(selectedCountryFeature && regionsData && Array.isArray(regionsData.features));
+        const sourceFeatures = inCountryView
+            ? regionsData.features
+            : ((overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : []);
+        const pointFeatures = sourceFeatures.filter((feature) => {
             const geometryType = feature && feature.geometry && feature.geometry.type;
-            return geometryType === 'Point' && String((feature.properties && feature.properties.Name) || '').trim();
+            const hasLookup = !!(feature && feature.properties && feature.properties.ADM_lookup);
+            return geometryType === 'Point' && hasLookup && String((feature.properties && feature.properties.Name) || '').trim();
         });
         if (!pointFeatures.length) return;
 
         pointFeatures.forEach((feature, index) => {
-            const coords = getMarkerCoordinatesForFeature(feature, selectedCountryFeature, index);
+            const coords = inCountryView
+                ? getMarkerCoordinatesForFeature(feature, selectedCountryFeature, index)
+                : (Array.isArray(feature && feature.geometry && feature.geometry.coordinates)
+                    ? feature.geometry.coordinates
+                    : null);
             if (!coords) return;
-            const datasetName =
-                String(
-                    (feature.properties && (
-                        feature.properties.Dataset_name ||
-                        feature.properties.dataset_name ||
-                        feature.properties['Data Name'] ||
-                        feature.properties.Name
-                    )) || ''
-                ).trim() || 'Unknown dataset';
-
-            const markerEl = document.createElement('button');
-            markerEl.type = 'button';
-            markerEl.className = 'research-marker';
-            markerEl.setAttribute('aria-label', `Open ${datasetName}`);
-            markerEl.innerHTML = `
-              <span class="research-marker-pin"></span>
-            `;
+            const datasetName = getResearchDatasetName(feature);
+            const markerEl = createResearchMarkerElement(datasetName);
 
             markerEl.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                focusRegionFeature(feature.id, feature.properties);
-                const countrySummaryFeature = getCountrySummaryFeature();
-                const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties;
-                const datasetIndex = getCountryDatasetIndexForFeature(feature);
-                showInfo(summaryProperties, false, undefined, datasetIndex >= 0 ? datasetIndex : undefined);
+                if (inCountryView) {
+                    focusRegionFeature(feature.id, feature.properties);
+                    const countrySummaryFeature = getCountrySummaryFeature();
+                    const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties;
+                    const datasetIndex = getCountryDatasetIndexForFeature(feature);
+                    showInfo(summaryProperties, false, undefined, datasetIndex >= 0 ? datasetIndex : undefined);
+                    return;
+                }
+
+                const resolvedCountry = resolveCountryFeatureFromMapFeature(feature);
+                if (resolvedCountry) {
+                    handleCountrySelect(resolvedCountry);
+                }
             });
 
             const popup = new maplibregl.Popup({
@@ -1031,11 +1059,7 @@
 
         countryFilterMetricBuckets.forEach((bucket, countryKey) => {
             const standardRecords = (bucket && bucket.standard) || [];
-            const researchRecords = (bucket && bucket.research) || [];
-            const spatialRecords = mapFilterState.includeResearch
-                ? [...standardRecords, ...researchRecords]
-                : standardRecords;
-            if (!standardRecords.length && !spatialRecords.length) return;
+            if (!standardRecords.length) return;
 
             const classifications = new Set();
             standardRecords.forEach((record) => {
@@ -1048,7 +1072,7 @@
             }
 
             metrics.set(countryKey, {
-                spatial: unionMetricRanges(spatialRecords, 'spatial'),
+                spatial: unionMetricRanges(standardRecords, 'spatial'),
                 accuracy: unionMetricRanges(standardRecords, 'accuracy'),
                 year: unionMetricRanges(standardRecords, 'year'),
                 classifications,
@@ -1348,7 +1372,6 @@
     const filterClassificationChecks = filterClassificationMenu
         ? Array.from(filterClassificationMenu.querySelectorAll('input[type="checkbox"]'))
         : [];
-    const filterIncludeResearch = document.getElementById('filterIncludeResearch');
     const filterSpatialMin = document.getElementById('filterSpatialMin');
     const filterSpatialMax = document.getElementById('filterSpatialMax');
     const filterAccuracyMin = document.getElementById('filterAccuracyMin');
@@ -1611,9 +1634,6 @@
                 check.checked = mapFilterState.classifications.has(check.value);
             });
         }
-        if (filterIncludeResearch) {
-            filterIncludeResearch.checked = !!mapFilterState.includeResearch;
-        }
         refreshClassificationFilterMenu();
         updateClassificationLabel();
         updateRangeValueLabels();
@@ -1775,14 +1795,6 @@
                 updateClassificationLabel();
                 applyMapFilters();
             });
-        });
-    }
-    if (filterIncludeResearch) {
-        filterIncludeResearch.addEventListener('change', () => {
-            mapFilterState.includeResearch = !!filterIncludeResearch.checked;
-            rebuildCountryFilterMetrics();
-            syncFilterControlsFromState();
-            applyMapFilters();
         });
     }
     if (filterDockToggle) {
@@ -1995,7 +2007,6 @@
                 mapFilterState.yearMin = mapFilterBounds.year.min;
                 mapFilterState.yearMax = mapFilterBounds.year.max;
             }
-            mapFilterState.includeResearch = false;
             mapFilterState.classifications = new Set();
             rebuildCountryFilterMetrics();
             syncFilterControlsFromState();
@@ -2109,6 +2120,7 @@
         const tokens = raw.split(',').map((token) => token.trim().toLowerCase()).filter(Boolean);
         if (!tokens.length) return 'No Info';
         if (tokens.includes('region')) return 'Region';
+        // When a dataset offers both point clouds and DEMs, favor point clouds in overview styling.
         if (tokens.includes('pointcloud') || tokens.includes('point cloud')) return 'Pointcloud';
         if (tokens.includes('dem') || tokens.includes('digital elevation model')) return 'DEM';
         if (tokens.includes('no info') || tokens.includes('noinfo') || tokens.includes('geen info')) return 'No Info';
@@ -2148,6 +2160,10 @@
             'case',
             ['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'),
             ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
+            ['boolean', ['get', 'SupportsRegion'], false], getCatColor('Region'),
+            ['boolean', ['get', 'SupportsPointcloud'], false], getCatColor('Pointcloud'),
+            ['boolean', ['get', 'SupportsDEM'], false], getCatColor('DEM'),
+            ['boolean', ['get', 'SupportsNoInfo'], false], getCatColor('No Info'),
             ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
             ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
             ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
@@ -3016,7 +3032,21 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   ].some((value) => value !== null && value !== undefined && String(value).trim() !== '');
   const objectName = p.Name || 'No name';
   const isCountrySummaryContext = !regionMode && Number(p && p.ADM) === 0;
-  const formatMeters = (value) => (value || value === 0 ? `${value} m` : 'N/A');
+  const formatMeters = (value) => {
+    if (!(value || value === 0)) return 'N/A';
+    const text = String(value).trim();
+    if (!text) return 'N/A';
+    const normalizedParts = text
+      .split(/\s*;\s*/)
+      .map((part) => String(part || '').trim().replace(',', '.'))
+      .filter(Boolean);
+    if (normalizedParts.length >= 2) {
+      return normalizedParts[0] === normalizedParts[1]
+        ? `${normalizedParts[0]} m`
+        : `${normalizedParts[0]} to ${normalizedParts[1]} m`;
+    }
+    return `${text.replace(',', '.')} m`;
+  };
   const normalizeValue = (value) => {
     if (value === 0) return '0';
     if (value === null || value === undefined) return '';
@@ -3028,8 +3058,11 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const formatSpatialDistribution = (national, urban) => {
     const nationalVal = normalizeValue(national);
     const urbanVal = normalizeValue(urban);
-    if (nationalVal && urbanVal && nationalVal === urbanVal) return `${nationalVal} ppsm`;
-    if (nationalVal && urbanVal) return `${nationalVal} to ${urbanVal} ppsm`;
+    if (nationalVal && urbanVal) {
+      return nationalVal === urbanVal
+        ? `${nationalVal} ppsm`
+        : `${nationalVal} to ${urbanVal} ppsm`;
+    }
     if (nationalVal) return `${nationalVal} ppsm`;
     if (urbanVal) return `${urbanVal} ppsm`;
     return 'N/A';
@@ -3474,11 +3507,47 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const linkedDatasetSlug = getLinkDatasetSlug();
   const activeDatasetSlug = normalizeDatasetSlug(datasetOptions[activeDatasetIndex] || '');
   const hasSingleDatasetSpecificFallback = hasDatasetSwitcher && linkedDatasetSlug && activeDatasetSlug && linkedDatasetSlug !== activeDatasetSlug;
-  const valueForSpecs = (rawValue) => {
-    if (isCountrySummaryContext) return rawValue;
+  const rawDataTypeSeries = splitSeries(dataTypeValue);
+  const groupTypeEntries = datasetGroupEntries.map((entry, index) => {
+    const groupRawDataValue = rawDataTypeSeries.length === datasetGroupEntries.length
+      ? rawDataTypeSeries[index]
+      : dataTypeValue;
+    return getAvailableDatasetTypes(groupRawDataValue, p && p.DTM, p && p.DSM);
+  });
+  const flattenedGroupTypeEntries = groupTypeEntries.flatMap((types, groupIndex) =>
+    types.map((type, typeIndex) => ({ groupIndex, typeIndex, key: type.key }))
+  );
+  const valueForSpecs = (rawValue, typeKeyHint) => {
+    const effectiveTypeKey = String(typeKeyHint || activeDataType || '').trim().toLowerCase();
     const datasetParts = hasDatasetSwitcher ? splitSeries(rawValue) : [];
+    if (activeVersionEntries.length > 1 && datasetParts.length === activeVersionEntries.length) {
+      return datasetParts[Math.max(0, activeVersionIndex)];
+    }
     if (hasDatasetSwitcher && datasetParts.length === datasetOptions.length) {
       return datasetParts[activeDatasetIndex];
+    }
+    if (flattenedGroupTypeEntries.length && datasetParts.length === flattenedGroupTypeEntries.length) {
+      const flatMatchIndex = flattenedGroupTypeEntries.findIndex((entry) =>
+        entry.groupIndex === Math.max(0, activeDatasetGroupIndex) &&
+        entry.key === effectiveTypeKey
+      );
+      if (flatMatchIndex !== -1) {
+        return datasetParts[flatMatchIndex];
+      }
+      const firstGroupMatchIndex = flattenedGroupTypeEntries.findIndex((entry) =>
+        entry.groupIndex === Math.max(0, activeDatasetGroupIndex)
+      );
+      if (firstGroupMatchIndex !== -1) {
+        return datasetParts[firstGroupMatchIndex];
+      }
+    }
+    if (activeDatasetGroup && datasetParts.length === datasetGroupEntries.length) {
+      return datasetParts[Math.max(0, activeDatasetGroupIndex)];
+    }
+    const currentGroupTypes = groupTypeEntries[Math.max(0, activeDatasetGroupIndex)] || [];
+    if (currentGroupTypes.length && datasetParts.length === currentGroupTypes.length) {
+      const typeIndex = currentGroupTypes.findIndex((type) => type.key === effectiveTypeKey);
+      return datasetParts[typeIndex === -1 ? 0 : typeIndex];
     }
     const yearParts = hasYearSwitcher ? splitSeries(rawValue) : [];
     if (hasYearSwitcher && yearParts.length === yearSeries.length) {
@@ -3488,8 +3557,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     return rawValue;
   };
   const selectedDataTypeValue = valueForDataTypeSelection(dataTypeValue);
-  const selectedDtmValue = valueForSpecs(p && p.DTM);
-  const selectedDsmValue = valueForSpecs(p && p.DSM);
+  const selectedDtmValue = valueForSpecs(p && p.DTM, 'dtm');
+  const selectedDsmValue = valueForSpecs(p && p.DSM, 'dsm');
   const availableDatasetTypes = getAvailableDatasetTypes(selectedDataTypeValue, selectedDtmValue, selectedDsmValue);
   const requestedDataType = String(activeDataTypeOverride || '').trim().toLowerCase();
   const activeDataType = availableDatasetTypes.some((type) => type.key === requestedDataType)
@@ -3738,6 +3807,17 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     if (licenceValue) return licenceValue;
     return 'No licence information available.';
   };
+  const buildLicenceHtml = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return 'No licence information available.';
+    try {
+      const url = new URL(text);
+      const href = escapeHtml(url.toString());
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">Terms of use</a>`;
+    } catch (e) {
+      return escapeHtml(text);
+    }
+  };
   const resolveProcessingFeeText = () => {
     const feeValue = valueForSelection((p && (p.Fee || p.fee)) || '');
     const normalizedFee = String(feeValue || '').trim().toLowerCase();
@@ -3745,6 +3825,18 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     if (normalizedFee === 'yes') return '&euro;';
     if (normalizedFee === 'no') return 'X';
     return String(feeValue).trim();
+  };
+  const buildProcessingFeeHtml = (value) => {
+    const text = String(value || '').trim();
+    if (!text) return 'No information available';
+    if (text === '&euro;') return text;
+    try {
+      const url = new URL(text);
+      const href = escapeHtml(url.toString());
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">contactform</a> needs to be filled in`;
+    } catch (e) {
+      return escapeHtml(text);
+    }
   };
   const licenceText = resolveLicenceText();
   const processingFeeText = resolveProcessingFeeText();
@@ -3787,8 +3879,21 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     : buildDatasetSpecificInfo(p && p.Info, datasetOptions, activeDatasetName);
   const asprsClassifications = getAsprsClassifications(generalInfoText);
   const hasClassificationInfo = asprsClassifications.length > 0;
+  const activeDatasetFeatureEntry = activeDatasetName
+    ? countryDatasetFeatureMap.get(normalizeDatasetOptionKey(activeDatasetName))
+    : null;
+  const isResearchDatasetContext = !!(
+    activeDatasetFeatureEntry &&
+    Array.isArray(activeDatasetFeatureEntry.features) &&
+    activeDatasetFeatureEntry.features.some((feature) =>
+      !!(feature && feature.properties && feature.properties.ADM_lookup)
+    )
+  );
+  const displayTitle = isResearchDatasetContext
+    ? `${objectName}: ${activeDatasetName}`
+    : objectName;
   // Titel altijd tonen 
-  if (infoTitleEl) infoTitleEl.textContent = objectName; 
+  if (infoTitleEl) infoTitleEl.textContent = displayTitle; 
   const flagCode = resolveFlagCodeForFeature(p);
   const flagName = escapeHtml((p && (p.ParentCountry || p.main_country || p.country || p.Name)) || objectName);
   const flagHtml = flagCode
@@ -3797,7 +3902,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const bannerHtml = `
     <div class="info-banner">
       ${flagHtml}
-      <div class="info-banner-title">${escapeHtml(objectName)}</div>
+      <div class="info-banner-title">${escapeHtml(displayTitle)}</div>
       ${navHtml}
     </div>`;
   const generalRows = `
@@ -3883,8 +3988,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           <h4>Additional Info</h4>
           <div class="info-row"><span>Data provider</span><strong>${escapeHtml(resolveProviderName())}</strong></div>
           <div class="info-row"><span>Documentation page</span><strong>${documentationPageHtml}</strong></div>
-          <div class="info-row"><span>Licence</span><strong>${escapeHtml(licenceText)}</strong></div>
-          <div class="info-row"><span>Processing fee</span><strong>${processingFeeText === '&euro;' ? processingFeeText : escapeHtml(processingFeeText)}</strong></div>
+          <div class="info-row"><span>Licence</span><strong>${buildLicenceHtml(licenceText)}</strong></div>
+          <div class="info-row"><span>Processing fee</span><strong>${buildProcessingFeeHtml(processingFeeText)}</strong></div>
           <div class="info-row"><span>Access</span><strong>${accessHtml}</strong></div>
         </section>
       </div>
@@ -4020,7 +4125,7 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
   // Koppelt direct aan bestaande category-logica
   legendPanel.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', () => {
-      const cat = normalizeCat(li.dataset.cat);
+      const cat = String(li.dataset.cat || '').trim();
       activeCategory = null;
       if (activeLegendCategories.has(cat)) {
         activeLegendCategories.delete(cat);
@@ -4174,7 +4279,7 @@ initAccessibilityControls();
 function applyCategoryFilterToMap() {
   const mapRef = (typeof getMapInstance === 'function') ? getMapInstance() : null;
   if (!mapRef || !mapRef.getLayer('country-fill')) return;
-  const selectedCats = getActiveCategorySelection();
+  const selectedCats = getActiveCategorySelection().filter((cat) => cat !== RESEARCH_LEGEND_CATEGORY);
   mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
   if (mapRef.getLayer('region-fill')) {
     mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
@@ -4192,6 +4297,7 @@ function applyCategoryFilterToMap() {
   }
   mapRef.setFilter('country-fill', ['all', ...filterParts]);
   mapRef.setFilter('country-border', ['all', ...filterParts]);
+  renderResearchMarkers();
 }
 
 function syncLegendSelectionVisuals() {
@@ -4202,7 +4308,7 @@ function syncLegendSelectionVisuals() {
 
   if (activeLegendCategories.size > 0) {
     items.forEach((li) => {
-      const cat = normalizeCat(li.dataset.cat);
+      const cat = String(li.dataset.cat || '').trim();
       li.classList.toggle('active', activeLegendCategories.has(cat));
     });
     // continue to apply merged-border classes
