@@ -24,30 +24,63 @@
     let categoryColors = { ...standardCategoryColors };
     const CLASSIFICATION_DEFINITIONS = [
         { code: 0, label: 'Never classified', patterns: ['never classified'], filterTags: [] },
-        { code: 1, label: 'Unclassified', patterns: ['unclassified'], filterTags: [] },
+        { code: 1, label: 'Unassigned', patterns: ['unclassified', 'unassigned'], filterTags: [] },
         { code: 2, label: 'Ground', patterns: ['class 2', 'ground class', 'classified as ground', ' ground '], filterTags: ['ground'] },
         { code: 3, label: 'Low vegetation', patterns: ['class 3', 'low vegetation'], filterTags: ['vegetation'] },
         { code: 4, label: 'Medium vegetation', patterns: ['class 4', 'medium vegetation'], filterTags: ['vegetation'] },
         { code: 5, label: 'High vegetation', patterns: ['class 5', 'high vegetation'], filterTags: ['vegetation'] },
         { code: 6, label: 'Building', patterns: ['class 6', 'classification: building', 'classified as building', ' building ', ' buildings'], filterTags: ['building'] },
         { code: 7, label: 'Low point / noise', patterns: ['class 7', 'low point', 'low points', 'noise'], filterTags: [] },
+        { code: 8, label: 'Reserved', patterns: ['class 8', 'model key-point', 'model key point'], filterTags: [] },
         { code: 9, label: 'Water', patterns: ['class 9', 'classification: water', 'classified as water', ' water surface', ' water bodies'], filterTags: ['water'] },
         { code: 10, label: 'Rail', patterns: ['class 10', 'rail'], filterTags: [] },
         { code: 11, label: 'Road surface', patterns: ['class 11', 'road surface'], filterTags: [] },
-        { code: 12, label: 'Overlap', patterns: ['class 12', 'overlap'], filterTags: [] },
+        { code: 12, label: 'Reserved', patterns: ['class 12', 'overlap'], filterTags: [] },
         { code: 13, label: 'Wire guard / shield', patterns: ['class 13', 'wire guard', 'shield wire'], filterTags: [] },
         { code: 14, label: 'Wire conductor / phase', patterns: ['class 14', 'wire conductor', 'wire phase', 'conductor'], filterTags: [] },
         { code: 15, label: 'Transmission tower', patterns: ['class 15', 'transmission tower'], filterTags: [] },
-        { code: 16, label: 'Wire-structure connector', patterns: ['class 16', 'wire-structure connector', 'wire structure connector'], filterTags: [] },
+        { code: 16, label: 'Wire connector', patterns: ['class 16', 'wire-structure connector', 'wire structure connector', 'wire connector'], filterTags: [] },
         { code: 17, label: 'Bridge deck', patterns: ['class 17', 'bridge deck'], filterTags: [] },
         { code: 18, label: 'High noise', patterns: ['class 18', 'high noise'], filterTags: [] }
     ];
+    function getClassificationIconSvg(code, label) {
+        const title = String(label || 'Classification icon')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        const icons = {
+            0: `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7"></circle><path d="M7.2 7.2l5.6 5.6"></path><path d="M12.8 7.2l-5.6 5.6"></path></svg>`,
+            1: `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7"></circle><path d="M10 6v8"></path></svg>`,
+            2: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 13.5h14"></path><path d="M5 13.5l2-3 2.2 2 2.3-4 2.1 3 1.4-1.5"></path></svg>`,
+            3: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 14c2.2-4.5 4.7-6.8 7.6-6.8"></path><path d="M8.5 14c1.6-3 3.5-4.6 5.8-4.6"></path></svg>`,
+            4: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 14c2.2-5.2 4.8-8 8-8"></path><path d="M10 14c1.4-3.8 3.1-5.8 5-5.8"></path><path d="M4 14h12"></path></svg>`,
+            5: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v10"></path><path d="M10 4l-4 4"></path><path d="M10 4l4 4"></path><path d="M6.5 14h7"></path></svg>`,
+            6: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 15V7l5-3 5 3v8z"></path><path d="M8 15v-3h4v3"></path></svg>`,
+            7: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v7"></path><circle cx="10" cy="14.3" r="0.9" fill="currentColor" stroke="none"></circle><path d="M4.5 16l11-12"></path></svg>`,
+            8: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="2" stroke-dasharray="2.5 2.5"></rect></svg>`,
+            9: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 11c1.2 1 2.3 1.5 3.5 1.5S9.8 12 11 11s2.3-1.5 3.5-1.5S16.8 10 18 11"></path><path d="M2 14c1.2 1 2.3 1.5 3.5 1.5S7.8 15 9 14s2.3-1.5 3.5-1.5S14.8 13 16 14"></path></svg>`,
+            10: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4v12"></path><path d="M14 4v12"></path><path d="M8 6h4"></path><path d="M8 10h4"></path><path d="M8 14h4"></path></svg>`,
+            11: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 14h12"></path><path d="M6 14l1.6-5"></path><path d="M11 14l1.6-5"></path><path d="M8.2 9h5.2"></path></svg>`,
+            12: `<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="4.5" y="4.5" width="11" height="11" rx="2"></rect><path d="M7 7l6 6"></path><path d="M13 7l-6 6"></path></svg>`,
+            13: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 15V6"></path><path d="M14 15V6"></path><path d="M6 7h8"></path><path d="M5 10h10"></path></svg>`,
+            14: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 12c1.6-2 3.3-3 5-3s3.4 1 5 3 3.1 3 4.5 3"></path><path d="M4 8c1.6-2 3.3-3 5-3s3.4 1 5 3 3.1 3 4.5 3"></path></svg>`,
+            15: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4l-3 4h6z"></path><path d="M7 8h6"></path><path d="M8 8l-2 8"></path><path d="M12 8l2 8"></path><path d="M6.8 12h6.4"></path></svg>`,
+            16: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h5"></path><path d="M11 10h5"></path><circle cx="10" cy="10" r="2.2"></circle></svg>`,
+            17: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 12h13"></path><path d="M5.5 12l1.5-3h6l1.5 3"></path><path d="M6.5 12v2"></path><path d="M13.5 12v2"></path></svg>`,
+            18: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5v6"></path><path d="M7.5 8.5L10 5l2.5 3.5"></path><path d="M4.5 16l11-12"></path></svg>`
+        };
+        return `<span class="classification-icon-svg" aria-label="${title}" title="${title}">${icons[code] || icons[1]}</span>`;
+    }
 
     // State 
     let countriesData, regionsData, overviewMapData; 
     let selectedCountryFeature = null; 
     let selectedRegionFeatureId = null; 
     let activeDatasetRegionIds = [];
+    let dimmedDatasetRegionIds = [];
+    let activeResearchMarkers = [];
     let activeCategory = null; 
     let activeLegendCategories = new Set();
     let locationSearchIndex = [];
@@ -65,6 +98,7 @@
     })();
     let mapFocusHandled = false;
     let countryFilterMetrics = new Map();
+    let countryFilterMetricBuckets = new Map();
     let countryFilterMetricsPromise = null;
     let availableClassificationFilterOptions = new Set();
     const REGION_DRILLDOWN_ZOOM = 6.5;
@@ -79,6 +113,7 @@
         accuracyMax: null,
         yearMin: null,
         yearMax: null,
+        includeResearch: false,
         classifications: new Set()
     };
     const mapFilterBounds = {
@@ -87,9 +122,12 @@
         year: { min: 2000, max: 2026, ready: false }
     };
     const CATALOGUE_DATA_PATHS = [
+        'data/catalogue.csv',
+        'data/Quality_parameters_v10022026.csv',
         '../data/catalogue.csv',
         '../data/Quality_parameters_v10022026.csv'
     ];
+    const REGION_DATA_VERSION = '20260402e';
 
     function fetchFirstAvailableText(paths) {
         const tryAt = (index) => {
@@ -105,14 +143,49 @@
     }
 
     // DOM 
+    function isMobileMapViewport() {
+        return window.matchMedia('(max-width: 760px)').matches;
+    }
+
+    function updateMobileOverviewChrome() {
+        const isOverviewMode = !selectedCountryFeature;
+        const shouldShow = !isMobileMapViewport() || isOverviewMode;
+        const legendBookmarkEl = document.getElementById('legend-bookmark');
+        const filterMenuEl = document.getElementById('filterMenu');
+
+        if (legendBookmarkEl) {
+            legendBookmarkEl.style.display = shouldShow ? '' : 'none';
+            if (shouldShow) {
+                legendBookmarkEl.classList.remove('open');
+            }
+        }
+        if (mobileFilterBtn) {
+            mobileFilterBtn.style.display = shouldShow ? '' : 'none';
+        }
+        if (filterDockToggle) {
+            filterDockToggle.style.display = shouldShow ? '' : 'none';
+            if (!shouldShow) {
+                filterDockToggle.classList.remove('hidden');
+                filterDockToggle.setAttribute('aria-expanded', 'false');
+            }
+        }
+        if (filterMenuEl && !shouldShow) {
+            filterMenuEl.classList.remove('open');
+            filterMenuEl.style.display = 'none';
+            filterMenuEl.setAttribute('aria-hidden', 'true');
+        }
+    }
+
     function showCountryTOC() { 
         document.getElementById('toc-country').style.display = 'block'; 
         document.getElementById('toc-region').style.display = 'none'; 
+        updateMobileOverviewChrome();
     } 
 
     function showRegionTOC() { 
         document.getElementById('toc-country').style.display = 'none'; 
         document.getElementById('toc-region').style.display = 'block'; 
+        updateMobileOverviewChrome();
     } 
 
     function getActiveRegionCountryFeature() {
@@ -154,21 +227,76 @@
             id: 'region-fill',
             type: 'fill',
             source: 'regions',
-            filter: ['!=', ['get', 'Name'], activeCountryName],
+            filter: ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'Name'], activeCountryName]],
             layout: { visibility: 'none' },
             paint: {
                 'fill-color': buildRegionFillExpression(),
-                'fill-opacity': 0.6
+                'fill-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 0.8,
+                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.12,
+                    0.6
+                ]
             }
         });
         mapRef.addLayer({
             id: 'region-border',
             type: 'line',
             source: 'regions',
+            filter: ['==', ['geometry-type'], 'Polygon'],
             layout: { visibility: 'none' },
             paint: {
-                'line-color': ['case', ['==', ['get', 'Name'], activeCountryName], '#0367ff', '#003399'],
-                'line-width': ['case', ['==', ['get', 'Name'], activeCountryName], 4, 2]
+                'line-color': [
+                    'case',
+                    ['boolean', ['feature-state', 'datasetSelected'], false], '#ffd166',
+                    ['==', ['get', 'Name'], activeCountryName], '#0367ff',
+                    '#003399'
+                ],
+                'line-width': [
+                    'case',
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 3,
+                    ['==', ['get', 'Name'], activeCountryName], 4,
+                    2
+                ],
+                'line-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 1,
+                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.2,
+                    1
+                ]
+            }
+        });
+        mapRef.addLayer({
+            id: 'region-point',
+            type: 'circle',
+            source: 'regions',
+            filter: [
+                'all',
+                ['==', ['geometry-type'], 'Point'],
+                ['!=', ['get', 'Name'], activeCountryName],
+                ['!', ['has', 'ADM_lookup']]
+            ],
+            layout: { visibility: 'none' },
+            paint: {
+                'circle-color': buildRegionFillExpression(),
+                'circle-radius': [
+                    'case',
+                    ['boolean', ['feature-state', 'selected'], false], 10,
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 8,
+                    7
+                ],
+                'circle-stroke-color': '#f1f5f9',
+                'circle-stroke-width': [
+                    'case',
+                    ['boolean', ['feature-state', 'selected'], false], 3,
+                    2
+                ],
+                'circle-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 0.98,
+                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.18,
+                    0.95
+                ]
             }
         });
     }
@@ -177,11 +305,224 @@
         const mapRef = getMapInstance();
         if (!mapRef) return;
         clearSelectedRegionHighlight();
+        clearResearchMarkers();
         if (mapRef.getLayer('region-fill')) mapRef.setLayoutProperty('region-fill', 'visibility', 'none');
         if (mapRef.getLayer('region-border')) mapRef.setLayoutProperty('region-border', 'visibility', 'none');
+        if (mapRef.getLayer('region-point')) mapRef.setLayoutProperty('region-point', 'visibility', 'none');
         if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
         if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
         applyCategoryFilterToMap();
+    }
+
+    function clearResearchMarkers() {
+        activeResearchMarkers.forEach((marker) => {
+            try {
+                marker.remove();
+            } catch (e) {}
+        });
+        activeResearchMarkers = [];
+    }
+
+    function flattenCoordinates(coords, acc) {
+        if (!Array.isArray(coords)) return acc;
+        if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+            acc.push(coords);
+            return acc;
+        }
+        coords.forEach((part) => flattenCoordinates(part, acc));
+        return acc;
+    }
+
+    function getGeometryBounds(geometry) {
+        if (!geometry || !geometry.coordinates) return null;
+        const points = flattenCoordinates(geometry.coordinates, []);
+        if (!points.length) return null;
+        let minLng = Infinity;
+        let minLat = Infinity;
+        let maxLng = -Infinity;
+        let maxLat = -Infinity;
+        points.forEach(([lng, lat]) => {
+            if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+            minLng = Math.min(minLng, lng);
+            minLat = Math.min(minLat, lat);
+            maxLng = Math.max(maxLng, lng);
+            maxLat = Math.max(maxLat, lat);
+        });
+        if (![minLng, minLat, maxLng, maxLat].every(Number.isFinite)) return null;
+        return { minLng, minLat, maxLng, maxLat };
+    }
+
+    function getCountryMarkerFallback(feature, index) {
+        const bounds = getGeometryBounds(feature && feature.geometry);
+        if (!bounds) return null;
+        const cols = 3;
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const x = (col + 1) / (cols + 1);
+        const y = Math.min(0.68, 0.35 + row * 0.12);
+        return [
+            bounds.minLng + (bounds.maxLng - bounds.minLng) * x,
+            bounds.minLat + (bounds.maxLat - bounds.minLat) * y
+        ];
+    }
+
+    function isPointWithinBounds(pointCoords, bounds) {
+        if (!pointCoords || !bounds) return false;
+        const [lng, lat] = pointCoords;
+        return Number.isFinite(lng) && Number.isFinite(lat) &&
+            lng >= bounds.minLng && lng <= bounds.maxLng &&
+            lat >= bounds.minLat && lat <= bounds.maxLat;
+    }
+
+    function getMarkerCoordinatesForFeature(feature, countryFeature, index) {
+        const geometry = feature && feature.geometry;
+        const rawCoords = geometry && geometry.type === 'Point' ? geometry.coordinates : null;
+        const countryBounds = getGeometryBounds(countryFeature && countryFeature.geometry);
+        if (Array.isArray(rawCoords) && isPointWithinBounds(rawCoords, countryBounds)) {
+            return rawCoords;
+        }
+        return getCountryMarkerFallback(countryFeature, index);
+    }
+
+    function getCountrySummaryFeature() {
+        if (!regionsData || !Array.isArray(regionsData.features) || !selectedCountryFeature || !selectedCountryFeature.properties) {
+            return null;
+        }
+        const countryKey = normalizeCountryKey(selectedCountryFeature.properties.Name);
+        return regionsData.features.find((feature) =>
+            normalizeCountryKey(feature && feature.properties && feature.properties.Name) === countryKey
+        ) || null;
+    }
+
+    function getCountryDatasetIndexForFeature(feature) {
+        const countrySummaryFeature = getCountrySummaryFeature();
+        const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || (selectedCountryFeature && selectedCountryFeature.properties);
+        if (!summaryProperties || !feature || !feature.properties) return undefined;
+
+        const splitSeries = (value) => {
+            if (value === null || value === undefined) return [];
+            const text = String(value).trim();
+            if (!text) return [];
+            if (text.includes(' || ')) return text.split(/\s*\|\|\s*/).filter(Boolean);
+            return text.split(/\s*,\s*/).filter(Boolean);
+        };
+        const uniqueValues = (values) => {
+            const seen = new Set();
+            return values.filter((value) => {
+                const key = String(value).trim().toLowerCase();
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+        const getDatasetNamesFromProperties = (properties) => uniqueValues([
+            properties && properties['Dataset_name'],
+            properties && properties.Dataset_name,
+            properties && properties['Data Name'],
+            properties && properties['Data name'],
+            properties && properties['Dataset Name'],
+            properties && properties.dataset_name,
+            properties && properties.Dataset
+        ].flatMap((value) => splitSeries(value)));
+        const normalizeDatasetOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+        const summaryDatasetOptions = getDatasetNamesFromProperties(summaryProperties);
+        const countryName = normalizeCountryKey(summaryProperties.Name);
+        const childDatasetOptions = regionsData.features
+            .filter((item) => normalizeCountryKey(item && item.properties && item.properties.Name) !== countryName)
+            .flatMap((item) => getDatasetNamesFromProperties(item && item.properties));
+        const datasetOptions = uniqueValues([...summaryDatasetOptions, ...childDatasetOptions]);
+        const targetKeys = getDatasetNamesFromProperties(feature.properties).map((name) => normalizeDatasetOptionKey(name));
+        return datasetOptions.findIndex((name) => targetKeys.includes(normalizeDatasetOptionKey(name)));
+    }
+
+    function focusRegionFeature(id, props) {
+        if (!window.map || !regionsData || !regionsData.features || !regionsData.features[id]) return;
+        clearDatasetRegionSelection();
+        clearSelectedRegionHighlight();
+        selectedRegionFeatureId = id;
+        map.setFeatureState({ source: 'regions', id }, { selected: true });
+        const feature = regionsData.features[id];
+        try {
+            if (feature && feature.geometry && feature.geometry.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
+                map.easeTo({
+                    center: feature.geometry.coordinates,
+                    zoom: Math.max(map.getZoom(), 8),
+                    padding: getMapFitPadding(20),
+                    duration: 1000,
+                    pitch: 45,
+                    bearing: 0
+                });
+            } else {
+                const bbox = turf.bbox(feature);
+                map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+                    padding: getMapFitPadding(20),
+                    duration: 1000,
+                    pitch: 45,
+                    bearing: 0
+                });
+            }
+        } catch (e) {
+            console.warn('Kan bounding box niet bepalen:', e);
+        }
+    }
+
+    function renderResearchMarkers() {
+        clearResearchMarkers();
+        const mapRef = getMapInstance();
+        if (!mapRef || !selectedCountryFeature || !regionsData || !Array.isArray(regionsData.features)) return;
+
+        const pointFeatures = regionsData.features.filter((feature) => {
+            const geometryType = feature && feature.geometry && feature.geometry.type;
+            return geometryType === 'Point' && String((feature.properties && feature.properties.Name) || '').trim();
+        });
+        if (!pointFeatures.length) return;
+
+        pointFeatures.forEach((feature, index) => {
+            const coords = getMarkerCoordinatesForFeature(feature, selectedCountryFeature, index);
+            if (!coords) return;
+            const datasetName =
+                String(
+                    (feature.properties && (
+                        feature.properties.Dataset_name ||
+                        feature.properties.dataset_name ||
+                        feature.properties['Data Name'] ||
+                        feature.properties.Name
+                    )) || ''
+                ).trim() || 'Unknown dataset';
+
+            const markerEl = document.createElement('button');
+            markerEl.type = 'button';
+            markerEl.className = 'research-marker';
+            markerEl.setAttribute('aria-label', `Open ${datasetName}`);
+            markerEl.innerHTML = `
+              <span class="research-marker-pin"></span>
+            `;
+
+            markerEl.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                focusRegionFeature(feature.id, feature.properties);
+                const countrySummaryFeature = getCountrySummaryFeature();
+                const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties;
+                const datasetIndex = getCountryDatasetIndexForFeature(feature);
+                showInfo(summaryProperties, false, undefined, datasetIndex >= 0 ? datasetIndex : undefined);
+            });
+
+            const popup = new maplibregl.Popup({
+                closeButton: false,
+                closeOnClick: false,
+                offset: 22,
+                className: 'research-popup'
+            }).setHTML(`<strong>${escapeHtml(datasetName)}</strong>`);
+
+            const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                .setLngLat(coords)
+                .setPopup(popup)
+                .addTo(mapRef);
+
+            activeResearchMarkers.push(marker);
+        });
     }
 
     function resolveCountryFeatureFromMapFeature(feature) {
@@ -288,9 +629,12 @@
     function buildRegionFileCandidates(countryName) {
         const base = String(countryName || '').toLowerCase().trim();
         const underscored = base.replace(/\s+/g, '_');
+        const withVersion = (path) => `${path}?v=${REGION_DATA_VERSION}`;
         return [
-            `../data/region_map_data_${underscored}.geojson`,
-            `../data/region_map_data_${base}.geojson`
+            withVersion(`../data/region_map_data_${underscored}.geojson`),
+            withVersion(`../data/region_map_data_${base}.geojson`),
+            withVersion(`data/region_map_data_${underscored}.geojson`),
+            withVersion(`data/region_map_data_${base}.geojson`)
         ];
     }
 
@@ -657,6 +1001,99 @@
         return { min: Math.min(...nums), max: Math.max(...nums) };
     }
 
+    function unionMetricRanges(records, key) {
+        const pool = [];
+        (records || []).forEach((record) => {
+            const range = record && record[key];
+            if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) return;
+            pool.push(range.min, range.max);
+        });
+        return computeRange(pool);
+    }
+
+    function isResearchFilterRow(row, readFirst) {
+        const lookup = String(readFirst(row, 'adm_lookup', 'admlookup') || '').trim().toLowerCase();
+        if (lookup) return true;
+        const info = String(readFirst(row, 'info') || '').toLowerCase();
+        const link = String(readFirst(row, 'link', 'link_info', 'linkpointcloud', 'link_pointcloud') || '').toLowerCase();
+        const name = String(readFirst(row, 'name') || '').trim().toLowerCase();
+        const country = String(readFirst(row, 'main_country', 'country') || '').trim().toLowerCase();
+        if (link.includes('zenodo.org') || link.includes('opentopography.org')) return true;
+        if (info.includes('source:') || info.includes('research conducted') || info.includes('multi-temporal point cloud dataset')) return true;
+        if (name && country && name !== country && info.includes('research')) return true;
+        return false;
+    }
+
+    function rebuildCountryFilterMetrics() {
+        const metrics = new Map();
+        const availableFilterTags = new Set();
+        let hasAnyClassificationInfo = false;
+
+        countryFilterMetricBuckets.forEach((bucket, countryKey) => {
+            const standardRecords = (bucket && bucket.standard) || [];
+            const researchRecords = (bucket && bucket.research) || [];
+            const spatialRecords = mapFilterState.includeResearch
+                ? [...standardRecords, ...researchRecords]
+                : standardRecords;
+            if (!standardRecords.length && !spatialRecords.length) return;
+
+            const classifications = new Set();
+            standardRecords.forEach((record) => {
+                (record.classifications || new Set()).forEach((tag) => classifications.add(tag));
+            });
+            const hasClassification = classifications.size > 0;
+            if (hasClassification) {
+                hasAnyClassificationInfo = true;
+                classifications.forEach((tag) => availableFilterTags.add(tag));
+            }
+
+            metrics.set(countryKey, {
+                spatial: unionMetricRanges(spatialRecords, 'spatial'),
+                accuracy: unionMetricRanges(standardRecords, 'accuracy'),
+                year: unionMetricRanges(standardRecords, 'year'),
+                classifications,
+                hasClassification
+            });
+        });
+
+        const spatialPool = [];
+        const accuracyPool = [];
+        const yearPool = [];
+        metrics.forEach((item) => {
+            if (Number.isFinite(item.spatial.min)) spatialPool.push(item.spatial.min, item.spatial.max);
+            if (Number.isFinite(item.accuracy.min)) accuracyPool.push(item.accuracy.min, item.accuracy.max);
+            if (Number.isFinite(item.year.min)) yearPool.push(item.year.min, item.year.max);
+        });
+
+        mapFilterBounds.spatial = spatialPool.length
+            ? { min: Number(Math.min(...spatialPool).toFixed(2)), max: Number(Math.max(...spatialPool).toFixed(2)), ready: true }
+            : { min: 0, max: 100, ready: false };
+        mapFilterBounds.accuracy = accuracyPool.length
+            ? { min: Number(Math.min(...accuracyPool).toFixed(2)), max: Number(Math.max(...accuracyPool).toFixed(2)), ready: true }
+            : { min: 0, max: 1, ready: false };
+        mapFilterBounds.year = yearPool.length
+            ? { min: Math.min(...yearPool), max: Math.max(...yearPool), ready: true }
+            : { min: 2000, max: 2026, ready: false };
+
+        if (mapFilterBounds.spatial.ready) {
+            mapFilterState.spatialMin = mapFilterBounds.spatial.min;
+            mapFilterState.spatialMax = mapFilterBounds.spatial.max;
+        }
+        if (mapFilterBounds.accuracy.ready) {
+            mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
+            mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
+        }
+        if (mapFilterBounds.year.ready) {
+            mapFilterState.yearMin = mapFilterBounds.year.min;
+            mapFilterState.yearMax = mapFilterBounds.year.max;
+        }
+
+        availableClassificationFilterOptions = new Set(availableFilterTags);
+        if (hasAnyClassificationInfo) availableClassificationFilterOptions.add('has');
+        countryFilterMetrics = metrics;
+        return metrics;
+    }
+
     function isFilterActive() {
         const eps = 1e-9;
         if (mapFilterState.classifications && mapFilterState.classifications.size > 0) return true;
@@ -731,8 +1168,7 @@
                 };
 
                 const metrics = new Map();
-                const availableFilterTags = new Set();
-                let hasAnyClassificationInfo = false;
+                const buckets = new Map();
                 rows.slice(1).forEach((rawRow) => {
                     if (!rawRow.some((v) => String(v).trim() !== '')) return;
                     const row = {};
@@ -757,72 +1193,25 @@
                         readFirst(row, 'year')
                     );
 
-                    const current = metrics.get(countryKey);
-                    if (!current || representativeYearScore > current.representativeYearScore || (representativeYearScore === current.representativeYearScore && years.length)) {
-                        metrics.set(countryKey, {
-                            spatial: computeRange(spatialValues),
-                            accuracy: computeRange(accuracyValues),
-                            year: computeRange(years),
-                            classifications: classes,
-                            hasClassification: classes.size > 0,
-                            representativeYearScore
-                        });
+                    if (!buckets.has(countryKey)) {
+                        buckets.set(countryKey, { standard: [], research: [] });
                     }
-                });
-
-                const spatialPool = [];
-                const accuracyPool = [];
-                const yearPool = [];
-                metrics.forEach((item, countryKey) => {
-                    const spatial = item.spatial;
-                    const accuracy = item.accuracy;
-                    const year = item.year;
-                    if (Number.isFinite(spatial.min)) spatialPool.push(spatial.min, spatial.max);
-                    if (Number.isFinite(accuracy.min)) accuracyPool.push(accuracy.min, accuracy.max);
-                    if (Number.isFinite(year.min)) yearPool.push(year.min, year.max);
-                    if (item.hasClassification) {
-                        hasAnyClassificationInfo = true;
-                        item.classifications.forEach((tag) => availableFilterTags.add(tag));
-                    }
-                    metrics.set(countryKey, {
-                        spatial,
-                        accuracy,
-                        year,
-                        classifications: item.classifications,
-                        hasClassification: item.hasClassification
-                    });
-                });
-                availableClassificationFilterOptions = new Set(availableFilterTags);
-                if (hasAnyClassificationInfo) availableClassificationFilterOptions.add('has');
-
-                if (spatialPool.length) {
-                    mapFilterBounds.spatial = {
-                        min: Number(Math.min(...spatialPool).toFixed(2)),
-                        max: Number(Math.max(...spatialPool).toFixed(2)),
-                        ready: true
+                    const record = {
+                        spatial: computeRange(spatialValues),
+                        accuracy: computeRange(accuracyValues),
+                        year: computeRange(years),
+                        classifications: classes,
+                        representativeYearScore
                     };
-                    mapFilterState.spatialMin = mapFilterBounds.spatial.min;
-                    mapFilterState.spatialMax = mapFilterBounds.spatial.max;
-                }
-                if (accuracyPool.length) {
-                    mapFilterBounds.accuracy = {
-                        min: Number(Math.min(...accuracyPool).toFixed(2)),
-                        max: Number(Math.max(...accuracyPool).toFixed(2)),
-                        ready: true
-                    };
-                    mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
-                    mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
-                }
-                if (yearPool.length) {
-                    mapFilterBounds.year = { min: Math.min(...yearPool), max: Math.max(...yearPool), ready: true };
-                    mapFilterState.yearMin = mapFilterBounds.year.min;
-                    mapFilterState.yearMax = mapFilterBounds.year.max;
-                }
-
-                countryFilterMetrics = metrics;
-                return metrics;
+                    const targetBucket = isResearchFilterRow(row, readFirst) ? buckets.get(countryKey).research : buckets.get(countryKey).standard;
+                    targetBucket.push(record);
+                });
+                countryFilterMetricBuckets = buckets;
+                rebuildCountryFilterMetrics();
+                return countryFilterMetrics;
             })
             .catch(() => {
+                countryFilterMetricBuckets = new Map();
                 countryFilterMetrics = new Map();
                 return countryFilterMetrics;
             });
@@ -959,6 +1348,7 @@
     const filterClassificationChecks = filterClassificationMenu
         ? Array.from(filterClassificationMenu.querySelectorAll('input[type="checkbox"]'))
         : [];
+    const filterIncludeResearch = document.getElementById('filterIncludeResearch');
     const filterSpatialMin = document.getElementById('filterSpatialMin');
     const filterSpatialMax = document.getElementById('filterSpatialMax');
     const filterAccuracyMin = document.getElementById('filterAccuracyMin');
@@ -1015,17 +1405,19 @@
             }
         });
     }
-    if (document.body.classList.contains('map-page')) {
+    if (document.body.classList.contains('map-page') && tocSearch) {
         tocSearch.addEventListener('input', renderCountriesList);
     }
-    tocSearch.addEventListener('input', () => updateSearchSuggestions(tocSearch.value));
-    tocSearch.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const result = searchAndSelectCountry(tocSearch.value);
-            if (result.ok) closeSearch();
-        }
-    });
+    if (tocSearch) {
+        tocSearch.addEventListener('input', () => updateSearchSuggestions(tocSearch.value));
+        tocSearch.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const result = searchAndSelectCountry(tocSearch.value);
+                if (result.ok) closeSearch();
+            }
+        });
+    }
     const positionSearch = (anchorEl) => {
         const anchor = anchorEl || tocSearchToggle;
         if (!anchor) return;
@@ -1040,7 +1432,8 @@
         if (tabSearch) tabSearch.classList.remove('open');
         if (tocSearch) tocSearch.classList.remove('mobile-open');
         if (mobileSearchOverlay) mobileSearchOverlay.classList.remove('open');
-        document.getElementById('tab-title').classList.remove('hidden');
+        const tabTitle = document.getElementById('tab-title');
+        if (tabTitle) tabTitle.classList.remove('hidden');
     };
     const searchAndSelectCountry = (query) => {
         const q = String(query || '').trim().toLowerCase();
@@ -1218,6 +1611,9 @@
                 check.checked = mapFilterState.classifications.has(check.value);
             });
         }
+        if (filterIncludeResearch) {
+            filterIncludeResearch.checked = !!mapFilterState.includeResearch;
+        }
         refreshClassificationFilterMenu();
         updateClassificationLabel();
         updateRangeValueLabels();
@@ -1381,6 +1777,14 @@
             });
         });
     }
+    if (filterIncludeResearch) {
+        filterIncludeResearch.addEventListener('change', () => {
+            mapFilterState.includeResearch = !!filterIncludeResearch.checked;
+            rebuildCountryFilterMetrics();
+            syncFilterControlsFromState();
+            applyMapFilters();
+        });
+    }
     if (filterDockToggle) {
         filterDockToggle.addEventListener('click', (e) => {
             e.preventDefault();
@@ -1429,7 +1833,7 @@
             closeContactDrawer();
         }
         const menu = document.getElementById('dataMenu');
-        if (menu && menu.style.display === 'block' && !menu.contains(e.target) && !dataTab.contains(e.target)) {
+        if (menu && menu.style.display === 'block' && !menu.contains(e.target) && (!dataTab || !dataTab.contains(e.target))) {
             menu.style.display = 'none';
         }
         if (tabFilter && filterMenu && filterMenu.style.display === 'block' &&
@@ -1474,12 +1878,13 @@
     };
     const scheduleCloseDataMenu = () => {
         cancelCloseDataMenu();
+        if (!dataMenu) return;
         dataMenuCloseTimer = setTimeout(() => {
             dataMenu.style.display = 'none';
         }, 140);
     };
     const dataMapBtn = document.getElementById('dataMapBtn');
-    if (dataMapBtn) {
+    if (dataMapBtn && dataMenu) {
         dataMapBtn.addEventListener('click', () => {
             overviewReset();
             dataMenu.style.display = 'none';
@@ -1492,35 +1897,41 @@
         });
     }
     const positionDataMenu = () => {
+        if (!dataTab || !dataMenu) return;
+        const tabsBar = document.getElementById('tabs');
+        if (!tabsBar) return;
         const tabRect = dataTab.getBoundingClientRect();
-        const bannerRect = document.getElementById('tabs').getBoundingClientRect();
+        const bannerRect = tabsBar.getBoundingClientRect();
         dataMenu.style.left = `${tabRect.left + window.scrollX}px`;
         dataMenu.style.top = `${bannerRect.bottom + window.scrollY}px`;
     };
-    dataTab.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeSearch();
-        cancelCloseDataMenu();
-        positionDataMenu();
-        const open = dataMenu.style.display === 'block';
-        dataMenu.style.display = open ? 'none' : 'block';
-    });
-    dataTab.addEventListener('mouseenter', () => {
-        cancelCloseDataMenu();
-        positionDataMenu();
-        dataMenu.style.display = 'block';
-    });
-    dataTab.addEventListener('mouseleave', () => {
-        scheduleCloseDataMenu();
-    });
-    dataMenu.addEventListener('mouseenter', () => {
-        cancelCloseDataMenu();
-    });
-    dataMenu.addEventListener('mouseleave', () => {
-        scheduleCloseDataMenu();
-    });
+    if (dataTab && dataMenu) {
+        dataTab.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeSearch();
+            cancelCloseDataMenu();
+            positionDataMenu();
+            const open = dataMenu.style.display === 'block';
+            dataMenu.style.display = open ? 'none' : 'block';
+        });
+        dataTab.addEventListener('mouseenter', () => {
+            cancelCloseDataMenu();
+            positionDataMenu();
+            dataMenu.style.display = 'block';
+        });
+        dataTab.addEventListener('mouseleave', () => {
+            scheduleCloseDataMenu();
+        });
+        dataMenu.addEventListener('mouseenter', () => {
+            cancelCloseDataMenu();
+        });
+        dataMenu.addEventListener('mouseleave', () => {
+            scheduleCloseDataMenu();
+        });
+    }
     window.addEventListener('resize', () => {
-        if (dataMenu.style.display === 'block') positionDataMenu();
+        updateMobileOverviewChrome();
+        if (dataTab && dataMenu && dataMenu.style.display === 'block') positionDataMenu();
         if (filterMenu && filterMenu.style.display === 'block') positionFilterMenu();
     });
     if (tabFilter && filterMenu) {
@@ -1584,7 +1995,9 @@
                 mapFilterState.yearMin = mapFilterBounds.year.min;
                 mapFilterState.yearMax = mapFilterBounds.year.max;
             }
+            mapFilterState.includeResearch = false;
             mapFilterState.classifications = new Set();
+            rebuildCountryFilterMetrics();
             syncFilterControlsFromState();
             applyMapFilters();
         });
@@ -1592,6 +2005,7 @@
     if (filterMenu && filterMenu.classList.contains('filter-dock')) {
         closeFilterMenu();
     }
+    updateMobileOverviewChrome();
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
     function showTab(name) { 
@@ -1612,8 +2026,8 @@
 
     // Load data 
     if (document.body.classList.contains('map-page')) {
-        fetch('../data/map_data_overview.geojson')
-        .then(r => r.json()) 
+        fetchFirstAvailableText(['../data/map_data_overview.geojson', 'data/map_data_overview.geojson'])
+        .then((text) => JSON.parse(text))
         .then(cd => { 
             countriesData = cd; 
             countriesData.features.forEach((f, i) => { 
@@ -1793,7 +2207,15 @@
                 } catch (e) {}
             });
         }
+        if (window.map && map.getSource('regions') && dimmedDatasetRegionIds.length) {
+            dimmedDatasetRegionIds.forEach((id) => {
+                try {
+                    map.setFeatureState({ source: 'regions', id }, { datasetDimmed: false });
+                } catch (e) {}
+            });
+        }
         activeDatasetRegionIds = [];
+        dimmedDatasetRegionIds = [];
     }
 
     function setDatasetRegionSelectionByNames(regionNames) {
@@ -1802,13 +2224,13 @@
 
         const targets = new Set(
             (regionNames || [])
-                .map((name) => String(name || '').trim().toLowerCase())
+                .map((name) => normalizeCountryKey(name))
                 .filter(Boolean)
         );
         if (!targets.size) return;
 
         const matchingFeatures = regionsData.features.filter((feature) => {
-            const name = String((feature && feature.properties && feature.properties.Name) || '').trim().toLowerCase();
+            const name = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
             return name && targets.has(name);
         });
         if (!matchingFeatures.length) return;
@@ -1816,10 +2238,26 @@
         activeDatasetRegionIds = matchingFeatures
             .map((feature) => feature && feature.id)
             .filter((id) => id !== null && id !== undefined);
+        const selectedCountryName = normalizeCountryKey(
+            (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || ''
+        );
+        dimmedDatasetRegionIds = regionsData.features
+            .filter((feature) => {
+                const name = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
+                if (!name || (selectedCountryName && name === selectedCountryName)) return false;
+                return !targets.has(name);
+            })
+            .map((feature) => feature && feature.id)
+            .filter((id) => id !== null && id !== undefined);
 
         activeDatasetRegionIds.forEach((id) => {
             try {
                 map.setFeatureState({ source: 'regions', id }, { datasetSelected: true });
+            } catch (e) {}
+        });
+        dimmedDatasetRegionIds.forEach((id) => {
+            try {
+                map.setFeatureState({ source: 'regions', id }, { datasetDimmed: true });
             } catch (e) {}
         });
     }
@@ -1843,6 +2281,15 @@
         if (typeof m.getLayer !== 'function') return null;
         if (typeof m.setPaintProperty !== 'function') return null;
         return m;
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function applyCategoryPalette() {
@@ -1976,7 +2423,14 @@
         showCountryTOC();
         renderCountriesList();
         clearDatasetRegionSelection();
-        showInfo(selectedCountryFeature.properties, false);
+        const countrySummaryFeature = regionsData && Array.isArray(regionsData.features)
+            ? regionsData.features.find(
+                (f) => String((f && f.properties && f.properties.Name) || '').trim().toLowerCase() ===
+                    String(selectedCountryFeature.properties.Name || '').trim().toLowerCase()
+            )
+            : null;
+        showInfo((countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties, false);
+        renderResearchMarkers();
         try {
             zoomTo(selectedCountryFeature, 45);
         } catch (e) {}
@@ -2012,7 +2466,7 @@
         }); 
     } 
 
-    function handleCountrySelect(feature) { 
+    function handleCountrySelect(feature, initialRegionName) { 
         clearSelectedRegionHighlight();
         selectedCountryFeature = feature; 
         autoDrilldownCountryFeature = null;
@@ -2037,15 +2491,26 @@
             );
             selectedCountryFeature.mainRegion = mainRegion || null; 
             showRegionsOnMap(regionsData);
+            renderResearchMarkers();
             showRegionTOC();
             renderRegionList();
+            const requestedRegionKey = normalizeCountryKey(initialRegionName);
+            const requestedRegion = requestedRegionKey
+                ? regionalChildren.find((f) => normalizeCountryKey(f && f.properties && f.properties.Name) === requestedRegionKey)
+                : null;
+            if (requestedRegion) {
+                showTab('toc');
+                selectRegion(requestedRegion.id, requestedRegion.properties);
+                map.setMinZoom(2);
+                return;
+            }
             if (!hasCountrySummaryInfo(feature.properties) && regionalChildren.length) {
                 showTab('toc');
                 selectRegion(regionalChildren[0].id, regionalChildren[0].properties);
                 map.setMinZoom(2);
                 return;
             }
-            showInfo(feature.properties, false);
+            showInfo((mainRegion && mainRegion.properties) || feature.properties, false);
             showTab('toc'); 
             zoomTo(feature, 0);
             map.setMinZoom(2); 
@@ -2055,6 +2520,7 @@
             regionDrilldownVisible = false;
             regionsData = { type: 'FeatureCollection', features: [] }; 
             hideRegionsOnMap();
+            clearResearchMarkers();
             showCountryTOC();
             showInfo(feature.properties, false); 
             showTab('toc'); 
@@ -2194,7 +2660,7 @@
 
             // Unified click handling: select region first, then country, otherwise reset
             map.on('click', e => {
-                const regionLayers = ['region-fill', 'region-border'].filter(layerId => map.getLayer(layerId));
+                const regionLayers = ['region-fill', 'region-border', 'region-point'].filter(layerId => map.getLayer(layerId));
                 if (regionLayers.length) {
                     const regionFeatures = map.queryRenderedFeatures(e.point, { layers: regionLayers });
                     if (regionFeatures.length) {
@@ -2215,7 +2681,10 @@
                     const feat = countryFeatures[0];
                     const resolvedCountry = resolveCountryFeatureFromMapFeature(feat);
                     if (resolvedCountry) {
-                        handleCountrySelect(resolvedCountry);
+                        const clickedRegionName = feat && feat.properties && feat.properties.ParentCountry
+                            ? feat.properties.Name
+                            : '';
+                        handleCountrySelect(resolvedCountry, clickedRegionName);
                         return;
                     }
                 }
@@ -2238,7 +2707,7 @@
         if (activeCountry && activeCountry.properties && activeCountry.properties.Name) {
             const selectedName = activeCountry.properties.Name;
             if (mapRef.getLayer('region-fill')) {
-                mapRef.setFilter('region-fill', ['!=', ['get', 'Name'], selectedName]);
+                mapRef.setFilter('region-fill', ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'Name'], selectedName]]);
             }
             if (mapRef.getLayer('region-fill')) {
                 mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
@@ -2256,6 +2725,22 @@
                     2
                 ]);
                 mapRef.setLayoutProperty('region-border', 'visibility', 'visible');
+            }
+            if (mapRef.getLayer('region-point')) {
+                mapRef.setFilter('region-point', [
+                    'all',
+                    ['==', ['geometry-type'], 'Point'],
+                    ['!=', ['get', 'Name'], selectedName],
+                    ['!', ['has', 'ADM_lookup']]
+                ]);
+                mapRef.setPaintProperty('region-point', 'circle-color', buildRegionFillExpression());
+                mapRef.setPaintProperty('region-point', 'circle-radius', [
+                    'case',
+                    ['boolean', ['feature-state', 'selected'], false], 10,
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 8,
+                    7
+                ]);
+                mapRef.setLayoutProperty('region-point', 'visibility', 'visible');
             }
         }
     } 
@@ -2277,6 +2762,21 @@
         selectRegion(id, props);
     }
 
+    function getMapFitPadding(base = 20) {
+        const sidebarEl = document.getElementById('sidebar');
+        const isMobile = isMobileMapViewport();
+        const rightPadding = !isMobile && sidebarEl && sidebarEl.style.display !== 'none'
+            ? Math.max(
+                base,
+                Math.min(
+                    Math.round(window.innerWidth * 0.24),
+                    Math.round(sidebarEl.getBoundingClientRect().width * 0.45)
+                )
+            )
+            : base;
+        return { top: base, right: rightPadding, bottom: base, left: base };
+    }
+
     function selectRegion(id, props) { 
         console.log('selectRegion', id, props.Name); 
         if (!regionsData || !regionsData.features || !regionsData.features[id]) return; 
@@ -2286,8 +2786,24 @@
         map.setFeatureState({ source: 'regions', id }, { selected: true }); 
         const feature = regionsData.features[id]; 
         try { 
-            const bbox = turf.bbox(feature); 
-            map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 20, duration: 1000, pitch: 45, bearing: 0 }); 
+            if (feature && feature.geometry && feature.geometry.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
+                map.easeTo({
+                    center: feature.geometry.coordinates,
+                    zoom: Math.max(map.getZoom(), 8),
+                    padding: getMapFitPadding(20),
+                    duration: 1000,
+                    pitch: 45,
+                    bearing: 0
+                });
+            } else {
+                const bbox = turf.bbox(feature); 
+                map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+                    padding: getMapFitPadding(20),
+                    duration: 1000,
+                    pitch: 45,
+                    bearing: 0
+                }); 
+            }
         } catch (e) { 
             console.warn('Kan bounding box niet bepalen:', e); 
         } 
@@ -2310,7 +2826,12 @@
 
     function zoomTo(feature, pitch) { 
         const bbox = turf.bbox(feature); 
-        map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], { padding:20, duration:1000, pitch, bearing:0 }); 
+        map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], {
+            padding: getMapFitPadding(20),
+            duration: 1000,
+            pitch,
+            bearing: 0
+        }); 
     }
 
 function normalizeCountryKey(name) {
@@ -2469,7 +2990,7 @@ function navigateInfoBanner(step, p, regionMode) {
   showInfo(nextItem.properties, false);
 }
 
-function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) { 
+function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride) { 
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -2538,6 +3059,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     return '';
   };
   const providerValue = firstValue(
+    p && p.Responsible,
+    p && p.responsible,
     p && p['Data Provider'],
     p && p['Data provider'],
     p && p.Provider,
@@ -2546,35 +3069,60 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     p && p.Organization,
     p && p.Agency
   );
-  const datasetFieldValue = firstValue(
+  const datasetFieldCandidates = [
+    p && p['Dataset_name'],
+    p && p.Dataset_name,
     p && p['Data Name'],
     p && p['Data name'],
-    p && p.Dataset,
     p && p['Dataset Name'],
-    p && p.dataset_name
-  );
+    p && p.dataset_name,
+    p && p.Dataset
+  ];
+  const countryName = String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '').trim().toLowerCase();
+  const viewingCountrySummary = isCountrySummaryContext || (countryName && String(objectName || '').trim().toLowerCase() === countryName);
+  const normalizeDatasetOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const getDatasetNamesFromProperties = (properties) => uniqueValues([
+    properties && properties['Dataset_name'],
+    properties && properties.Dataset_name,
+    properties && properties['Data Name'],
+    properties && properties['Data name'],
+    properties && properties['Dataset Name'],
+    properties && properties.dataset_name,
+    properties && properties.Dataset
+  ].flatMap((value) => splitSeries(value)));
+  const datasetFieldValue = firstValue(...datasetFieldCandidates);
   const dataTypeValue = firstValue(
     p && p.DataDisplay,
     p && p['Data display'],
     p && p.Data
   );
-  const parseDatasetNamesFromInfo = (infoText) => {
-    if (!infoText) return [];
-    const matches = String(infoText).match(/\b[A-Z][A-Za-z0-9-]*\d+[A-Za-z0-9-]*\b/g) || [];
-    return uniqueValues(matches);
+  const hasTruthyTypeFlag = (rawValue) => {
+    const normalized = String(rawValue || '').trim().toLowerCase();
+    return !!normalized && ['1', '1.0', 'yes', 'true'].includes(normalized);
   };
-  const parseDatasetNamesFromLink = (linkValue) => {
-    if (!linkValue) return [];
-    try {
-      const url = new URL(String(linkValue));
-      const segments = url.pathname.split('/').map((segment) => segment.trim()).filter(Boolean);
-      const candidate = segments.reverse().find((segment) => !/^(en|nl|fr|de|download)$/i.test(segment));
-      if (!candidate) return [];
-      const normalized = candidate.replace(/[-_]+/g, ' ').trim();
-      return normalized ? [normalized] : [];
-    } catch (e) {
-      return [];
+  const getAvailableDatasetTypes = (rawValue, dtmValue, dsmValue) => {
+    const tokens = String(rawValue || '')
+      .split(',')
+      .map((token) => token.trim().toLowerCase())
+      .filter(Boolean);
+    const types = [];
+    if (tokens.some((token) => ['point cloud', 'pointcloud'].includes(token))) {
+      types.push({ key: 'point-cloud', label: 'Point cloud' });
     }
+    if (tokens.some((token) => token === 'dem')) {
+      const hasDtm = hasTruthyTypeFlag(dtmValue);
+      const hasDsm = hasTruthyTypeFlag(dsmValue);
+      if (hasDtm) {
+        types.push({ key: 'dtm', label: 'DTM' });
+      }
+      if (hasDsm) {
+        types.push({ key: 'dsm', label: 'DSM' });
+      }
+      if (!hasDtm && !hasDsm) {
+        types.push({ key: 'dem', label: 'DEM' });
+      }
+    }
+    return types;
   };
   const parseDatasetRegionMap = (infoText, names) => {
     const text = String(infoText || '');
@@ -2632,16 +3180,162 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
 
     return datasetMap;
   };
-  const datasetOptions = isCountrySummaryContext
-    ? uniqueValues(splitSeries(datasetFieldValue))
-    : uniqueValues([
-        ...splitSeries(datasetFieldValue),
-        ...parseDatasetNamesFromInfo(p && p.Info),
-        ...parseDatasetNamesFromLink(p && p.Link)
-      ]);
-  const datasetRegionMap = isCountrySummaryContext
-    ? {}
-    : parseDatasetRegionMap(p && p.Info, datasetOptions);
+  const getDatasetVersionMeta = (name) => {
+    const text = String(name || '').trim();
+    const fallback = {
+      groupKey: normalizeDatasetOptionKey(text),
+      groupLabel: text,
+      versionLabel: '',
+      versioned: false
+    };
+    if (!text) return fallback;
+
+    const romanMatch = text.match(/^(.*?)(?:\s+|[-_])?([IVXLCDM]+)$/i);
+    if (romanMatch) {
+      const baseLabel = String(romanMatch[1] || '').trim();
+      const versionLabel = String(romanMatch[2] || '').trim().toUpperCase();
+      if (baseLabel && versionLabel && /[a-z]/i.test(baseLabel)) {
+        return {
+          groupKey: `versioned:${normalizeDatasetOptionKey(baseLabel)}`,
+          groupLabel: baseLabel,
+          versionLabel,
+          versioned: true
+        };
+      }
+    }
+
+    const numericSuffixMatch = text.match(/^(.*?)(?:\s+|[-_])?(\d{1,3}[A-Za-z]?)$/);
+    if (numericSuffixMatch) {
+      const baseLabel = String(numericSuffixMatch[1] || '').trim();
+      const versionLabel = String(numericSuffixMatch[2] || '').trim();
+      if (baseLabel && versionLabel && /[a-z]/i.test(baseLabel)) {
+        return {
+          groupKey: `versioned:${normalizeDatasetOptionKey(baseLabel)}`,
+          groupLabel: baseLabel,
+          versionLabel,
+          versioned: true
+        };
+      }
+    }
+
+    return fallback;
+  };
+  const extractDatasetNamesFromInfo = (infoText) => {
+    const text = String(infoText || '');
+    if (!text.trim()) return [];
+    const matches = text.match(/\b[A-Za-z][A-Za-z-]*\d+[A-Za-z0-9-]*\b/g) || [];
+    return uniqueValues(
+      matches.filter((name) => !/^(epsg\d*|las\d*|lod\d*)$/i.test(String(name || '').trim()))
+    );
+  };
+  const summaryDatasetOptions = (() => {
+    const fromProperties = getDatasetNamesFromProperties(p);
+    if (fromProperties.length) return fromProperties;
+    if (viewingCountrySummary) return extractDatasetNamesFromInfo(p && p.Info);
+    return fromProperties;
+  })();
+  const countryDatasetFeatureMap = new Map();
+  if (viewingCountrySummary && regionsData && Array.isArray(regionsData.features)) {
+    regionsData.features.forEach((feature) => {
+      const properties = feature && feature.properties;
+      if (!properties) return;
+      const featureName = String(properties.Name || '').trim().toLowerCase();
+      if (countryName && featureName === countryName) return;
+      getDatasetNamesFromProperties(properties).forEach((name) => {
+        const key = normalizeDatasetOptionKey(name);
+        if (!key) return;
+        const existing = countryDatasetFeatureMap.get(key);
+        if (existing) {
+          existing.features.push(feature);
+          return;
+        }
+        countryDatasetFeatureMap.set(key, { name, features: [feature] });
+      });
+    });
+  }
+  const datasetOptions = viewingCountrySummary
+    ? uniqueValues([
+        ...summaryDatasetOptions,
+        ...Array.from(countryDatasetFeatureMap.values()).map((entry) => entry.name)
+      ])
+    : summaryDatasetOptions;
+  const datasetGroupsByKey = new Map();
+  datasetOptions.forEach((name, rawIndex) => {
+    const meta = getDatasetVersionMeta(name);
+    const existing = datasetGroupsByKey.get(meta.groupKey);
+    const versionEntry = {
+      label: meta.versionLabel || name,
+      rawIndex,
+      rawName: name
+    };
+    if (existing) {
+      existing.rawIndices.push(rawIndex);
+      existing.versions.push(versionEntry);
+      return;
+    }
+    datasetGroupsByKey.set(meta.groupKey, {
+      label: meta.groupLabel || name,
+      rawIndices: [rawIndex],
+      versions: [versionEntry],
+      versioned: meta.versioned
+    });
+  });
+  const datasetGroupEntries = Array.from(datasetGroupsByKey.values()).map((entry) => {
+    const isVersionFamily = entry.versioned && entry.versions.length > 1;
+    return {
+      label: isVersionFamily ? entry.label : entry.versions[0].rawName,
+      rawIndices: entry.rawIndices,
+      versions: isVersionFamily ? entry.versions : []
+    };
+  });
+  const summaryDatasetGroupsByKey = new Map();
+  summaryDatasetOptions.forEach((name, rawIndex) => {
+    const meta = getDatasetVersionMeta(name);
+    const existing = summaryDatasetGroupsByKey.get(meta.groupKey);
+    const versionEntry = {
+      label: meta.versionLabel || name,
+      rawIndex,
+      rawName: name
+    };
+    if (existing) {
+      existing.rawIndices.push(rawIndex);
+      existing.versions.push(versionEntry);
+      return;
+    }
+    summaryDatasetGroupsByKey.set(meta.groupKey, {
+      label: meta.groupLabel || name,
+      rawIndices: [rawIndex],
+      versions: [versionEntry],
+      versioned: meta.versioned
+    });
+  });
+  const summaryDatasetGroupEntries = Array.from(summaryDatasetGroupsByKey.values()).map((entry) => {
+    const isVersionFamily = entry.versioned && entry.versions.length > 1;
+    return {
+      label: isVersionFamily ? entry.label : entry.versions[0].rawName,
+      rawIndices: entry.rawIndices,
+      versions: isVersionFamily ? entry.versions : []
+    };
+  });
+  const datasetRegionMap = (() => {
+    if (!viewingCountrySummary) {
+      return parseDatasetRegionMap(p && p.Info, datasetOptions);
+    }
+    const parsedRegionMap = parseDatasetRegionMap(p && p.Info, datasetOptions);
+    const featureRegionMap = Object.fromEntries(
+      Array.from(countryDatasetFeatureMap.values()).map((entry) => [
+        entry.name,
+        uniqueValues(entry.features.map((feature) => firstValue(feature && feature.properties && feature.properties.Name)))
+      ])
+    );
+    const mergedRegionMap = { ...parsedRegionMap };
+    Object.keys(featureRegionMap).forEach((datasetName) => {
+      const parsedNames = Array.isArray(parsedRegionMap[datasetName]) ? parsedRegionMap[datasetName] : [];
+      const featureNames = Array.isArray(featureRegionMap[datasetName]) ? featureRegionMap[datasetName] : [];
+      mergedRegionMap[datasetName] = uniqueValues([...parsedNames, ...featureNames]);
+    });
+    return mergedRegionMap;
+  })();
   const yearBeginRaw = firstValue(
     p && p.year_begin,
     p && p['Year begin'],
@@ -2666,8 +3360,9 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       }).filter((value) => String(value || '').trim() !== '')
     : legacyYearSeries;
   const hasYearSwitcher = yearSeries.length > 1;
+  const hasSummaryDatasetSwitcher = summaryDatasetOptions.length > 1;
   const hasDatasetSwitcher = datasetOptions.length > 1;
-  const hasLinkedDatasetSeries = hasDatasetSwitcher && hasYearSwitcher && datasetOptions.length === yearSeries.length;
+  const hasLinkedDatasetSeries = hasSummaryDatasetSwitcher && hasYearSwitcher && summaryDatasetOptions.length === yearSeries.length;
   const defaultSeriesIndex = Number.isInteger(p && p.RepresentativeSeriesIndex)
     ? p.RepresentativeSeriesIndex
     : getLatestRepresentativeIndex(p);
@@ -2677,21 +3372,39 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
   const activeDatasetIndex = hasDatasetSwitcher
     ? Math.max(0, Math.min(requestedSeriesIndex, datasetOptions.length - 1))
     : 0;
+  const activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
+  const activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
+  const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
+  const activeVersionEntries = activeDatasetGroup && activeDatasetGroup.versions.length > 1
+    ? activeDatasetGroup.versions
+    : [];
+  const activeVersionIndex = activeVersionEntries.findIndex((entry) => entry.rawIndex === activeDatasetIndex);
+  const activeSummaryDatasetIndex = summaryDatasetOptions.findIndex(
+    (name) => normalizeDatasetOptionKey(name) === normalizeDatasetOptionKey(activeDatasetName)
+  );
+  const activeSummaryDatasetGroupIndex = summaryDatasetGroupEntries.findIndex((entry) =>
+    entry.rawIndices.includes(activeSummaryDatasetIndex)
+  );
+  const hasActiveSummaryDataset = activeSummaryDatasetIndex !== -1;
   const activeYearIndex = hasYearSwitcher
     ? Math.max(0, Math.min(hasLinkedDatasetSeries ? activeDatasetIndex : requestedSeriesIndex, yearSeries.length - 1))
     : 0;
   const valueForYear = (rawValue) => {
-    if (isCountrySummaryContext) return rawValue;
     if (!hasYearSwitcher) return rawValue;
     const parts = splitSeries(rawValue);
     if (parts.length === yearSeries.length) return parts[activeYearIndex];
     return rawValue;
   };
   const valueForDataset = (rawValue) => {
-    if (isCountrySummaryContext) return rawValue;
-    if (!hasDatasetSwitcher) return rawValue;
+    if (!hasSummaryDatasetSwitcher || !hasActiveSummaryDataset) return rawValue;
     const parts = splitSeries(rawValue);
-    if (parts.length === datasetOptions.length) return parts[activeDatasetIndex];
+    if (parts.length === summaryDatasetOptions.length) return parts[activeSummaryDatasetIndex];
+    if (activeSummaryDatasetGroupIndex !== -1 && parts.length === summaryDatasetGroupEntries.length) {
+      return parts[activeSummaryDatasetGroupIndex];
+    }
+    if (activeDatasetGroup && parts.length === datasetGroupEntries.length) {
+      return parts[Math.max(0, activeDatasetGroupIndex)];
+    }
     return rawValue;
   };
   const valueForSelection = (rawValue) => {
@@ -2739,6 +3452,12 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       value: 'N/A'
     };
   })();
+  const coverageValue = valueForSelection(
+    (p && (
+      p.Coverage ||
+      p.coverage
+    )) || ''
+  ) || 'N/A';
   const normalizeDatasetSlug = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '-');
   const getLinkDatasetSlug = () => {
     const linkValue = p && p.Link;
@@ -2765,9 +3484,19 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (hasYearSwitcher && yearParts.length === yearSeries.length) {
       return yearParts[activeYearIndex];
     }
-    if (hasSingleDatasetSpecificFallback) return '';
+    if (hasSingleDatasetSpecificFallback && (datasetParts.length > 1 || yearParts.length > 1)) return '';
     return rawValue;
   };
+  const selectedDataTypeValue = valueForDataTypeSelection(dataTypeValue);
+  const selectedDtmValue = valueForSpecs(p && p.DTM);
+  const selectedDsmValue = valueForSpecs(p && p.DSM);
+  const availableDatasetTypes = getAvailableDatasetTypes(selectedDataTypeValue, selectedDtmValue, selectedDsmValue);
+  const requestedDataType = String(activeDataTypeOverride || '').trim().toLowerCase();
+  const activeDataType = availableDatasetTypes.some((type) => type.key === requestedDataType)
+    ? requestedDataType
+    : (availableDatasetTypes.some((type) => type.key === 'point-cloud')
+        ? 'point-cloud'
+        : (availableDatasetTypes[0] && availableDatasetTypes[0].key) || '');
   const navItems = getBannerNavigationItems();
   const navHtml = navItems.length > 1
     ? `<div class="info-banner-nav">
@@ -2777,20 +3506,51 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     : '';
   const buildTypeBadges = (typeText) => {
     if (!typeText || !String(typeText).trim()) return '<strong>N/A</strong>';
-    const tokens = String(typeText).split(',').map(t => t.trim()).filter(Boolean);
+    const tokens = String(typeText).split(/\s*(?:,|\|\|)\s*/).map(t => t.trim()).filter(Boolean);
     if (!tokens.length) return '<strong>N/A</strong>';
     const typeLabels = {
       ALS: 'Airborne Laser Scanning',
       MLS: 'Mobile laser scanning',
-      SLS: 'Statical laser scanning'
+      SLS: 'Statical laser scanning',
+      DM: 'Digital model'
+    };
+    const typeIconFiles = {
+      ALS: 'als.png',
+      MLS: 'mls.png',
+      SLS: 'sls.png',
+      DM: 'DM.png'
     };
     const chips = tokens.map((token) => {
       const upper = token.toUpperCase();
-      const iconSrc = `assets/images/icons/${upper.toLowerCase()}.png`;
+      const iconSrc = `assets/images/icons/${typeIconFiles[upper] || `${upper.toLowerCase()}.png`}`;
       const label = typeLabels[upper] || upper;
       return `<span class="type-pill" title="${escapeHtml(label)}"><img class="type-icon" src="${iconSrc}" alt="${escapeHtml(label)}" /></span>`;
     }).join('');
     return `<div class="type-pillset">${chips}</div>`;
+  };
+  const buildDatasetTypeIndicators = (types, selectedType) => {
+    const items = types.map((type) => `
+      <span class="dataset-type-item">
+        <button
+          type="button"
+          class="dataset-type-box${type.key === selectedType ? ' is-checked' : ''}"
+          data-info-dataset-type="${escapeHtml(type.key)}"
+          aria-pressed="${type.key === selectedType ? 'true' : 'false'}"
+          aria-label="Select ${escapeHtml(type.label)}"
+        ></button>
+        <span
+          class="dataset-type-label"
+          data-info-dataset-type="${escapeHtml(type.key)}"
+          role="button"
+          tabindex="0"
+          aria-label="Select ${escapeHtml(type.label)}"
+        >${escapeHtml(type.label)}</span>
+      </span>`);
+    if (!items.length) return '<em>No dataset type available</em>';
+    return `
+      <div class="dataset-type-checks" aria-label="Dataset type">
+        ${items.join('')}
+      </div>`;
   };
   const buildInfoParagraphs = (text) => {
     const normalized = String(text || '').replace(/\r\n/g, '\n').trim();
@@ -2830,7 +3590,75 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     if (!matchingSentences.length) return normalized;
     return [...genericSentences, ...matchingSentences].join(' ');
   };
-  const getAsprsClassifications = (infoText) => getAvailableClassifications(infoText);
+  const hasStructuredClassificationFlag = (() => {
+    const rawValue = valueForSelection(
+      (p && (
+        p['Classification available'] ||
+        p.classification ||
+        p.Classification
+      )) || ''
+    );
+    const normalized = String(rawValue || '').trim().toLowerCase();
+    return ['1', '1.0', 'yes', 'true'].includes(normalized);
+  })();
+  const getAsprsClassifications = (infoText) => {
+    const byCode = new Map();
+    const classFieldMap = [
+      { code: 1, fields: ['Unclassified', 'unclassified'] },
+      { code: 2, fields: ['ground', 'Ground'] },
+      { code: 3, fields: ['Low vegetation', 'low vegetation'] },
+      { code: 4, fields: ['Medium vegetation', 'medium vegetation'] },
+      { code: 5, fields: ['High vegetation', 'high vegetation'] },
+      { code: 6, fields: ['building', 'Building'] },
+      { code: 7, fields: ['low point', 'Low point'] },
+      { code: 9, fields: ['water', 'Water'] },
+      { code: 10, fields: ['rail', 'Rail'] },
+      { code: 11, fields: ['road surface', 'Road surface'] },
+      { code: 13, fields: ['WG', 'wire guard', 'Wire guard'] },
+      { code: 14, fields: ['WC', 'wire conductor', 'Wire conductor'] },
+      { code: 15, fields: ['transmission tower', 'Transmission tower'] },
+      { code: 16, fields: ['wire structure connector', 'Wire connector', 'wire connector'] },
+      { code: 17, fields: ['bridge', 'Bridge', 'bridge deck'] }
+    ];
+    const isTruthyClassValue = (value) => {
+      const normalized = String(value || '').trim().toLowerCase();
+      return !!normalized && !['0', '0.0', 'no', 'false', 'n/a', 'na', 'null', 'nan', 'geen data'].includes(normalized);
+    };
+    const normalizeLocalClassValue = (value, fallbackLabel) => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return fallbackLabel;
+      const lowered = normalized.toLowerCase();
+      if (['1', '1.0', 'yes', 'true'].includes(lowered)) return fallbackLabel;
+      return normalized;
+    };
+
+    classFieldMap.forEach(({ code, fields }) => {
+      const entry = CLASSIFICATION_DEFINITIONS.find((item) => item.code === code);
+      if (!entry) return;
+      for (let i = 0; i < fields.length; i += 1) {
+        const rawValue = valueForSelection((p && p[fields[i]]) || '');
+        if (!isTruthyClassValue(rawValue)) continue;
+        byCode.set(code, {
+          ...entry,
+          localClass: normalizeLocalClassValue(rawValue, entry.label)
+        });
+        break;
+      }
+    });
+
+    if (hasStructuredClassificationFlag || byCode.size > 0) {
+      getAvailableClassifications(infoText).forEach((entry) => {
+        if (!byCode.has(entry.code)) {
+          byCode.set(entry.code, {
+            ...entry,
+            localClass: entry.label
+          });
+        }
+      });
+    }
+
+    return Array.from(byCode.values()).sort((a, b) => a.code - b.code);
+  };
   const resolveProviderName = () => {
     const scopedProviderValue = valueForSelection(providerValue);
     if (scopedProviderValue) return scopedProviderValue;
@@ -2891,7 +3719,6 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       p.doc_link
     )) || ''
   );
-  const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || objectName;
   const resolveLicenceText = () => {
     const licenceValue = valueForSelection(
       (p && (
@@ -2921,18 +3748,40 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
   };
   const licenceText = resolveLicenceText();
   const processingFeeText = resolveProcessingFeeText();
+  const resolveGridSizeValue = () => {
+    if (activeDataType === 'dsm') {
+      return formatMeters(valueForSpecs(p && (p.DSM_scale || p['DSM scale'])));
+    }
+    if (activeDataType === 'dtm') {
+      return formatMeters(valueForSpecs(p && (p.DTM_scale || p['DTM scale'])));
+    }
+    const dsmScaleValue = valueForSpecs(p && (p.DSM_scale || p['DSM scale']));
+    if (dsmScaleValue || dsmScaleValue === 0) return formatMeters(dsmScaleValue);
+    return formatMeters(valueForSpecs(p && (p.DTM_scale || p['DTM scale'])));
+  };
+  const qualityPrimaryLabel = ['dem', 'dtm', 'dsm'].includes(activeDataType) ? 'Gridsize' : 'Spatial distribution';
+  const qualityPrimaryValue = ['dem', 'dtm', 'dsm'].includes(activeDataType)
+    ? resolveGridSizeValue()
+    : formatSpatialDistribution(valueForSpecs(p.National), valueForSpecs(p.Urban));
   const effectiveTab = hasInfo
     ? (activeTabOverride || (infoBox && infoBox.dataset && infoBox.dataset.activeTab) || 'general')
     : 'general';
-  const datasetControlHtml = hasDatasetSwitcher
+  const datasetControlHtml = datasetGroupEntries.length > 1
     ? `<label class="info-select-wrap" aria-label="Select dataset">
          <select class="info-select" data-info-dataset-select="true">
-           ${datasetOptions.map((name, index) => `<option value="${index}"${index === activeDatasetIndex ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+           ${datasetGroupEntries.map((entry, index) => `<option value="${index}"${index === activeDatasetGroupIndex ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
          </select>
        </label>`
-    : escapeHtml(activeDatasetName || 'N/A');
-  const countryName = String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '').trim().toLowerCase();
-  const viewingCountrySummary = isCountrySummaryContext || (countryName && String(objectName || '').trim().toLowerCase() === countryName);
+    : (activeDatasetName
+        ? escapeHtml((activeDatasetGroup && activeDatasetGroup.label) || activeDatasetName)
+        : '<em>No name was found</em>');
+  const versionControlHtml = activeVersionEntries.length > 1
+    ? `<label class="info-select-wrap info-select-wrap-version" aria-label="Select version">
+         <select class="info-select" data-info-dataset-version-select="true">
+           ${activeVersionEntries.map((entry, index) => `<option value="${index}"${index === activeVersionIndex ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
+         </select>
+       </label>`
+    : '';
   const generalInfoText = viewingCountrySummary
     ? String((p && p.Info) || '').trim()
     : buildDatasetSpecificInfo(p && p.Info, datasetOptions, activeDatasetName);
@@ -2982,13 +3831,19 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     const classHtml = `
       <section class="info-panel-section${effectiveTab === 'classes' ? ' is-active' : ''}" data-info-panel="classes">
         <div class="info-card">
-          <h4>ASPRS LAS Classes</h4>
           <div class="classification-table">
+            <div class="classification-row classification-row-header">
+              <span class="classification-icon" aria-hidden="true"></span>
+              <span class="classification-name">ASPRS class name</span>
+              <span class="classification-code">Number</span>
+              <span class="classification-local">Local class</span>
+            </div>
             ${asprsClassifications.map((entry) => `
               <div class="classification-row">
-                <span class="classification-code">${entry.code}</span>
+                <span class="classification-icon">${getClassificationIconSvg(entry.code, entry.label)}</span>
                 <span class="classification-name">${escapeHtml(entry.label)}</span>
-                <strong class="classification-mark">x</strong>
+                <span class="classification-code">${entry.code}</span>
+                <span class="classification-local">${escapeHtml(entry.localClass || 'N/A')}</span>
               </div>
             `).join('')}
           </div>
@@ -3004,16 +3859,21 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
       <div class="info-sections">
         <section class="info-card">
           <h4>Acquisition & Coverage</h4>
+          ${versionControlHtml ? `<div class="info-row"><span>Version</span><strong>${versionControlHtml}</strong></div>` : ''}
           <div class="info-row"><span>${escapeHtml(acquisitionPeriodMeta.label)}</span><strong>${escapeHtml(acquisitionPeriodMeta.value)}</strong></div>
-          <div class="info-row"><span>Dataset type</span><strong>${escapeHtml(formatDatasetTypeLabel(valueForDataTypeSelection(dataTypeValue)))}</strong></div>
+          <div class="info-row"><span>Coverage</span><strong>${escapeHtml(coverageValue)}</strong></div>
+          <div class="info-row info-row-stacked">
+            <span>Type of data</span>
+            <strong>${buildDatasetTypeIndicators(availableDatasetTypes, activeDataType)}</strong>
+          </div>
           <div class="info-platform-block">
-            <span class="info-platform-title">Acquisition platform</span>
+            <span class="info-platform-title">Acquisition method</span>
             ${buildTypeBadges(valueForSelection(p.Type))}
           </div>
         </section>
         <section class="info-card">
           <h4>Quality descriptions</h4>
-          <div class="info-row"><span>Spatial distribution</span><strong>${formatSpatialDistribution(valueForSpecs(p.National), valueForSpecs(p.Urban))}</strong></div>
+          <div class="info-row"><span>${qualityPrimaryLabel}</span><strong>${escapeHtml(qualityPrimaryValue)}</strong></div>
           <div class="info-row"><span>Planimetric</span><strong>${formatMeters(valueForSpecs(p.Planimetric))}</strong></div>
           <div class="info-row"><span>Altimetric</span><strong>${formatMeters(valueForSpecs(p.Altimetric))}</strong></div>
           <div class="info-row"><span>XY-ref</span><strong>${xyRef}</strong></div>
@@ -3056,10 +3916,53 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
   if (infoDatasetSelects.length) {
     infoDatasetSelects.forEach((infoDatasetSelect) => {
       infoDatasetSelect.addEventListener('change', (e) => {
-      const nextDatasetIndex = Number(e.target.value);
-      const nextYearIndex = hasLinkedDatasetSeries ? nextDatasetIndex : activeYearIndex;
-      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab);
+      const nextGroupIndex = Number(e.target.value);
+      const nextGroup = datasetGroupEntries[nextGroupIndex] || null;
+      const nextDatasetIndex = nextGroup && nextGroup.rawIndices.length ? nextGroup.rawIndices[0] : 0;
+      const nextDatasetName = datasetOptions[nextDatasetIndex] || '';
+      const nextDatasetKey = normalizeDatasetOptionKey(nextDatasetName);
+      const nextSummaryDatasetIndex = summaryDatasetOptions.findIndex(
+        (name) => normalizeDatasetOptionKey(name) === nextDatasetKey
+      );
+      const nextYearIndex = hasLinkedDatasetSeries && nextSummaryDatasetIndex !== -1
+        ? nextSummaryDatasetIndex
+        : activeYearIndex;
+      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
       });
+    });
+  }
+  const infoDatasetVersionSelects = Array.from(infoBox.querySelectorAll('[data-info-dataset-version-select]'));
+  if (infoDatasetVersionSelects.length) {
+    infoDatasetVersionSelects.forEach((infoDatasetVersionSelect) => {
+      infoDatasetVersionSelect.addEventListener('change', (e) => {
+        const nextVersionIndex = Number(e.target.value);
+        const nextVersionEntry = activeVersionEntries[nextVersionIndex];
+        if (!nextVersionEntry) return;
+        const nextDatasetIndex = nextVersionEntry.rawIndex;
+        const nextDatasetName = datasetOptions[nextDatasetIndex] || '';
+        const nextDatasetKey = normalizeDatasetOptionKey(nextDatasetName);
+        const nextSummaryDatasetIndex = summaryDatasetOptions.findIndex(
+          (name) => normalizeDatasetOptionKey(name) === nextDatasetKey
+        );
+        const nextYearIndex = hasLinkedDatasetSeries && nextSummaryDatasetIndex !== -1
+          ? nextSummaryDatasetIndex
+          : activeYearIndex;
+        showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+      });
+    });
+  }
+  const infoDatasetTypeButtons = Array.from(infoBox.querySelectorAll('[data-info-dataset-type]'));
+  if (infoDatasetTypeButtons.length) {
+    infoDatasetTypeButtons.forEach((button) => {
+      const selectDatasetType = (event) => {
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+        if (event.type === 'keydown') event.preventDefault();
+        const nextDataType = String(event.currentTarget.getAttribute('data-info-dataset-type') || '').trim().toLowerCase();
+        if (!nextDataType || nextDataType === activeDataType) return;
+        showInfo(p, regionMode, activeYearIndex, activeDatasetIndex, effectiveTab, nextDataType);
+      };
+      button.addEventListener('click', selectDatasetType);
+      button.addEventListener('keydown', selectDatasetType);
     });
   }
   const infoTabButtons = Array.from(infoBox.querySelectorAll('[data-info-tab]'));
@@ -3067,7 +3970,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride) {
     infoTabButtons.forEach((button) => {
       button.addEventListener('click', () => {
         const nextTab = button.getAttribute('data-info-tab') || 'general';
-        showInfo(p, regionMode, activeYearIndex, activeDatasetIndex, nextTab);
+        showInfo(p, regionMode, activeYearIndex, activeDatasetIndex, nextTab, activeDataType);
       });
     });
   }
@@ -3429,7 +4332,7 @@ function initHomePageEnhancements() {
     if (randomPointcloudBtn) {
         randomPointcloudBtn.addEventListener('click', (event) => {
             event.preventDefault();
-            fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
+            fetchFirstAvailableTextShared(SHARED_CATALOGUE_DATA_PATHS)
                 .then((csvText) => {
                     const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
                     const commaCount = (firstLine.match(/,/g) || []).length;
@@ -3476,6 +4379,30 @@ function initHomePageEnhancements() {
                 });
         });
     }
+}
+
+const SHARED_CATALOGUE_DATA_PATHS = [
+    'data/catalogue.csv',
+    'data/Quality_parameters_v10022026.csv',
+    '../data/catalogue.csv',
+    '../data/Quality_parameters_v10022026.csv'
+];
+
+function fetchFirstAvailableTextShared(paths) {
+    const tryAt = (index) => {
+        if (!Array.isArray(paths) || index >= paths.length) {
+            return Promise.reject(new Error('No data file found'));
+        }
+        return fetch(paths[index]).then((response) => {
+            if (!response.ok) return tryAt(index + 1);
+            return response.text();
+        });
+    };
+    return tryAt(0);
+}
+
+function fetchFirstAvailableJsonShared(paths) {
+    return fetchFirstAvailableTextShared(paths).then((text) => JSON.parse(text));
 }
 
 // Initialize banner carousel if elements exist
@@ -3552,6 +4479,19 @@ function initCatalogueTable() {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    const isNA = (value) => {
+        const v = String(value || '').trim().toLowerCase();
+        return !v || v === 'n/a' || v === '-';
+    };
+    const formatDataVersion = (value) => {
+        const v = String(value || '').trim().toLowerCase();
+        if (!v || v === 'n/a' || v === '-') return '-';
+        if (v === 'region' || v === 'regional') return 'Region';
+        if (v.includes('dense') || v === 'dm' || v.includes('matching')) return 'Dense matching';
+        if (v.includes('dem') || v.includes('elevation')) return 'Point cloud elevation model (DEM)';
+        if (v.includes('point')) return 'Point cloud';
+        return String(value).trim();
+    };
     const spatialDistribution = (row) => {
         const direct = normalize(readFirst(row, 'spatialdistribution', 'spatialdensity', 'density'));
         if (direct) return direct.toLowerCase().includes('ppsm') ? direct : `${direct} ppsm`;
@@ -3563,8 +4503,123 @@ function initCatalogueTable() {
         if (urban) return `${urban} ppsm`;
         return '-';
     };
+    const buildRegionFileCandidatesShared = (countryName) => {
+        const base = String(countryName || '').toLowerCase().trim();
+        const underscored = base.replace(/\s+/g, '_');
+        const version = '20260403d';
+        const withVersion = (path) => `${path}?v=${version}`;
+        return [
+            withVersion(`../data/region_map_data_${underscored}.geojson`),
+            withVersion(`../data/region_map_data_${base}.geojson`),
+            withVersion(`data/region_map_data_${underscored}.geojson`),
+            withVersion(`data/region_map_data_${base}.geojson`)
+        ];
+    };
+    const normalizePropertiesRecord = (source) => {
+        const normalizedRecord = {};
+        Object.keys(source || {}).forEach((propertyName) => {
+            normalizedRecord[key(propertyName)] = source[propertyName];
+        });
+        return normalizedRecord;
+    };
+    const inferCoverage = (row) => {
+        const direct = normalize(readFirst(row, 'coverage'));
+        if (direct) return direct;
+        const admLookup = normalize(readFirst(row, 'adm_lookup'));
+        if (admLookup) return 'Research';
+        const adm = normalize(readFirst(row, 'adm'));
+        if (adm === '0' || adm === '0.0') return 'National';
+        if (adm === '1' || adm === '1.0') return 'Regional';
+        return '-';
+    };
+    const buildTableRowHtml = (row) => {
+        const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || '-';
+        const rawMainCountry = readFirst(row, 'main_country', 'country') || '';
+        const rawCoverage = inferCoverage(row);
+        const rawDataVersion = formatDataVersion(readFirst(row, 'dataversion', 'data_version', 'data', 'datasettype', 'dataset_type', 'type'));
+        if (String(rawDataVersion).toLowerCase() === 'region') return '';
+        const rawYearBegin = readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear');
+        const rawYearEnd = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear');
+        const rawYear = rawYearBegin || rawYearEnd
+            ? [rawYearBegin, rawYearEnd].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
+            : (readFirst(row, 'year') || '-');
+        const rawAgency = readFirst(row, 'responsible', 'responsibleagency', 'responsibleagencie', 'agency', 'provider', 'dataprovider') || '-';
+        const rawSpatial = spatialDistribution(row);
+        const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
+        const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || '-';
+        const link = readFirst(row, 'link_point_cloud', 'linkpointcloud', 'dataroom', 'link', 'access');
 
-    fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
+        const allDataNA = [
+            rawCoverage,
+            rawDataVersion,
+            rawYear,
+            rawAgency,
+            rawSpatial,
+            rawPlanimetric,
+            rawAltimetric,
+            link || '-'
+        ].every(isNA);
+        if (allDataNA) return '';
+
+        const name = escapeHtml(rawName);
+        const mapCountry = rawMainCountry || rawName;
+        const mapHref = (mapCountry && rawName && rawName !== '-')
+            ? `map.html?focusCountry=${encodeURIComponent(mapCountry)}&focusRegion=${encodeURIComponent(rawName)}`
+            : '';
+        const nameHtml = mapHref
+            ? `<a href="${mapHref}" title="Go to maps location -->">${name}</a>`
+            : name;
+        const coverage = escapeHtml(rawCoverage);
+        const dataVersion = escapeHtml(rawDataVersion);
+        const year = escapeHtml(rawYear);
+        const agency = escapeHtml(rawAgency);
+        const spatial = escapeHtml(rawSpatial);
+        const planimetric = escapeHtml(rawPlanimetric);
+        const altimetric = escapeHtml(rawAltimetric);
+        const linkHtml = link
+            ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Link to local dataset</a>`
+            : '-';
+
+        return `<tr>
+            <td>${nameHtml}</td>
+            <td>${coverage}</td>
+            <td>${dataVersion}</td>
+            <td>${year}</td>
+            <td>${agency}</td>
+            <td>${spatial}</td>
+            <td>${planimetric}</td>
+            <td>${altimetric}</td>
+            <td>${linkHtml}</td>
+        </tr>`;
+    };
+    const loadResearchRecords = () => fetchFirstAvailableJsonShared(['../data/map_data_overview.geojson', 'data/map_data_overview.geojson'])
+        .then((overviewData) => {
+            const countries = Array.isArray(overviewData && overviewData.features)
+                ? overviewData.features
+                    .filter((feature) => feature && feature.properties && feature.properties.Name && !feature.properties.RegionName)
+                    .map((feature) => String(feature.properties.Name).trim())
+                    .filter(Boolean)
+                : [];
+            const uniqueCountries = Array.from(new Set(countries));
+            return Promise.all(uniqueCountries.map((countryName) =>
+                fetchFirstAvailableJsonShared(buildRegionFileCandidatesShared(countryName)).catch(() => null)
+            ));
+        })
+        .then((collections) => {
+            const researchRecords = [];
+            collections.forEach((collection) => {
+                const features = Array.isArray(collection && collection.features) ? collection.features : [];
+                features.forEach((feature) => {
+                    const properties = feature && feature.properties ? feature.properties : null;
+                    if (!properties || !properties.ADM_lookup) return;
+                    researchRecords.push(normalizePropertiesRecord(properties));
+                });
+            });
+            return researchRecords;
+        })
+        .catch(() => []);
+
+    fetchFirstAvailableTextShared(SHARED_CATALOGUE_DATA_PATHS)
         .then((csvText) => {
             const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
             const commaCount = (firstLine.match(/,/g) || []).length;
@@ -3582,90 +4637,35 @@ function initCatalogueTable() {
                     return obj;
                 });
 
-            if (!records.length) {
-                body.innerHTML = '<tr><td colspan="8">No catalogue rows found in CSV.</td></tr>';
-                status.textContent = 'Catalogue loaded, but no data rows were found.';
-                return;
-            }
+            return loadResearchRecords().then((researchRecords) => {
+                const seen = new Set();
+                const mergedRecords = [];
+                [...records, ...researchRecords].forEach((row) => {
+                    const dedupeKey = [
+                        String(readFirst(row, 'main_country', 'country') || '').trim().toLowerCase(),
+                        String(readFirst(row, 'name', 'regionname', 'dataname', 'dataset_name') || '').trim().toLowerCase(),
+                        String(readFirst(row, 'year', 'year_end', 'yearend') || '').trim().toLowerCase()
+                    ].join('|');
+                    if (seen.has(dedupeKey)) return;
+                    seen.add(dedupeKey);
+                    mergedRecords.push(row);
+                });
 
-            const isNA = (value) => {
-                const v = String(value || '').trim().toLowerCase();
-                return !v || v === 'n/a' || v === '-';
-            };
-            const formatDataVersion = (value) => {
-                const v = String(value || '').trim().toLowerCase();
-                if (!v || v === 'n/a' || v === '-') return '-';
-                if (v === 'region' || v === 'regional') return 'Region';
-                if (v.includes('dense') || v === 'dm' || v.includes('matching')) return 'Dense matching';
-                if (v.includes('dem') || v.includes('elevation')) return 'Point cloud elevation model (DEM)';
-                if (v.includes('point')) return 'Point cloud';
-                return String(value).trim();
-            };
+                if (!mergedRecords.length) {
+                    body.innerHTML = '<tr><td colspan="9">No catalogue rows found in CSV or region data.</td></tr>';
+                    status.textContent = 'Catalogue loaded, but no data rows were found.';
+                    return;
+                }
 
-            const html = records.map((row) => {
-                const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || '-';
-                const rawMainCountry = readFirst(row, 'main_country', 'country') || '';
-                const rawDataVersion = formatDataVersion(readFirst(row, 'dataversion', 'data_version', 'data', 'datasettype', 'dataset_type', 'type'));
-                if (String(rawDataVersion).toLowerCase() === 'region') return '';
-                const rawYearBegin = readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear');
-                const rawYearEnd = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear');
-                const rawYear = rawYearBegin || rawYearEnd
-                    ? [rawYearBegin, rawYearEnd].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
-                    : (readFirst(row, 'year') || '-');
-                const rawAgency = readFirst(row, 'responsible', 'responsibleagency', 'responsibleagencie', 'agency', 'provider') || '-';
-                const rawSpatial = spatialDistribution(row);
-                const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
-                const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || '-';
-                const link = readFirst(row, 'link_point_cloud', 'link_pointcloud', 'dataroom', 'link', 'access');
-
-                const allDataNA = [
-                    rawDataVersion,
-                    rawYear,
-                    rawAgency,
-                    rawSpatial,
-                    rawPlanimetric,
-                    rawAltimetric,
-                    link || '-'
-                ].every(isNA);
-                if (allDataNA) return '';
-
-                const name = escapeHtml(rawName);
-                const mapCountry = rawMainCountry || rawName;
-                const mapHref = (mapCountry && rawName && rawName !== '-')
-                    ? `map.html?focusCountry=${encodeURIComponent(mapCountry)}&focusRegion=${encodeURIComponent(rawName)}`
-                    : '';
-                const nameHtml = mapHref
-                    ? `<a href="${mapHref}" title="Go to maps location -->">${name}</a>`
-                    : name;
-                const dataVersion = escapeHtml(rawDataVersion);
-                const year = escapeHtml(rawYear);
-                const agency = escapeHtml(rawAgency);
-                const spatial = escapeHtml(rawSpatial);
-                const planimetric = escapeHtml(rawPlanimetric);
-                const altimetric = escapeHtml(rawAltimetric);
-                const linkHtml = link
-                    ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Link to local dataset</a>`
-                    : '-';
-
-                return `<tr>
-                    <td>${nameHtml}</td>
-                    <td>${dataVersion}</td>
-                    <td>${year}</td>
-                    <td>${agency}</td>
-                    <td>${spatial}</td>
-                    <td>${planimetric}</td>
-                    <td>${altimetric}</td>
-                    <td>${linkHtml}</td>
-                </tr>`;
-            }).join('');
-
-            body.innerHTML = html || '<tr><td colspan="8">No catalogue rows to display after filtering empty data.</td></tr>';
-            status.textContent = html
-                ? `Catalogue loaded with ${records.length} source row${records.length === 1 ? '' : 's'}.`
-                : 'Catalogue loaded, but no displayable rows were found.';
+                const html = mergedRecords.map(buildTableRowHtml).join('');
+                body.innerHTML = html || '<tr><td colspan="9">No catalogue rows to display after filtering empty data.</td></tr>';
+                status.textContent = html
+                    ? `Catalogue loaded with ${mergedRecords.length} row${mergedRecords.length === 1 ? '' : 's'}, including research datasets.`
+                    : 'Catalogue loaded, but no displayable rows were found.';
+            });
         })
         .catch((error) => {
-            body.innerHTML = '<tr><td colspan="8">Could not load a catalogue CSV from ../data. Add catalogue.csv or Quality_parameters_v10022026.csv.</td></tr>';
+            body.innerHTML = '<tr><td colspan="9">Could not load a catalogue CSV from ../data. Add catalogue.csv or Quality_parameters_v10022026.csv.</td></tr>';
             status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected CSV in ../data.'}`;
         });
 }
