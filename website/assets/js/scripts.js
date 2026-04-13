@@ -102,6 +102,10 @@
     let countryFilterMetricBuckets = new Map();
     let countryFilterMetricsPromise = null;
     let availableClassificationFilterOptions = new Set();
+    // regionFilterMetrics: keyed by "parentCountryKey::regionNameLc" → {spatial, accuracy, year, classifications}
+    let regionFilterMetrics = new Map();
+    // all sub-region features for non-"Region" countries (used for the filter-regions map layer)
+    let filterRegionFeatures = [];
     const REGION_DRILLDOWN_ZOOM = 6.5;
     const REGION_DRILLDOWN_EXIT_ZOOM = 6.2;
     let regionDrilldownVisible = false;
@@ -114,7 +118,8 @@
         accuracyMax: null,
         yearMin: null,
         yearMax: null,
-        classifications: new Set()
+        classifications: new Set(),
+        datasetTypes: new Set(['national']) // which ADM levels are included
     };
     const mapFilterBounds = {
         spatial: { min: 0, max: 100, ready: false },
@@ -496,12 +501,24 @@
     function renderResearchMarkers() {
         clearResearchMarkers();
         const mapRef = getMapInstance();
-        if (!mapRef || !isResearchLegendActive()) return;
+        const cityTypeActive = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
+        if (!mapRef || (!isResearchLegendActive() && !cityTypeActive)) return;
 
         const inCountryView = !!(selectedCountryFeature && regionsData && Array.isArray(regionsData.features));
-        const sourceFeatures = inCountryView
-            ? regionsData.features
-            : ((overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : []);
+
+        let sourceFeatures;
+        if (inCountryView) {
+            sourceFeatures = regionsData.features;
+        } else if (cityTypeActive) {
+            // In overview with city checkbox: use filterRegionFeatures (loaded from all region GeoJSONs)
+            // which includes Point features with ADM_lookup
+            const overviewFeatures = (overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : [];
+            const regionPoints = (filterRegionFeatures || []).filter((f) => f.geometry && f.geometry.type === 'Point');
+            sourceFeatures = [...overviewFeatures, ...regionPoints];
+        } else {
+            sourceFeatures = (overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : [];
+        }
+
         const pointFeatures = sourceFeatures.filter((feature) => {
             const geometryType = feature && feature.geometry && feature.geometry.type;
             const hasLookup = !!(feature && feature.properties && feature.properties.ADM_lookup);
@@ -1015,8 +1032,42 @@
         );
     }
 
-    function detectClassificationTags(infoText) {
+    // Map GeoJSON classification column names → filter tag
+    const CLASSIFICATION_COLUMN_MAP = {
+        'ground':              'ground',
+        'low vegetation':      'low vegetation',
+        'medium vegetation':   'medium vegetation',
+        'high vegetation':     'high vegetation',
+        'common vegetation':   'vegetation',
+        'building':            'building',
+        'water':               'water',
+        'low point':           'low point',
+        'rail':                'rail',
+        'road surface':        'road surface',
+        'bridge':              'bridge',
+        'overhead':            'overhead',
+        'transmission tower':  'transmission tower',
+        'wire structure connector': 'wire connector',
+        'wg':                  'wire guard',
+        'wc':                  'wire connector',
+        'snow':                'snow',
+        'unclassified':        'unclassified',
+        'created':             'created / never classified'
+    };
+
+    function detectClassificationTags(infoText, props) {
         const tags = new Set();
+        // Read dedicated GeoJSON boolean columns
+        if (props && typeof props === 'object') {
+            Object.entries(props).forEach(([col, val]) => {
+                const key = String(col).toLowerCase().trim();
+                const tag = CLASSIFICATION_COLUMN_MAP[key];
+                if (tag && val !== null && val !== undefined && val !== 0 && val !== '0' && val !== false && String(val).trim() !== '') {
+                    tags.add(tag);
+                }
+            });
+        }
+        // Also fall back to text scanning for any not covered by columns
         getAvailableClassifications(infoText).forEach((entry) => {
             (entry.filterTags || []).forEach((tag) => tags.add(tag));
         });
@@ -1039,30 +1090,25 @@
         return computeRange(pool);
     }
 
-    function isResearchFilterRow(row, readFirst) {
-        const lookup = String(readFirst(row, 'adm_lookup', 'admlookup') || '').trim().toLowerCase();
-        if (lookup) return true;
-        const info = String(readFirst(row, 'info') || '').toLowerCase();
-        const link = String(readFirst(row, 'link', 'link_info', 'linkpointcloud', 'link_pointcloud') || '').toLowerCase();
-        const name = String(readFirst(row, 'name') || '').trim().toLowerCase();
-        const country = String(readFirst(row, 'main_country', 'country') || '').trim().toLowerCase();
-        if (link.includes('zenodo.org') || link.includes('opentopography.org')) return true;
-        if (info.includes('source:') || info.includes('research conducted') || info.includes('multi-temporal point cloud dataset')) return true;
-        if (name && country && name !== country && info.includes('research')) return true;
-        return false;
-    }
 
     function rebuildCountryFilterMetrics() {
         const metrics = new Map();
         const availableFilterTags = new Set();
         let hasAnyClassificationInfo = false;
 
+        const activeTypes = mapFilterState.datasetTypes;
+
         countryFilterMetricBuckets.forEach((bucket, countryKey) => {
-            const standardRecords = (bucket && bucket.standard) || [];
-            if (!standardRecords.length) return;
+            const allRecords = (bucket && bucket.standard) || [];
+            if (!allRecords.length) return;
+
+            // Filter records by the active dataset types (national/regional/city)
+            const standardRecords = activeTypes.size
+                ? allRecords.filter((r) => activeTypes.has(r.datasetType || 'national'))
+                : allRecords;
 
             const classifications = new Set();
-            standardRecords.forEach((record) => {
+            allRecords.forEach((record) => {
                 (record.classifications || new Set()).forEach((tag) => classifications.add(tag));
             });
             const hasClassification = classifications.size > 0;
@@ -1071,12 +1117,16 @@
                 classifications.forEach((tag) => availableFilterTags.add(tag));
             }
 
+            // A country passes if ANY of its active-type records has spatial data,
+            // OR if it has no spatial data at all (show it, let other filters decide)
+            const spatialRange = unionMetricRanges(standardRecords, 'spatial');
             metrics.set(countryKey, {
-                spatial: unionMetricRanges(standardRecords, 'spatial'),
+                spatial: spatialRange,
                 accuracy: unionMetricRanges(standardRecords, 'accuracy'),
                 year: unionMetricRanges(standardRecords, 'year'),
                 classifications,
-                hasClassification
+                hasClassification,
+                hasActiveRecords: standardRecords.length > 0
             });
         });
 
@@ -1090,7 +1140,7 @@
         });
 
         mapFilterBounds.spatial = spatialPool.length
-            ? { min: Number(Math.min(...spatialPool).toFixed(2)), max: Number(Math.max(...spatialPool).toFixed(2)), ready: true }
+            ? { min: Math.floor(Math.min(...spatialPool) * 2) / 2, max: Math.ceil(Math.max(...spatialPool) * 2) / 2, ready: true }
             : { min: 0, max: 100, ready: false };
         mapFilterBounds.accuracy = accuracyPool.length
             ? { min: Number(Math.min(...accuracyPool).toFixed(2)), max: Number(Math.max(...accuracyPool).toFixed(2)), ready: true }
@@ -1101,7 +1151,7 @@
 
         if (mapFilterBounds.spatial.ready) {
             mapFilterState.spatialMin = mapFilterBounds.spatial.min;
-            mapFilterState.spatialMax = mapFilterBounds.spatial.max;
+            mapFilterState.spatialMax = Math.min(40, mapFilterBounds.spatial.max);
         }
         if (mapFilterBounds.accuracy.ready) {
             mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
@@ -1138,7 +1188,8 @@
 
     function rangeOverlaps(metricRange, selectedMin, selectedMax) {
         if (!Number.isFinite(selectedMin) || !Number.isFinite(selectedMax)) return true;
-        if (!metricRange || !Number.isFinite(metricRange.min) || !Number.isFinite(metricRange.max)) return false;
+        // No density data for this country/region → pass through (don't filter it out)
+        if (!metricRange || !Number.isFinite(metricRange.min) || !Number.isFinite(metricRange.max)) return true;
         return metricRange.max >= selectedMin && metricRange.min <= selectedMax;
     }
 
@@ -1172,73 +1223,132 @@
 
     function loadCountryFilterMetrics() {
         if (countryFilterMetricsPromise) return countryFilterMetricsPromise;
-        countryFilterMetricsPromise = fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
-            .then((csvText) => {
-                const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
-                const commaCount = (firstLine.match(/,/g) || []).length;
-                const semicolonCount = (firstLine.match(/;/g) || []).length;
-                const delimiter = semicolonCount > commaCount ? ';' : ',';
-                const rows = parseCsvText(csvText, delimiter);
-                if (!rows.length || !rows[0].length) return new Map();
 
-                const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
-                const headers = rows[0].map((h) => key(h));
-                const readFirst = (row, ...candidates) => {
-                    for (let i = 0; i < candidates.length; i += 1) {
-                        const value = row[candidates[i]];
-                        if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
-                    }
-                    return '';
-                };
+        // Helper: extract all numeric values from a field that may contain "||"-separated entries
+        const allNumeric = (v) => String(v || '').split('||').map(toNumeric).filter((n) => Number.isFinite(n));
 
-                const metrics = new Map();
-                const buckets = new Map();
-                rows.slice(1).forEach((rawRow) => {
-                    if (!rawRow.some((v) => String(v).trim() !== '')) return;
-                    const row = {};
-                    headers.forEach((h, i) => { row[h] = rawRow[i] !== undefined ? rawRow[i] : ''; });
-                    const countryName = readFirst(row, 'main_country', 'country', 'name');
-                    if (!countryName) return;
-                    const countryKey = normalizeCountryKey(countryName);
-                    if (!countryKey) return;
+        // Classify a feature into dataset type based on ADM level
+        const getDatasetType = (props) => {
+            const adm = Number(props.ADM);
+            if (!Number.isFinite(adm) || adm === 0) return 'national';
+            if (adm === 1) return 'regional';
+            return 'city';
+        };
 
-                    const filterYearValue = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear', 'year');
-                    const classes = detectClassificationTags(row.info);
-                    const spatialValues = [row.avg_dens, row.national, row.urban]
-                        .map((value) => toNumeric(value))
-                        .filter((value) => Number.isFinite(value));
-                    const accuracyValues = [row.avg_plan, row.avg_alti, row.planimetric, row.altimetric]
-                        .map((value) => toNumeric(value))
-                        .filter((value) => Number.isFinite(value));
-                    const years = parseYearValues(filterYearValue);
-                    const representativeYearScore = getLatestYearScore(
-                        filterYearValue,
-                        readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear'),
-                        readFirst(row, 'year')
-                    );
+        const extractRecord = (props) => {
+            const spatialValues = [props.National, props.Urban].flatMap(allNumeric);
+            const accuracyValues = [props.Planimetric, props.Altimetric].flatMap(allNumeric);
+            const filterYearValue = String(props.Year_end || props.year_end || props.Year || props.year || '').trim();
+            const years = parseYearValues(filterYearValue);
+            const representativeYearScore = getLatestYearScore(
+                filterYearValue,
+                String(props.Year_start || props.year_start || '').trim(),
+                String(props.Year || props.year || '').trim()
+            );
+            const classes = detectClassificationTags(String(props.Info || props.info || ''), props);
+            return {
+                spatial: computeRange(spatialValues),
+                accuracy: computeRange(accuracyValues),
+                year: computeRange(years),
+                classifications: classes,
+                representativeYearScore,
+                datasetType: getDatasetType(props)
+            };
+        };
 
-                    if (!buckets.has(countryKey)) {
-                        buckets.set(countryKey, { standard: [], research: [] });
-                    }
-                    const record = {
-                        spatial: computeRange(spatialValues),
-                        accuracy: computeRange(accuracyValues),
-                        year: computeRange(years),
-                        classifications: classes,
-                        representativeYearScore
-                    };
-                    const targetBucket = isResearchFilterRow(row, readFirst) ? buckets.get(countryKey).research : buckets.get(countryKey).standard;
-                    targetBucket.push(record);
-                });
+        const addFeatureToBuckets = (feature, buckets, parentCountryOverride) => {
+            const props = feature.properties || {};
+            const countryName = String(parentCountryOverride || props.ParentCountry || props.main_country || props.Name || props.country || '').trim();
+            if (!countryName) return;
+            const countryKey = normalizeCountryKey(countryName);
+            if (!countryKey) return;
+            if (!buckets.has(countryKey)) buckets.set(countryKey, { standard: [], research: [] });
+            buckets.get(countryKey).standard.push(extractRecord(props));
+        };
+
+        countryFilterMetricsPromise = Promise.resolve().then(() => {
+            const buckets = new Map();
+            const source = (overviewMapData || countriesData);
+            if (!source || !Array.isArray(source.features)) {
                 countryFilterMetricBuckets = buckets;
                 rebuildCountryFilterMetrics();
                 return countryFilterMetrics;
-            })
-            .catch(() => {
-                countryFilterMetricBuckets = new Map();
-                countryFilterMetrics = new Map();
+            }
+
+            // Add all features from the overview map (includes regional replacements for Data="Region" countries)
+            source.features.forEach((f) => addFeatureToBuckets(f, buckets));
+
+            // Also fetch regional GeoJSONs for countries that show as a single feature on the overview
+            // (i.e. NOT Data="Region") but still have sub-region data (e.g. Germany, Spain)
+            const nonRegionCountries = (countriesData.features || []).filter(
+                (f) => f.properties && f.properties.Name && !f.properties.RegionName
+                    && normalizeCat(f.properties.Data) !== 'Region'
+            );
+
+            const newFilterRegionFeatures = [];
+            const newRegionFilterMetrics = new Map();
+
+            // Add Data="Region" countries' sub-features from overviewMapData (e.g. Belgium → Vlaanderen/Wallonia)
+            source.features.forEach((f) => {
+                const props = f.properties || {};
+                const parentCountry = String(props.ParentCountry || '').trim();
+                if (!parentCountry) return; // skip country-level features
+                const parentKey = normalizeCountryKey(parentCountry);
+                const rfName = String(props.Name || '').toLowerCase();
+                if (!rfName || rfName === parentCountry.toLowerCase()) return;
+                const record = extractRecord(props);
+                const metricKey = `${parentKey}::${rfName}`;
+                if (!newRegionFilterMetrics.has(metricKey)) {
+                    newRegionFilterMetrics.set(metricKey, { ...record, parentCountryKey: parentKey });
+                    newFilterRegionFeatures.push({
+                        ...f,
+                        properties: { ...props, _filterRegion: true }
+                    });
+                }
+            });
+
+            const regionFetches = nonRegionCountries.map((f) => {
+                const countryName = f.properties.Name;
+                const countryKey = normalizeCountryKey(countryName);
+                return fetchCountryRegions(countryName)
+                    .then((rd) => {
+                        if (!rd || !Array.isArray(rd.features)) return;
+                        const countryNameLc = countryName.toLowerCase();
+                        rd.features.forEach((rf) => {
+                            const rfName = String((rf.properties && rf.properties.Name) || '').toLowerCase();
+                            if (rfName === countryNameLc) return; // skip country-level feature
+                            // Add to country buckets (so country passes filter if any region qualifies)
+                            addFeatureToBuckets(rf, buckets, countryName);
+                            // Store individual region metrics and features for precise per-region filtering
+                            const record = extractRecord(rf.properties || {});
+                            const metricKey = `${countryKey}::${rfName}`;
+                            newRegionFilterMetrics.set(metricKey, { ...record, parentCountryKey: countryKey });
+                            newFilterRegionFeatures.push({
+                                ...rf,
+                                properties: { ...(rf.properties || {}), ParentCountry: countryName, _filterRegion: true }
+                            });
+                        });
+                    })
+                    .catch(() => {});
+            });
+
+            return Promise.all(regionFetches).then(() => {
+                regionFilterMetrics = newRegionFilterMetrics;
+                filterRegionFeatures = newFilterRegionFeatures;
+                countryFilterMetricBuckets = buckets;
+                rebuildCountryFilterMetrics();
+                // Update filter-regions source if map is already loaded
+                const mapRef = getMapInstance();
+                if (mapRef && mapRef.getSource('filter-regions')) {
+                    // Only pass polygon features to the fill source; Points are rendered as markers
+                    const polygonFeatures = filterRegionFeatures.filter((f) => f.geometry && f.geometry.type !== 'Point');
+                    mapRef.getSource('filter-regions').setData({ type: 'FeatureCollection', features: polygonFeatures });
+                }
+                // Re-render research markers now that Point features are available
+                renderResearchMarkers();
                 return countryFilterMetrics;
             });
+        });
         return countryFilterMetricsPromise;
     }
 
@@ -1371,6 +1481,9 @@
     const filterClassificationMenu = document.getElementById('filterClassificationMenu');
     const filterClassificationChecks = filterClassificationMenu
         ? Array.from(filterClassificationMenu.querySelectorAll('input[type="checkbox"]'))
+        : [];
+    const filterTypeChecks = filterMenu
+        ? Array.from(filterMenu.querySelectorAll('.filter-dataset-types input[type="checkbox"]'))
         : [];
     const filterSpatialMin = document.getElementById('filterSpatialMin');
     const filterSpatialMax = document.getElementById('filterSpatialMax');
@@ -1634,6 +1747,11 @@
                 check.checked = mapFilterState.classifications.has(check.value);
             });
         }
+        if (filterTypeChecks.length) {
+            filterTypeChecks.forEach((check) => {
+                check.checked = mapFilterState.datasetTypes.has(check.value);
+            });
+        }
         refreshClassificationFilterMenu();
         updateClassificationLabel();
         updateRangeValueLabels();
@@ -1797,6 +1915,16 @@
             });
         });
     }
+    // Dataset type checkboxes (National / Regional / City)
+    const onDatasetTypeChange = () => {
+        mapFilterState.datasetTypes = new Set(
+            filterTypeChecks.filter((c) => c.checked).map((c) => c.value)
+        );
+        rebuildCountryFilterMetrics();
+        syncFilterControlsFromState();
+        applyMapFilters();
+    };
+    filterTypeChecks.forEach((check) => check.addEventListener('change', onDatasetTypeChange));
     if (filterDockToggle) {
         filterDockToggle.addEventListener('click', (e) => {
             e.preventDefault();
@@ -2008,6 +2136,7 @@
                 mapFilterState.yearMax = mapFilterBounds.year.max;
             }
             mapFilterState.classifications = new Set();
+            mapFilterState.datasetTypes = new Set(['national']);
             rebuildCountryFilterMetrics();
             syncFilterControlsFromState();
             applyMapFilters();
@@ -2670,9 +2799,27 @@
                     'line-width': 2 
                 } 
             }); 
-            ['mouseenter', 'mouseleave'].forEach(evt => { 
-                map.on(evt, 'country-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : ''); 
-            }); 
+            // Filter-regions layer: shows individual sub-regions when spatial/accuracy filter is active
+            map.addSource('filter-regions', { type: 'geojson', data: { type: 'FeatureCollection', features: filterRegionFeatures.filter((f) => f.geometry && f.geometry.type !== 'Point') }, generateId: true });
+            map.addLayer({
+                id: 'filter-region-fill',
+                type: 'fill',
+                source: 'filter-regions',
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': buildRegionFillExpression(), 'fill-opacity': 0.75 }
+            });
+            map.addLayer({
+                id: 'filter-region-border',
+                type: 'line',
+                source: 'filter-regions',
+                layout: { visibility: 'none' },
+                paint: { 'line-color': '#1a3a5c', 'line-width': 2, 'line-opacity': 0.85 }
+            });
+
+            ['mouseenter', 'mouseleave'].forEach(evt => {
+                map.on(evt, 'country-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : '');
+                map.on(evt, 'filter-region-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : '');
+            });
 
             // Unified click handling: select region first, then country, otherwise reset
             map.on('click', e => {
@@ -2688,6 +2835,22 @@
                             }
                             selectRegion(regionFeature.id, regionFeature.properties);
                             return;
+                        }
+                    }
+                }
+
+                // Also check filter-region-fill (visible when regional filter is active)
+                if (map.getLayer('filter-region-fill')) {
+                    const filterRegionHits = map.queryRenderedFeatures(e.point, { layers: ['filter-region-fill'] });
+                    if (filterRegionHits.length) {
+                        const feat = filterRegionHits[0];
+                        const parentCountryName = feat.properties && feat.properties.ParentCountry;
+                        if (parentCountryName) {
+                            const resolvedCountry = resolveCountryFeatureFromMapFeature(feat);
+                            if (resolvedCountry) {
+                                handleCountrySelect(resolvedCountry, feat.properties.Name);
+                                return;
+                            }
                         }
                     }
                 }
@@ -4279,25 +4442,96 @@ initAccessibilityControls();
 function applyCategoryFilterToMap() {
   const mapRef = (typeof getMapInstance === 'function') ? getMapInstance() : null;
   if (!mapRef || !mapRef.getLayer('country-fill')) return;
+
   const selectedCats = getActiveCategorySelection().filter((cat) => cat !== RESEARCH_LEGEND_CATEGORY);
+  const showNational  = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('national');
+  const showRegional  = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('regional');
+  const showCity      = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
+
   mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
   if (mapRef.getLayer('region-fill')) {
     mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
   }
-  const filterParts = [['!', ['has', 'RegionName']]];
+  if (mapRef.getLayer('filter-region-fill')) {
+    mapRef.setPaintProperty('filter-region-fill', 'fill-color', buildRegionFillExpression());
+  }
+
+  const filterActive = typeof isFilterActive === 'function' && isFilterActive();
+
+  // --- Country layer (national) ---
+  const countryFilterParts = [['!', ['has', 'RegionName']]];
   if (selectedCats.length) {
     const categoryFilters = selectedCats.map((cat) => ['boolean', ['get', categorySupportProperty(cat)], false]);
-    filterParts.push(categoryFilters.length === 1 ? categoryFilters[0] : ['any', ...categoryFilters]);
+    countryFilterParts.push(categoryFilters.length === 1 ? categoryFilters[0] : ['any', ...categoryFilters]);
   }
-  if (typeof isFilterActive === 'function' && isFilterActive()) {
+
+  if (!showNational) {
+    // Hide all countries (only regions shown)
+    countryFilterParts.push(['literal', false]);
+  } else if (filterActive) {
     const names = (typeof getFilteredCountryNamesLowercase === 'function')
       ? getFilteredCountryNamesLowercase()
       : [];
-    filterParts.push(['in', ['downcase', ['get', 'Name']], ['literal', names]]);
+    countryFilterParts.push(['any',
+      ['in', ['downcase', ['get', 'Name']], ['literal', names]],
+      ['in', ['downcase', ['get', 'ParentCountry']], ['literal', names]]
+    ]);
   }
-  mapRef.setFilter('country-fill', ['all', ...filterParts]);
-  mapRef.setFilter('country-border', ['all', ...filterParts]);
-  renderResearchMarkers();
+
+  mapRef.setFilter('country-fill', ['all', ...countryFilterParts]);
+  mapRef.setFilter('country-border', ['all', ...countryFilterParts]);
+  // Green border on national layer when national is active; dark when only regional shown
+  if (mapRef.getLayer('country-border')) {
+    mapRef.setPaintProperty('country-border', 'line-color', showNational ? '#1a7a3c' : '#555');
+    mapRef.setPaintProperty('country-border', 'line-width', showNational ? 2 : 1);
+  }
+
+  // --- Regional overlay layer (filter-region-fill) ---
+  if (mapRef.getLayer('filter-region-fill') && mapRef.getLayer('filter-region-border')) {
+    if (showRegional && filterRegionFeatures && filterRegionFeatures.length) {
+      // Determine which regions pass the spatial/accuracy/year filter
+      let passingRegionNames;
+      if (filterActive) {
+        const names = (typeof getFilteredCountryNamesLowercase === 'function')
+          ? getFilteredCountryNamesLowercase()
+          : [];
+        passingRegionNames = [];
+        regionFilterMetrics.forEach((metrics, key) => {
+          const [parentKey, regionNameLc] = key.split('::');
+          if (!names.includes(parentKey)) return;
+          const passes = (
+            rangeOverlaps(metrics.spatial, mapFilterState.spatialMin, mapFilterState.spatialMax) &&
+            rangeOverlaps(metrics.accuracy, mapFilterState.accuracyMin, mapFilterState.accuracyMax) &&
+            rangeOverlaps(metrics.year, mapFilterState.yearMin, mapFilterState.yearMax)
+          );
+          if (passes) passingRegionNames.push(regionNameLc);
+        });
+      } else {
+        // No range filter active: show all regions
+        passingRegionNames = (filterRegionFeatures || []).map(
+          (f) => String((f.properties || {}).Name || '').toLowerCase()
+        );
+      }
+
+      const regionFilter = ['in', ['downcase', ['get', 'Name']], ['literal', passingRegionNames]];
+      mapRef.setFilter('filter-region-fill', regionFilter);
+      mapRef.setFilter('filter-region-border', regionFilter);
+      mapRef.setLayoutProperty('filter-region-fill', 'visibility', 'visible');
+      mapRef.setLayoutProperty('filter-region-border', 'visibility', 'visible');
+    } else {
+      mapRef.setLayoutProperty('filter-region-fill', 'visibility', 'none');
+      mapRef.setLayoutProperty('filter-region-border', 'visibility', 'none');
+    }
+  }
+
+  // --- City / Research markers ---
+  // Research markers are driven by the legend category toggle AND the city checkbox
+  if (showCity) {
+    // Ensure the Research legend category is considered active for marker rendering
+    renderResearchMarkers();
+  } else {
+    clearResearchMarkers();
+  }
 }
 
 function syncLegendSelectionVisuals() {

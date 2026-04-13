@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk -F';' 'NR==59 {print}' \"c:/Users/Daan/Documents/GitHub/Website_Open_Topography_EU/website/data/catalogue.csv\")",
+      "Bash(node -e ':*)",
+      "Bash(node.exe -e ':*)",
+      "Bash(powershell -Command ':*)"
+    ]
+  }
+}
