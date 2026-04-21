@@ -76,6 +76,8 @@
 
     // State 
     let countriesData, regionsData, overviewMapData; 
+    let unifiedMapData = null;
+    let unifiedCountryCollections = new Map();
     let selectedCountryFeature = null; 
     let selectedRegionFeatureId = null; 
     let activeDatasetRegionIds = [];
@@ -102,6 +104,7 @@
     let countryFilterMetricBuckets = new Map();
     let countryFilterMetricsPromise = null;
     let availableClassificationFilterOptions = new Set();
+    let userHasAdjustedMapFilters = false;
     // regionFilterMetrics: keyed by "parentCountryKey::regionNameLc" → {spatial, accuracy, year, classifications}
     let regionFilterMetrics = new Map();
     // all sub-region features for non-"Region" countries (used for the filter-regions map layer)
@@ -111,27 +114,272 @@
     let regionDrilldownVisible = false;
     let autoDrilldownCountryFeature = null;
     const regionDataCache = new Map();
+    const renderDataCache = new Map();
+    const COUNTRY_RENDER_LEVELS = [
+        { key: 'overview', maxZoom: 5.6, decimals: 5 },
+        { key: 'detail', maxZoom: Infinity, decimals: 6 }
+    ];
+    let currentCountryRenderLevel = '';
+    let currentRegionRenderLevel = '';
+    let currentFilterRegionRenderLevel = '';
     const mapFilterState = {
         spatialMin: null,
         spatialMax: null,
-        accuracyMin: null,
-        accuracyMax: null,
+        includeMissingSpatial: false,
+        planimetricMin: null,
+        planimetricMax: null,
+        altimetricMin: null,
+        altimetricMax: null,
+        includeMissingAccuracy: false,
         yearMin: null,
         yearMax: null,
+        includeMissingYear: false,
         classifications: new Set(),
+        dataCategories: new Set(['Pointcloud', 'DEM', 'No Info']),
         datasetTypes: new Set(['national']) // which ADM levels are included
     };
     const mapFilterBounds = {
         spatial: { min: 0, max: 100, ready: false },
-        accuracy: { min: 0, max: 1, ready: false },
+        planimetric: { min: 0, max: 1, ready: false },
+        altimetric: { min: 0, max: 1, ready: false },
         year: { min: 2000, max: 2026, ready: false }
     };
+    const UNIFIED_MAP_DATA_PATHS = [
+        '../data/map_data_unified.geojson',
+        'data/map_data_unified.geojson'
+    ];
     const CATALOGUE_DATA_PATHS = [
         'data/catalogue.csv',
         'data/Quality_parameters_v10022026.csv',
         '../data/catalogue.csv',
         '../data/Quality_parameters_v10022026.csv'
     ];
+
+    function getFeatureParentCountryName(feature) {
+        const properties = (feature && feature.properties) || {};
+        const candidates = [
+            properties.ParentCountry,
+            properties.main_country,
+            properties.country,
+            properties.Name
+        ];
+        const match = candidates.find((value) => String(value || '').trim() !== '');
+        return String(match || '').trim();
+    }
+
+    function isResearchFeature(feature) {
+        return !!(feature && feature.properties && feature.properties.ADM_lookup);
+    }
+
+    function normalizeFeatureIdentity(properties) {
+        if (!properties || properties.ADM_lookup) return properties;
+        const parentCountryName = String(
+            properties.ParentCountry ||
+            properties.main_country ||
+            properties.country ||
+            ''
+        ).trim();
+        const currentName = String(properties.Name || '').trim();
+        const alternateName = String(properties['Name.1'] || properties.RegionName || '').trim();
+        const currentKey = normalizeCountryKey(currentName);
+        const parentKey = normalizeCountryKey(parentCountryName || currentName);
+        const alternateKey = normalizeCountryKey(alternateName);
+
+        if (
+            currentKey &&
+            parentKey &&
+            currentKey === parentKey &&
+            alternateKey &&
+            alternateKey !== parentKey
+        ) {
+            properties.RegionName = alternateName;
+            properties.Name = alternateName;
+        }
+        return properties;
+    }
+
+    function isCountryLevelFeature(feature) {
+        if (!feature || !feature.properties || isResearchFeature(feature)) return false;
+        const regionName = normalizeCountryKey(feature.properties.RegionName);
+        if (regionName && regionName !== normalizeCountryKey(feature.properties.Name)) return false;
+        const nameKey = normalizeCountryKey(feature.properties.Name);
+        const parentKey = normalizeCountryKey(getFeatureParentCountryName(feature));
+        return !!nameKey && nameKey === parentKey;
+    }
+
+    function getFeatureDatasetLevel(feature) {
+        if (!feature || !feature.properties) return 'regional';
+        if (isResearchFeature(feature) || (feature.geometry && feature.geometry.type === 'Point')) return 'city';
+        return isCountryLevelFeature(feature) ? 'national' : 'regional';
+    }
+
+    function isCountrySummaryFeatureForCountry(feature, countryName) {
+        if (!feature || !feature.properties) return false;
+        if (isResearchFeature(feature)) return false;
+        if (!isCountryLevelFeature(feature)) return false;
+        return normalizeCountryKey(feature.properties.Name) === normalizeCountryKey(countryName);
+    }
+
+    function getFeatureFilterMetricKey(properties, parentCountryKey) {
+        if (!properties) return '';
+        const isResearch = !!properties.ADM_lookup;
+        const baseLabel = isResearch
+            ? (
+                properties.ADM_lookup ||
+                properties.location ||
+                properties.Location ||
+                properties.place ||
+                properties['Name.1'] ||
+                properties.RegionName ||
+                properties.Dataset_name ||
+                properties.dataset_name ||
+                properties['Data Name'] ||
+                properties['Dataset Name'] ||
+                properties.Name
+            )
+            : (properties.RegionName || properties['Name.1'] || properties.Name);
+        const normalizedLabel = normalizeCountryKey(baseLabel);
+        if (!normalizedLabel) return '';
+        return isResearch
+            ? `${parentCountryKey}::research::${normalizedLabel}`
+            : `${parentCountryKey}::${normalizedLabel}`;
+    }
+
+    function getCountrySummaryPriority(feature) {
+        if (!isCountryLevelFeature(feature)) return -1;
+        const properties = feature.properties || {};
+        const dataCategory = normalizeCat(properties.RawDataTypes || properties.Data);
+        if (dataCategory === 'Pointcloud' || dataCategory === 'DEM') return 3;
+        if (dataCategory === 'Region') return 2;
+        if (hasCountrySummaryInfo(properties)) return 1;
+        return 0;
+    }
+
+    function hasRegionalAreaChildren(features) {
+        return (features || []).some((feature) => {
+            if (!feature || !feature.properties) return false;
+            if (isResearchFeature(feature)) return false;
+            if (isCountryLevelFeature(feature)) return false;
+            const geometryType = feature.geometry && feature.geometry.type;
+            return geometryType && geometryType !== 'Point';
+        });
+    }
+
+    function downgradeSummaryOnlyRegionalCountry(feature) {
+        if (!feature || !feature.properties) return feature;
+        const currentCategory = normalizeCat(feature.properties.RawDataTypes || feature.properties.Data);
+        if (currentCategory !== 'Region') return feature;
+        feature.properties.RawDataTypes = 'No Info';
+        feature.properties.DataDisplay = 'No Info';
+        feature.properties.Data = 'No Info';
+        feature.properties.infoStatus = hasCountrySummaryInfo(feature.properties) ? 'hasinfo' : 'noinfo';
+        setFeatureCategorySupport(feature.properties);
+        return feature;
+    }
+
+    function sortCountryCollectionFeatures(features, countryName) {
+        const countryKey = normalizeCountryKey(countryName);
+        return [...(features || [])].sort((a, b) => {
+            const aCountryLevel = isCountryLevelFeature(a);
+            const bCountryLevel = isCountryLevelFeature(b);
+            if (aCountryLevel !== bCountryLevel) return aCountryLevel ? -1 : 1;
+
+            const aLevel = getFeatureDatasetLevel(a);
+            const bLevel = getFeatureDatasetLevel(b);
+            const levelOrder = { national: 0, regional: 1, city: 2 };
+            if (levelOrder[aLevel] !== levelOrder[bLevel]) return levelOrder[aLevel] - levelOrder[bLevel];
+
+            const aPriority = getCountrySummaryPriority(a);
+            const bPriority = getCountrySummaryPriority(b);
+            if (aPriority !== bPriority) return bPriority - aPriority;
+
+            const aMatchesCountry = normalizeCountryKey(a && a.properties && a.properties.Name) === countryKey;
+            const bMatchesCountry = normalizeCountryKey(b && b.properties && b.properties.Name) === countryKey;
+            if (aMatchesCountry !== bMatchesCountry) return aMatchesCountry ? -1 : 1;
+
+            const aName = String((a && a.properties && a.properties.Name) || '');
+            const bName = String((b && b.properties && b.properties.Name) || '');
+            return aName.localeCompare(bName);
+        });
+    }
+
+    function initializeUnifiedMapData(collection) {
+        const sourceFeatures = Array.isArray(collection && collection.features) ? collection.features : [];
+        unifiedMapData = { ...(collection || {}), type: 'FeatureCollection', features: sourceFeatures };
+        unifiedCountryCollections = new Map();
+        regionDataCache.clear();
+        renderDataCache.clear();
+
+        sourceFeatures.forEach((feature, index) => {
+            if (!feature || !feature.properties) return;
+            if (feature.id === undefined) feature.id = index;
+            normalizeFeatureIdentity(feature.properties);
+            const representativeIndex = getPreferredOverviewRepresentativeIndex(feature.properties);
+            const rawDataValue = feature.properties.Data;
+            const representativeDataValue = valueAtRepresentativeIndex(rawDataValue, representativeIndex);
+            feature.properties.RepresentativeSeriesIndex = representativeIndex;
+            feature.properties.RawDataTypes = rawDataValue || 'No Info';
+            feature.properties.DataDisplay = getDisplayDataType(rawDataValue || 'No Info');
+            feature.properties.Data = representativeDataValue && representativeDataValue.trim() !== ''
+                ? normalizeCat(representativeDataValue)
+                : 'No Info';
+            feature.properties.ParentCountry = getFeatureParentCountryName(feature);
+            feature.properties.DatasetLevel = getFeatureDatasetLevel(feature);
+            setFeatureCategorySupport(feature.properties);
+            feature.properties.infoStatus = representativeDataValue
+                ? (representativeDataValue.toLowerCase() === 'region' ? 'region' : 'hasinfo')
+                : 'noinfo';
+        });
+
+        const groupedFeatures = new Map();
+        sourceFeatures.forEach((feature) => {
+            const parentCountry = getFeatureParentCountryName(feature);
+            const countryKey = normalizeCountryKey(parentCountry);
+            if (!countryKey || countryKey === 'global') return;
+            if (!groupedFeatures.has(countryKey)) groupedFeatures.set(countryKey, []);
+            groupedFeatures.get(countryKey).push(feature);
+        });
+
+        const primaryCountryFeatures = [];
+        groupedFeatures.forEach((features, countryKey) => {
+            const countryName = getFeatureParentCountryName(features[0]);
+            const sortedFeatures = sortCountryCollectionFeatures(features, countryName).map((feature, index) => ({
+                ...feature,
+                id: index,
+                properties: normalizeFeatureIdentity({ ...(feature.properties || {}), ParentCountry: countryName })
+            }));
+            unifiedCountryCollections.set(countryKey, {
+                type: 'FeatureCollection',
+                features: sortedFeatures
+            });
+
+            if (!hasRegionalAreaChildren(sortedFeatures)) {
+                sortedFeatures.forEach((feature) => {
+                    if (isCountryLevelFeature(feature)) {
+                        downgradeSummaryOnlyRegionalCountry(feature);
+                    }
+                });
+            }
+
+            const countryCandidates = sortedFeatures.filter((feature) => isCountryLevelFeature(feature));
+            const primaryFeature = (countryCandidates.length ? countryCandidates : sortedFeatures)[0];
+            if (!primaryFeature) return;
+            primaryCountryFeatures.push({
+                ...primaryFeature,
+                properties: normalizeFeatureIdentity({ ...(primaryFeature.properties || {}), ParentCountry: countryName })
+            });
+        });
+
+        countriesData = {
+            type: 'FeatureCollection',
+            features: primaryCountryFeatures.sort((a, b) =>
+                String((a && a.properties && a.properties.Name) || '').localeCompare(String((b && b.properties && b.properties.Name) || ''))
+            )
+        };
+        countriesData.features.forEach((feature, index) => {
+            feature.id = index;
+        });
+    }
     const REGION_DATA_VERSION = '20260402e';
 
     function fetchFirstAvailableText(paths) {
@@ -147,6 +395,152 @@
         return tryAt(0);
     }
 
+    function getRenderLevel(levels, zoom) {
+        const numericZoom = Number.isFinite(zoom) ? zoom : 0;
+        return levels.find((level) => numericZoom <= level.maxZoom) || levels[levels.length - 1];
+    }
+
+    function roundCoordinateValue(value, decimals) {
+        if (!Number.isFinite(value)) return value;
+        const factor = 10 ** decimals;
+        return Math.round(value * factor) / factor;
+    }
+
+    function quantizeCoordinates(coords, decimals) {
+        if (!Array.isArray(coords)) return coords;
+        if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+            return coords.map((value) => roundCoordinateValue(value, decimals));
+        }
+        return coords.map((part) => quantizeCoordinates(part, decimals));
+    }
+
+    function quantizeFeature(feature, decimals) {
+        if (!feature) return feature;
+        const geometry = feature.geometry;
+        if (!geometry || !Array.isArray(geometry.coordinates)) {
+            return {
+                ...feature,
+                properties: { ...((feature && feature.properties) || {}) }
+            };
+        }
+        return {
+            ...feature,
+            properties: { ...((feature && feature.properties) || {}) },
+            geometry: {
+                ...geometry,
+                coordinates: quantizeCoordinates(geometry.coordinates, decimals)
+            }
+        };
+    }
+
+    function getQuantizedFeatureCollection(cacheKey, collection, decimals) {
+        const sourceFeatures = Array.isArray(collection && collection.features) ? collection.features : [];
+        const cached = renderDataCache.get(cacheKey);
+        if (cached) return cached;
+
+        const quantizedCollection = {
+            ...(collection || {}),
+            type: 'FeatureCollection',
+            features: sourceFeatures.map((feature) => quantizeFeature(feature, decimals))
+        };
+        renderDataCache.set(cacheKey, quantizedCollection);
+        return quantizedCollection;
+    }
+
+    function getCountryRenderDataForZoom(zoom) {
+        const level = getRenderLevel(COUNTRY_RENDER_LEVELS, zoom);
+        const useOverviewData = level.key === 'detail' && overviewMapData && Array.isArray(overviewMapData.features);
+        const source = useOverviewData ? overviewMapData : countriesData;
+        if (!source || !Array.isArray(source.features)) {
+            return { levelKey: level.key, data: { type: 'FeatureCollection', features: [] } };
+        }
+        return {
+            levelKey: level.key,
+            data: getQuantizedFeatureCollection(`countries:${level.key}:${level.decimals}`, source, level.decimals)
+        };
+    }
+
+    function getRegionRenderDataForZoom(zoom) {
+        const level = getRenderLevel(COUNTRY_RENDER_LEVELS, zoom);
+        if (!regionsData || !Array.isArray(regionsData.features)) {
+            return { levelKey: 'full', data: { type: 'FeatureCollection', features: [] } };
+        }
+        return {
+            levelKey: 'full',
+            data: getQuantizedFeatureCollection(
+                `regions:${normalizeCountryKey((getActiveRegionCountryFeature() && getActiveRegionCountryFeature().properties && getActiveRegionCountryFeature().properties.Name) || 'overview')}:${level.decimals}`,
+                regionsData,
+                level.decimals
+            )
+        };
+    }
+
+    function getFilterRegionRenderDataForZoom(zoom) {
+        const level = getRenderLevel(COUNTRY_RENDER_LEVELS, zoom);
+        const polygonFeatures = (filterRegionFeatures || []).filter((feature) => feature.geometry && feature.geometry.type !== 'Point');
+        return {
+            levelKey: 'full',
+            data: getQuantizedFeatureCollection(
+                `filter-regions:${level.decimals}`,
+                { type: 'FeatureCollection', features: polygonFeatures },
+                level.decimals
+            )
+        };
+    }
+
+    function reapplyRegionFeatureStates() {
+        const mapRef = getMapInstance();
+        if (!mapRef || !mapRef.getSource('regions')) return;
+        if (selectedRegionFeatureId !== null) {
+            try {
+                mapRef.setFeatureState({ source: 'regions', id: selectedRegionFeatureId }, { selected: true });
+            } catch (e) {}
+        }
+        activeDatasetRegionIds.forEach((id) => {
+            try {
+                mapRef.setFeatureState({ source: 'regions', id }, { datasetSelected: true });
+            } catch (e) {}
+        });
+        dimmedDatasetRegionIds.forEach((id) => {
+            try {
+                mapRef.setFeatureState({ source: 'regions', id }, { datasetDimmed: true });
+            } catch (e) {}
+        });
+    }
+
+    function syncAdaptiveMapRendering(force) {
+        const mapRef = getMapInstance();
+        if (!mapRef) return;
+        const zoom = mapRef.getZoom();
+
+        if (mapRef.getSource('countries')) {
+            const countryRender = getCountryRenderDataForZoom(zoom);
+            if (force || currentCountryRenderLevel !== countryRender.levelKey) {
+                mapRef.getSource('countries').setData(countryRender.data);
+                currentCountryRenderLevel = countryRender.levelKey;
+                applyCategoryFilterToMap();
+            }
+        }
+
+        if (mapRef.getSource('regions') && regionsData && Array.isArray(regionsData.features)) {
+            const regionRender = getRegionRenderDataForZoom(zoom);
+            if (force || currentRegionRenderLevel !== regionRender.levelKey) {
+                mapRef.getSource('regions').setData(regionRender.data);
+                currentRegionRenderLevel = regionRender.levelKey;
+                reapplyRegionFeatureStates();
+            }
+        }
+
+        if (mapRef.getSource('filter-regions')) {
+            const filterRegionRender = getFilterRegionRenderDataForZoom(zoom);
+            if (force || currentFilterRegionRenderLevel !== filterRegionRender.levelKey) {
+                mapRef.getSource('filter-regions').setData(filterRegionRender.data);
+                currentFilterRegionRenderLevel = filterRegionRender.levelKey;
+                applyCategoryFilterToMap();
+            }
+        }
+    }
+
     // DOM 
     function isMobileMapViewport() {
         return window.matchMedia('(max-width: 760px)').matches;
@@ -160,7 +554,7 @@
 
         if (legendBookmarkEl) {
             legendBookmarkEl.style.display = shouldShow ? '' : 'none';
-            if (shouldShow) {
+            if (!shouldShow) {
                 legendBookmarkEl.classList.remove('open');
             }
         }
@@ -222,12 +616,16 @@
             ? activeCountry.properties.Name
             : '';
         if (!mapRef) return;
+        const regionRender = getRegionRenderDataForZoom(mapRef.getZoom());
         if (mapRef.getSource('regions')) {
-            mapRef.getSource('regions').setData(rd);
+            mapRef.getSource('regions').setData(regionRender.data);
+            currentRegionRenderLevel = regionRender.levelKey;
+            reapplyRegionFeatureStates();
             return;
         }
 
-        mapRef.addSource('regions', { type: 'geojson', data: rd, generateId: true });
+        mapRef.addSource('regions', { type: 'geojson', data: regionRender.data, generateId: true });
+        currentRegionRenderLevel = regionRender.levelKey;
         mapRef.addLayer({
             id: 'region-fill',
             type: 'fill',
@@ -379,14 +777,117 @@
             lat >= bounds.minLat && lat <= bounds.maxLat;
     }
 
+    function expandBounds(bounds, paddingDegrees) {
+        if (!bounds || !Number.isFinite(paddingDegrees)) return bounds;
+        return {
+            minLng: bounds.minLng - paddingDegrees,
+            minLat: bounds.minLat - paddingDegrees,
+            maxLng: bounds.maxLng + paddingDegrees,
+            maxLat: bounds.maxLat + paddingDegrees
+        };
+    }
+
+    function getExactResearchCoordinates(feature) {
+        const properties = feature && feature.properties;
+        const geometry = feature && feature.geometry;
+        if (geometry && geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+            const [lng, lat] = geometry.coordinates;
+            if (Number.isFinite(lng) && Number.isFinite(lat)) return [lng, lat];
+        }
+        if (!properties || !properties.ADM_lookup) return null;
+        const lng = toNumeric(
+            properties.longitude ??
+            properties.Longitude ??
+            properties.lng ??
+            properties.Lng ??
+            properties.lon ??
+            properties.Lon
+        );
+        const lat = toNumeric(
+            properties.latitude ??
+            properties.Latitude ??
+            properties.lat ??
+            properties.Lat
+        );
+        if (Number.isFinite(lng) && Number.isFinite(lat)) return [lng, lat];
+        return null;
+    }
+
+    function getValidatedResearchCoordinates(feature, countryFeature) {
+        const exactCoords = getExactResearchCoordinates(feature);
+        if (!exactCoords) return null;
+        const countryBounds = getGeometryBounds(countryFeature && countryFeature.geometry);
+        if (!countryBounds) return exactCoords;
+        const width = Math.max(0, countryBounds.maxLng - countryBounds.minLng);
+        const height = Math.max(0, countryBounds.maxLat - countryBounds.minLat);
+        const paddedBounds = expandBounds(countryBounds, Math.max(0.5, Math.max(width, height) * 0.35));
+        return isPointWithinBounds(exactCoords, paddedBounds) ? exactCoords : null;
+    }
+
     function getMarkerCoordinatesForFeature(feature, countryFeature, index) {
+        const exactResearchCoords = getValidatedResearchCoordinates(feature, countryFeature);
+        if (exactResearchCoords) return exactResearchCoords;
+        if (feature && feature.properties && feature.properties.ADM_lookup) return null;
         const geometry = feature && feature.geometry;
         const rawCoords = geometry && geometry.type === 'Point' ? geometry.coordinates : null;
+        if (Array.isArray(rawCoords) && rawCoords.length >= 2) return rawCoords;
         const countryBounds = getGeometryBounds(countryFeature && countryFeature.geometry);
-        if (Array.isArray(rawCoords) && isPointWithinBounds(rawCoords, countryBounds)) {
-            return rawCoords;
-        }
         return getCountryMarkerFallback(countryFeature, index);
+    }
+
+    function getOverviewResearchMarkerCoordinates(feature, index) {
+        const resolvedCountry = resolveCountryFeatureFromMapFeature(feature);
+        const exactResearchCoords = getValidatedResearchCoordinates(feature, resolvedCountry || feature);
+        if (exactResearchCoords) return exactResearchCoords;
+        if (feature && feature.properties && feature.properties.ADM_lookup) return null;
+        const geometry = feature && feature.geometry;
+        if (!geometry) return null;
+        try {
+            const center = turf.centerOfMass(feature);
+            const coords = center && center.geometry && Array.isArray(center.geometry.coordinates)
+                ? center.geometry.coordinates
+                : null;
+            if (coords && coords.length >= 2) return coords;
+        } catch (e) {}
+        return getCountryMarkerFallback(resolvedCountry || feature, index);
+    }
+
+    function mergeCountrySummaryProperties(features, fallbackProperties) {
+        const sourceFeatures = Array.isArray(features) ? features.filter((feature) => feature && feature.properties) : [];
+        const baseProps = { ...((fallbackProperties && typeof fallbackProperties === 'object') ? fallbackProperties : {}) };
+        if (!sourceFeatures.length) return baseProps;
+
+        const isMissing = (value) => {
+            if (value === null || value === undefined) return true;
+            if (typeof value === 'string') return !value.trim();
+            return false;
+        };
+        const allKeys = new Set(Object.keys(baseProps));
+        sourceFeatures.forEach((feature) => {
+            Object.keys(feature.properties || {}).forEach((key) => allKeys.add(key));
+        });
+
+        allKeys.forEach((key) => {
+            const values = sourceFeatures.map((feature) => feature.properties[key]);
+            const nonMissingValues = values.filter((value) => !isMissing(value));
+            if (!nonMissingValues.length) return;
+
+            const allPresent = nonMissingValues.length === values.length;
+            const firstValue = nonMissingValues[0];
+            const sameValueAcrossFeatures = allPresent && nonMissingValues.every((value) => String(value).trim() === String(firstValue).trim());
+
+            if (sameValueAcrossFeatures) {
+                baseProps[key] = firstValue;
+                return;
+            }
+
+            baseProps[key] = values
+                .map((value) => (isMissing(value) ? 'N/A' : String(value)))
+                .join(' || ');
+        });
+
+        baseProps.RepresentativeSeriesIndex = getLatestRepresentativeIndex(baseProps);
+        return baseProps;
     }
 
     function getCountrySummaryFeature() {
@@ -394,9 +895,19 @@
             return null;
         }
         const countryKey = normalizeCountryKey(selectedCountryFeature.properties.Name);
-        return regionsData.features.find((feature) =>
-            normalizeCountryKey(feature && feature.properties && feature.properties.Name) === countryKey
-        ) || null;
+        const matchingFeatures = regionsData.features.filter((feature) => {
+            const properties = feature && feature.properties;
+            if (!properties) return false;
+            if (properties.ADM_lookup) return false;
+            if (Number(properties.ADM) !== 0) return false;
+            return normalizeCountryKey(properties.Name) === countryKey;
+        });
+        if (!matchingFeatures.length) return null;
+        if (matchingFeatures.length === 1) return matchingFeatures[0];
+        return {
+            ...matchingFeatures[0],
+            properties: mergeCountrySummaryProperties(matchingFeatures, selectedCountryFeature.properties)
+        };
     }
 
     function getCountryDatasetIndexForFeature(feature) {
@@ -420,25 +931,94 @@
                 return true;
             });
         };
-        const getDatasetNamesFromProperties = (properties) => uniqueValues([
-            properties && properties['Dataset_name'],
-            properties && properties.Dataset_name,
-            properties && properties['Data Name'],
-            properties && properties['Data name'],
-            properties && properties['Dataset Name'],
-            properties && properties.dataset_name,
-            properties && properties.Dataset
-        ].flatMap((value) => splitSeries(value)));
+        const getDatasetNamesFromProperties = (properties) => {
+            const names = uniqueValues([
+                properties && properties['Dataset_name'],
+                properties && properties.Dataset_name,
+                properties && properties['Data Name'],
+                properties && properties['Data name'],
+                properties && properties['Dataset Name'],
+                properties && properties.dataset_name,
+                properties && properties.Dataset
+            ].flatMap((value) => splitSeries(value)));
+            if (names.length) return names;
+            const fallbackName = String((properties && properties.Name) || '').trim();
+            const parentCountryName = String(
+                (properties && (properties.ParentCountry || properties.main_country || properties.country)) || ''
+            ).trim();
+            const isSubCountryFeature = !!fallbackName && normalizeCountryKey(fallbackName) !== normalizeCountryKey(parentCountryName || fallbackName);
+            return isSubCountryFeature ? uniqueValues([fallbackName]) : names;
+        };
         const normalizeDatasetOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
         const summaryDatasetOptions = getDatasetNamesFromProperties(summaryProperties);
         const countryName = normalizeCountryKey(summaryProperties.Name);
         const childDatasetOptions = regionsData.features
-            .filter((item) => normalizeCountryKey(item && item.properties && item.properties.Name) !== countryName)
+            .filter((item) => {
+                const properties = item && item.properties;
+                const sameCountryName = normalizeCountryKey(properties && properties.Name) === countryName;
+                const isResearchFeature = !!(properties && properties.ADM_lookup);
+                return !sameCountryName || isResearchFeature;
+            })
             .flatMap((item) => getDatasetNamesFromProperties(item && item.properties));
         const datasetOptions = uniqueValues([...summaryDatasetOptions, ...childDatasetOptions]);
         const targetKeys = getDatasetNamesFromProperties(feature.properties).map((name) => normalizeDatasetOptionKey(name));
         return datasetOptions.findIndex((name) => targetKeys.includes(normalizeDatasetOptionKey(name)));
+    }
+
+    function getCountryDatasetIndexForDatasetName(datasetName) {
+        const countrySummaryFeature = getCountrySummaryFeature();
+        const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || (selectedCountryFeature && selectedCountryFeature.properties);
+        if (!summaryProperties || !datasetName) return undefined;
+
+        const splitSeries = (value) => {
+            if (value === null || value === undefined) return [];
+            const text = String(value).trim();
+            if (!text) return [];
+            if (text.includes(' || ')) return text.split(/\s*\|\|\s*/).filter(Boolean);
+            return text.split(/\s*,\s*/).filter(Boolean);
+        };
+        const uniqueValues = (values) => {
+            const seen = new Set();
+            return values.filter((value) => {
+                const key = String(value).trim().toLowerCase();
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        };
+        const getDatasetNamesFromProperties = (properties) => {
+            const names = uniqueValues([
+                properties && properties['Dataset_name'],
+                properties && properties.Dataset_name,
+                properties && properties['Data Name'],
+                properties && properties['Data name'],
+                properties && properties['Dataset Name'],
+                properties && properties.dataset_name,
+                properties && properties.Dataset
+            ].flatMap((value) => splitSeries(value)));
+            if (names.length) return names;
+            const fallbackName = String((properties && properties.Name) || '').trim();
+            const parentCountryName = String(
+                (properties && (properties.ParentCountry || properties.main_country || properties.country)) || ''
+            ).trim();
+            const isSubCountryFeature = !!fallbackName && normalizeCountryKey(fallbackName) !== normalizeCountryKey(parentCountryName || fallbackName);
+            return isSubCountryFeature ? uniqueValues([fallbackName]) : names;
+        };
+        const normalizeDatasetOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+        const summaryDatasetOptions = getDatasetNamesFromProperties(summaryProperties);
+        const countryName = normalizeCountryKey(summaryProperties.Name);
+        const childDatasetOptions = regionsData.features
+            .filter((item) => {
+                const properties = item && item.properties;
+                const sameCountryName = normalizeCountryKey(properties && properties.Name) === countryName;
+                const isResearchFeature = !!(properties && properties.ADM_lookup);
+                return !sameCountryName || isResearchFeature;
+            })
+            .flatMap((item) => getDatasetNamesFromProperties(item && item.properties));
+        const datasetOptions = uniqueValues([...summaryDatasetOptions, ...childDatasetOptions]);
+        return datasetOptions.findIndex((name) => normalizeDatasetOptionKey(name) === normalizeDatasetOptionKey(datasetName));
     }
 
     function focusRegionFeature(id, props) {
@@ -488,85 +1068,123 @@
     }
 
     function getResearchDatasetName(feature) {
+        const properties = feature && feature.properties;
+        const isResearchFeature = !!(properties && properties.ADM_lookup);
         return String(
-            (feature && feature.properties && (
-                feature.properties.Dataset_name ||
-                feature.properties.dataset_name ||
-                feature.properties['Data Name'] ||
-                feature.properties.Name
+            (properties && (
+                (isResearchFeature && (
+                    properties.location ||
+                    properties.Location ||
+                    properties['Name.1'] ||
+                    properties.RegionName ||
+                    properties.Dataset_name ||
+                    properties.dataset_name ||
+                    properties['Data Name'] ||
+                    properties['Dataset Name']
+                )) ||
+                properties.Name ||
+                properties.RegionName ||
+                properties.location ||
+                properties.Location ||
+                properties.Dataset_name ||
+                properties.dataset_name ||
+                properties['Data Name'] ||
+                properties['Dataset Name']
             )) || ''
         ).trim() || 'Unknown dataset';
+    }
+
+    function getResearchDatasetNames(feature) {
+        const rawName = getResearchDatasetName(feature);
+        if (!rawName) return [];
+        if (rawName.includes(' || ')) {
+            return rawName.split(/\s*\|\|\s*/).map((value) => String(value || '').trim()).filter(Boolean);
+        }
+        return [rawName];
     }
 
     function renderResearchMarkers() {
         clearResearchMarkers();
         const mapRef = getMapInstance();
-        const cityTypeActive = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
-        if (!mapRef || (!isResearchLegendActive() && !cityTypeActive)) return;
-
         const inCountryView = !!(selectedCountryFeature && regionsData && Array.isArray(regionsData.features));
+        const cityTypeActive = inCountryView
+            ? (!shouldApplyDatasetTypeFilter() || !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city'))
+            : (!mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city'));
+        if (!mapRef || !cityTypeActive) return;
 
         let sourceFeatures;
         if (inCountryView) {
             sourceFeatures = regionsData.features;
-        } else if (cityTypeActive) {
-            // In overview with city checkbox: use filterRegionFeatures (loaded from all region GeoJSONs)
-            // which includes Point features with ADM_lookup
-            const overviewFeatures = (overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : [];
-            const regionPoints = (filterRegionFeatures || []).filter((f) => f.geometry && f.geometry.type === 'Point');
-            sourceFeatures = [...overviewFeatures, ...regionPoints];
         } else {
-            sourceFeatures = (overviewMapData && Array.isArray(overviewMapData.features)) ? overviewMapData.features : [];
+            sourceFeatures = (unifiedMapData && Array.isArray(unifiedMapData.features))
+                ? unifiedMapData.features
+                : [];
         }
 
         const pointFeatures = sourceFeatures.filter((feature) => {
-            const geometryType = feature && feature.geometry && feature.geometry.type;
             const hasLookup = !!(feature && feature.properties && feature.properties.ADM_lookup);
-            return geometryType === 'Point' && hasLookup && String((feature.properties && feature.properties.Name) || '').trim();
+            return hasLookup && String((feature.properties && feature.properties.Name) || '').trim();
         });
         if (!pointFeatures.length) return;
 
+        const seenMarkerKeys = new Set();
+
         pointFeatures.forEach((feature, index) => {
-            const coords = inCountryView
+            const baseCoords = inCountryView
                 ? getMarkerCoordinatesForFeature(feature, selectedCountryFeature, index)
-                : (Array.isArray(feature && feature.geometry && feature.geometry.coordinates)
-                    ? feature.geometry.coordinates
-                    : null);
-            if (!coords) return;
-            const datasetName = getResearchDatasetName(feature);
-            const markerEl = createResearchMarkerElement(datasetName);
+                : getOverviewResearchMarkerCoordinates(feature, index);
+            if (!baseCoords) return;
+            const datasetNames = getResearchDatasetNames(feature);
+            if (!datasetNames.length) return;
 
-            markerEl.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                if (inCountryView) {
-                    focusRegionFeature(feature.id, feature.properties);
-                    const countrySummaryFeature = getCountrySummaryFeature();
-                    const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties;
-                    const datasetIndex = getCountryDatasetIndexForFeature(feature);
-                    showInfo(summaryProperties, false, undefined, datasetIndex >= 0 ? datasetIndex : undefined);
-                    return;
-                }
+            datasetNames.forEach((datasetName, datasetIndexWithinFeature) => {
+                const coords = baseCoords;
+                const markerKey = [
+                    normalizeCountryKey(datasetName),
+                    Array.isArray(coords) ? Number(coords[0]).toFixed(6) : '',
+                    Array.isArray(coords) ? Number(coords[1]).toFixed(6) : ''
+                ].join('::');
+                if (seenMarkerKeys.has(markerKey)) return;
+                seenMarkerKeys.add(markerKey);
+                const markerEl = createResearchMarkerElement(datasetName);
 
-                const resolvedCountry = resolveCountryFeatureFromMapFeature(feature);
-                if (resolvedCountry) {
-                    handleCountrySelect(resolvedCountry);
-                }
+                markerEl.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (inCountryView) {
+                        focusRegionFeature(feature.id, feature.properties);
+                        const isResearchFeature = !!(feature && feature.properties && feature.properties.ADM_lookup);
+                        if (isResearchFeature) {
+                            showInfo(feature.properties, false, undefined, getCountryDatasetIndexForFeature(feature));
+                            return;
+                        }
+                        const countrySummaryFeature = getCountrySummaryFeature();
+                        const summaryProperties = (countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties;
+                        const datasetIndex = getCountryDatasetIndexForDatasetName(datasetName);
+                        showInfo(summaryProperties, false, undefined, datasetIndex >= 0 ? datasetIndex : getCountryDatasetIndexForFeature(feature));
+                        return;
+                    }
+
+                    const resolvedCountry = resolveCountryFeatureFromMapFeature(feature);
+                    if (resolvedCountry) {
+                        handleCountrySelect(resolvedCountry);
+                    }
+                });
+
+                const popup = new maplibregl.Popup({
+                    closeButton: false,
+                    closeOnClick: false,
+                    offset: 22,
+                    className: 'research-popup'
+                }).setHTML(`<strong>${escapeHtml(datasetName)}</strong>`);
+
+                const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
+                    .setLngLat(coords)
+                    .setPopup(popup)
+                    .addTo(mapRef);
+
+                activeResearchMarkers.push(marker);
             });
-
-            const popup = new maplibregl.Popup({
-                closeButton: false,
-                closeOnClick: false,
-                offset: 22,
-                className: 'research-popup'
-            }).setHTML(`<strong>${escapeHtml(datasetName)}</strong>`);
-
-            const marker = new maplibregl.Marker({ element: markerEl, anchor: 'bottom' })
-                .setLngLat(coords)
-                .setPopup(popup)
-                .addTo(mapRef);
-
-            activeResearchMarkers.push(marker);
         });
     }
 
@@ -671,30 +1289,13 @@
             });
     }
 
-    function buildRegionFileCandidates(countryName) {
-        const base = String(countryName || '').toLowerCase().trim();
-        const underscored = base.replace(/\s+/g, '_');
-        const withVersion = (path) => `${path}?v=${REGION_DATA_VERSION}`;
-        return [
-            withVersion(`../data/region_map_data_${underscored}.geojson`),
-            withVersion(`../data/region_map_data_${base}.geojson`),
-            withVersion(`data/region_map_data_${underscored}.geojson`),
-            withVersion(`data/region_map_data_${base}.geojson`)
-        ];
-    }
-
     function fetchCountryRegions(countryName) {
-        const candidates = buildRegionFileCandidates(countryName);
         const cacheKey = normalizeCountryKey(countryName);
         if (regionDataCache.has(cacheKey)) return regionDataCache.get(cacheKey);
-        const tryAt = (index) => {
-            if (index >= candidates.length) return Promise.reject(new Error('No region file found'));
-            return fetch(candidates[index]).then((res) => {
-                if (!res.ok) return tryAt(index + 1);
-                return res.json();
-            });
-        };
-        const request = tryAt(0);
+        const collection = unifiedCountryCollections.get(cacheKey);
+        const request = collection
+            ? Promise.resolve(collection)
+            : Promise.reject(new Error(`No country collection found for ${countryName}`));
         regionDataCache.set(cacheKey, request);
         return request;
     }
@@ -861,11 +1462,169 @@
             .filter((year) => Number.isInteger(year)) || [];
     }
 
+    function formatOngoingYearValue(value) {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const years = parseYearValues(text);
+        if (years.length === 1 && years[0] === currentYear) {
+            return `${currentYear + 1} onwards`;
+        }
+        return text;
+    }
+
     function splitLinkedSeries(value) {
         if (value === null || value === undefined) return [];
         const text = String(value).trim();
         if (!text || !text.includes(' || ')) return [];
         return text.split(/\s*\|\|\s*/).map((part) => String(part || '').trim()).filter(Boolean);
+    }
+
+    function splitDatasetSeries(value) {
+        if (value === null || value === undefined) return [];
+        const text = String(value).trim();
+        if (!text) return [];
+        if (text.includes(' || ')) return text.split(/\s*\|\|\s*/).map((part) => String(part || '').trim()).filter(Boolean);
+        return text.split(/\s*,\s*/).map((part) => String(part || '').trim()).filter(Boolean);
+    }
+
+    function uniqueTextValues(values) {
+        const seen = new Set();
+        return (values || []).filter((value) => {
+            const key = String(value || '').trim().toLowerCase();
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function getDatasetNamesFromFeatureProperties(properties) {
+        return uniqueTextValues([
+            properties && properties['Dataset_name'],
+            properties && properties.Dataset_name,
+            properties && properties['Data Name'],
+            properties && properties['Data name'],
+            properties && properties['Dataset Name'],
+            properties && properties.dataset_name,
+            properties && properties.Dataset
+        ].flatMap((value) => splitDatasetSeries(value)));
+    }
+
+    function getDatasetTypeFromProps(props) {
+        if (props && props.ADM_lookup) return 'city';
+        const adm = Number(props && props.ADM);
+        if (!Number.isFinite(adm) || adm === 0) return 'national';
+        if (adm === 1) return 'regional';
+        return 'city';
+    }
+
+    function extractFilterRecordFromProps(props) {
+        const allNumeric = (v) => String(v || '').split('||').map(toNumeric).filter((n) => Number.isFinite(n));
+        const spatialValues = [props && props.National, props && props.Urban].flatMap(allNumeric);
+        const planimetricValues = allNumeric(props && props.Planimetric);
+        const altimetricValues = allNumeric(props && props.Altimetric);
+        const filterYearEndValue = String((props && (props.Year_end || props.year_end || props['Year end'] || props['Acquisition end'] || props['End year'])) || '').trim();
+        const filterYearStartValue = String((props && (props.Year_start || props.year_start || props['Year begin'] || props['Acquisition start'] || props['Start year'])) || '').trim();
+        const filterLegacyYearValue = String((props && (props.Year || props.year)) || '').trim();
+        const years = [
+            ...parseYearValues(filterYearStartValue),
+            ...parseYearValues(filterYearEndValue),
+            ...parseYearValues(filterLegacyYearValue)
+        ];
+        const representativeYearScore = getLatestYearScore(
+            filterYearEndValue,
+            filterYearStartValue,
+            filterLegacyYearValue
+        );
+        const classes = detectClassificationTags(String((props && (props.Info || props.info)) || ''), props);
+        const dataCategories = new Set(
+            getAvailableDataCategories(
+                (props && (
+                    props.RawDataTypes ||
+                    props.DataDisplay ||
+                    props['Data display'] ||
+                    props.Data
+                )) || ''
+            ).filter((category) => ['Pointcloud', 'DEM', 'No Info', 'Region'].includes(category))
+        );
+        return {
+            spatial: computeRange(spatialValues),
+            planimetric: computeRange(planimetricValues),
+            altimetric: computeRange(altimetricValues),
+            year: computeRange(years),
+            classifications: classes,
+            dataCategories,
+            representativeYearScore,
+            datasetType: getDatasetTypeFromProps(props || {})
+        };
+    }
+
+    function extractFilterRecordsFromProps(props) {
+        if (!props) return [];
+        const linkedSeriesCount = Math.max(
+            1,
+            splitLinkedSeries(props.National).length,
+            splitLinkedSeries(props.Urban).length,
+            splitLinkedSeries(props.Planimetric).length,
+            splitLinkedSeries(props.Altimetric).length,
+            splitLinkedSeries(props.Year_start).length,
+            splitLinkedSeries(props.year_start).length,
+            splitLinkedSeries(props['Year begin']).length,
+            splitLinkedSeries(props['Acquisition start']).length,
+            splitLinkedSeries(props['Start year']).length,
+            splitLinkedSeries(props.Year_end).length,
+            splitLinkedSeries(props.year_end).length,
+            splitLinkedSeries(props['Year end']).length,
+            splitLinkedSeries(props['Acquisition end']).length,
+            splitLinkedSeries(props['End year']).length,
+            splitLinkedSeries(props.Year).length,
+            splitLinkedSeries(props.year).length,
+            splitLinkedSeries(props['Dataset_name']).length,
+            splitLinkedSeries(props.Dataset_name).length,
+            splitLinkedSeries(props['Data Name']).length,
+            splitLinkedSeries(props['Data name']).length,
+            splitLinkedSeries(props['Dataset Name']).length,
+            splitLinkedSeries(props.dataset_name).length,
+            splitLinkedSeries(props.Dataset).length
+        );
+
+        if (linkedSeriesCount <= 1) {
+            const singleRecord = extractFilterRecordFromProps(props);
+            return singleRecord ? [singleRecord] : [];
+        }
+
+        const getLinkedValue = (value, index) => {
+            const parts = splitLinkedSeries(value);
+            return parts.length ? (parts[index] || '') : value;
+        };
+
+        return Array.from({ length: linkedSeriesCount }, (_, index) => extractFilterRecordFromProps({
+            ...props,
+            National: getLinkedValue(props.National, index),
+            Urban: getLinkedValue(props.Urban, index),
+            Planimetric: getLinkedValue(props.Planimetric, index),
+            Altimetric: getLinkedValue(props.Altimetric, index),
+            Year_start: getLinkedValue(props.Year_start, index),
+            year_start: getLinkedValue(props.year_start, index),
+            'Year begin': getLinkedValue(props['Year begin'], index),
+            'Acquisition start': getLinkedValue(props['Acquisition start'], index),
+            'Start year': getLinkedValue(props['Start year'], index),
+            Year_end: getLinkedValue(props.Year_end, index),
+            year_end: getLinkedValue(props.year_end, index),
+            'Year end': getLinkedValue(props['Year end'], index),
+            'Acquisition end': getLinkedValue(props['Acquisition end'], index),
+            'End year': getLinkedValue(props['End year'], index),
+            Year: getLinkedValue(props.Year, index),
+            year: getLinkedValue(props.year, index),
+            Dataset_name: getLinkedValue(props.Dataset_name, index),
+            dataset_name: getLinkedValue(props.dataset_name, index),
+            'Dataset_name': getLinkedValue(props['Dataset_name'], index),
+            'Data Name': getLinkedValue(props['Data Name'], index),
+            'Data name': getLinkedValue(props['Data name'], index),
+            'Dataset Name': getLinkedValue(props['Dataset Name'], index),
+            Dataset: getLinkedValue(props.Dataset, index)
+        })).filter(Boolean);
     }
 
     function getLatestYearScore(...values) {
@@ -880,12 +1639,15 @@
         if (!properties) return 0;
 
         const yearEndParts = splitLinkedSeries(
+            properties.Year_end ||
             properties.year_end ||
             properties['Year end'] ||
             properties['Acquisition end'] ||
             properties['End year']
         );
         const yearBeginParts = splitLinkedSeries(
+            properties.Year_start ||
+            properties.year_start ||
             properties.year_begin ||
             properties['Year begin'] ||
             properties['Acquisition start'] ||
@@ -893,6 +1655,8 @@
         );
         const legacyYearParts = splitLinkedSeries(properties.Year);
         const datasetNameParts = splitLinkedSeries(
+            properties['Dataset_name'] ||
+            properties.Dataset_name ||
             properties['Data Name'] ||
             properties['Data name'] ||
             properties.Dataset ||
@@ -924,6 +1688,73 @@
             }
         }
         return bestIndex;
+    }
+
+    function getPreferredOverviewRepresentativeIndex(properties) {
+        if (!properties) return 0;
+
+        const yearEndParts = splitLinkedSeries(
+            properties.Year_end ||
+            properties.year_end ||
+            properties['Year end'] ||
+            properties['Acquisition end'] ||
+            properties['End year']
+        );
+        const yearBeginParts = splitLinkedSeries(
+            properties.Year_start ||
+            properties.year_start ||
+            properties.year_begin ||
+            properties['Year begin'] ||
+            properties['Acquisition start'] ||
+            properties['Start year']
+        );
+        const legacyYearParts = splitLinkedSeries(properties.Year);
+        const datasetNameParts = splitLinkedSeries(
+            properties['Dataset_name'] ||
+            properties.Dataset_name ||
+            properties['Data Name'] ||
+            properties['Data name'] ||
+            properties.Dataset ||
+            properties['Dataset Name'] ||
+            properties.dataset_name
+        );
+        const dataTypeParts = splitLinkedSeries(properties.DataDisplay || properties['Data display'] || properties.Data);
+
+        const partCount = Math.max(
+            yearEndParts.length,
+            yearBeginParts.length,
+            legacyYearParts.length,
+            datasetNameParts.length,
+            dataTypeParts.length
+        );
+        if (partCount <= 1) return 0;
+
+        const chooseLatestIndex = (predicate) => {
+            let bestIndex = -1;
+            let bestScore = Number.NEGATIVE_INFINITY;
+            for (let index = 0; index < partCount; index += 1) {
+                const normalizedType = normalizeCat(dataTypeParts[index] || '');
+                if (!predicate(normalizedType)) continue;
+                const score = getLatestYearScore(
+                    yearEndParts[index],
+                    yearBeginParts[index],
+                    legacyYearParts[index]
+                );
+                if (score > bestScore || (score === bestScore && index > bestIndex)) {
+                    bestScore = score;
+                    bestIndex = index;
+                }
+            }
+            return bestIndex;
+        };
+
+        const nationalIndex = chooseLatestIndex((type) => type !== 'Region' && type !== 'No Info');
+        if (nationalIndex !== -1) return nationalIndex;
+
+        const regionalIndex = chooseLatestIndex((type) => type === 'Region');
+        if (regionalIndex !== -1) return regionalIndex;
+
+        return getLatestRepresentativeIndex(properties);
     }
 
     function valueAtRepresentativeIndex(value, index) {
@@ -1090,6 +1921,21 @@
         return computeRange(pool);
     }
 
+    function clampFilterRange(currentMin, currentMax, bounds) {
+        if (!bounds || !bounds.ready || !Number.isFinite(bounds.min) || !Number.isFinite(bounds.max)) {
+            return { min: currentMin, max: currentMax };
+        }
+        let nextMin = Number.isFinite(currentMin) ? currentMin : bounds.min;
+        let nextMax = Number.isFinite(currentMax) ? currentMax : bounds.max;
+        nextMin = Math.max(bounds.min, Math.min(nextMin, bounds.max));
+        nextMax = Math.max(bounds.min, Math.min(nextMax, bounds.max));
+        if (nextMin > nextMax) {
+            nextMin = bounds.min;
+            nextMax = bounds.max;
+        }
+        return { min: nextMin, max: nextMax };
+    }
+
 
     function rebuildCountryFilterMetrics() {
         const metrics = new Map();
@@ -1097,6 +1943,7 @@
         let hasAnyClassificationInfo = false;
 
         const activeTypes = mapFilterState.datasetTypes;
+        const activeDataCategories = mapFilterState.dataCategories;
 
         countryFilterMetricBuckets.forEach((bucket, countryKey) => {
             const allRecords = (bucket && bucket.standard) || [];
@@ -1106,9 +1953,16 @@
             const standardRecords = activeTypes.size
                 ? allRecords.filter((r) => activeTypes.has(r.datasetType || 'national'))
                 : allRecords;
+            const categoryFilteredRecords = standardRecords.filter((record) => {
+                const recordCategories = record && record.dataCategories instanceof Set
+                    ? record.dataCategories
+                    : new Set();
+                if (!activeDataCategories || !activeDataCategories.size) return false;
+                return Array.from(activeDataCategories).some((category) => recordCategories.has(category));
+            });
 
             const classifications = new Set();
-            allRecords.forEach((record) => {
+            categoryFilteredRecords.forEach((record) => {
                 (record.classifications || new Set()).forEach((tag) => classifications.add(tag));
             });
             const hasClassification = classifications.size > 0;
@@ -1119,48 +1973,57 @@
 
             // A country passes if ANY of its active-type records has spatial data,
             // OR if it has no spatial data at all (show it, let other filters decide)
-            const spatialRange = unionMetricRanges(standardRecords, 'spatial');
             metrics.set(countryKey, {
-                spatial: spatialRange,
-                accuracy: unionMetricRanges(standardRecords, 'accuracy'),
-                year: unionMetricRanges(standardRecords, 'year'),
+                spatial: unionMetricRanges(categoryFilteredRecords, 'spatial'),
+                planimetric: unionMetricRanges(categoryFilteredRecords, 'planimetric'),
+                altimetric: unionMetricRanges(categoryFilteredRecords, 'altimetric'),
+                year: unionMetricRanges(categoryFilteredRecords, 'year'),
+                records: categoryFilteredRecords,
                 classifications,
+                dataCategories: new Set(categoryFilteredRecords.flatMap((record) =>
+                    Array.from((record && record.dataCategories) || [])
+                )),
                 hasClassification,
-                hasActiveRecords: standardRecords.length > 0
+                hasActiveRecords: categoryFilteredRecords.length > 0
             });
         });
 
         const spatialPool = [];
-        const accuracyPool = [];
+        const planimetricPool = [];
+        const altimetricPool = [];
         const yearPool = [];
         metrics.forEach((item) => {
             if (Number.isFinite(item.spatial.min)) spatialPool.push(item.spatial.min, item.spatial.max);
-            if (Number.isFinite(item.accuracy.min)) accuracyPool.push(item.accuracy.min, item.accuracy.max);
+            if (Number.isFinite(item.planimetric.min)) planimetricPool.push(item.planimetric.min, item.planimetric.max);
+            if (Number.isFinite(item.altimetric.min)) altimetricPool.push(item.altimetric.min, item.altimetric.max);
             if (Number.isFinite(item.year.min)) yearPool.push(item.year.min, item.year.max);
         });
 
         mapFilterBounds.spatial = spatialPool.length
-            ? { min: Math.floor(Math.min(...spatialPool) * 2) / 2, max: Math.ceil(Math.max(...spatialPool) * 2) / 2, ready: true }
+            ? { min: 0, max: Math.ceil(Math.max(...spatialPool) * 2) / 2, ready: true }
             : { min: 0, max: 100, ready: false };
-        mapFilterBounds.accuracy = accuracyPool.length
-            ? { min: Number(Math.min(...accuracyPool).toFixed(2)), max: Number(Math.max(...accuracyPool).toFixed(2)), ready: true }
+        mapFilterBounds.planimetric = planimetricPool.length
+            ? { min: 0, max: Number(Math.max(...planimetricPool).toFixed(2)), ready: true }
+            : { min: 0, max: 1, ready: false };
+        mapFilterBounds.altimetric = altimetricPool.length
+            ? { min: 0, max: Number(Math.max(...altimetricPool).toFixed(2)), ready: true }
             : { min: 0, max: 1, ready: false };
         mapFilterBounds.year = yearPool.length
             ? { min: Math.min(...yearPool), max: Math.max(...yearPool), ready: true }
             : { min: 2000, max: 2026, ready: false };
 
-        if (mapFilterBounds.spatial.ready) {
-            mapFilterState.spatialMin = mapFilterBounds.spatial.min;
-            mapFilterState.spatialMax = Math.min(40, mapFilterBounds.spatial.max);
-        }
-        if (mapFilterBounds.accuracy.ready) {
-            mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
-            mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
-        }
-        if (mapFilterBounds.year.ready) {
-            mapFilterState.yearMin = mapFilterBounds.year.min;
-            mapFilterState.yearMax = mapFilterBounds.year.max;
-        }
+        const spatialRange = clampFilterRange(mapFilterState.spatialMin, mapFilterState.spatialMax, mapFilterBounds.spatial);
+        mapFilterState.spatialMin = spatialRange.min;
+        mapFilterState.spatialMax = spatialRange.max;
+        const planimetricRange = clampFilterRange(mapFilterState.planimetricMin, mapFilterState.planimetricMax, mapFilterBounds.planimetric);
+        mapFilterState.planimetricMin = planimetricRange.min;
+        mapFilterState.planimetricMax = planimetricRange.max;
+        const altimetricRange = clampFilterRange(mapFilterState.altimetricMin, mapFilterState.altimetricMax, mapFilterBounds.altimetric);
+        mapFilterState.altimetricMin = altimetricRange.min;
+        mapFilterState.altimetricMax = altimetricRange.max;
+        const yearRange = clampFilterRange(mapFilterState.yearMin, mapFilterState.yearMax, mapFilterBounds.year);
+        mapFilterState.yearMin = yearRange.min;
+        mapFilterState.yearMax = yearRange.max;
 
         availableClassificationFilterOptions = new Set(availableFilterTags);
         if (hasAnyClassificationInfo) availableClassificationFilterOptions.add('has');
@@ -1171,13 +2034,31 @@
     function isFilterActive() {
         const eps = 1e-9;
         if (mapFilterState.classifications && mapFilterState.classifications.size > 0) return true;
+        if (
+            userHasAdjustedMapFilters &&
+            mapFilterState.datasetTypes &&
+            (
+                mapFilterState.datasetTypes.size !== 1 ||
+                !mapFilterState.datasetTypes.has('national')
+            )
+        ) return true;
+        const defaultDataCategories = ['Pointcloud', 'DEM', 'No Info'];
+        if (
+            !mapFilterState.dataCategories ||
+            mapFilterState.dataCategories.size !== defaultDataCategories.length ||
+            defaultDataCategories.some((category) => !mapFilterState.dataCategories.has(category))
+        ) return true;
         if (mapFilterBounds.spatial.ready) {
             if (Math.abs(mapFilterState.spatialMin - mapFilterBounds.spatial.min) > eps) return true;
             if (Math.abs(mapFilterState.spatialMax - mapFilterBounds.spatial.max) > eps) return true;
         }
-        if (mapFilterBounds.accuracy.ready) {
-            if (Math.abs(mapFilterState.accuracyMin - mapFilterBounds.accuracy.min) > eps) return true;
-            if (Math.abs(mapFilterState.accuracyMax - mapFilterBounds.accuracy.max) > eps) return true;
+        if (mapFilterBounds.planimetric.ready) {
+            if (Math.abs(mapFilterState.planimetricMin - mapFilterBounds.planimetric.min) > eps) return true;
+            if (Math.abs(mapFilterState.planimetricMax - mapFilterBounds.planimetric.max) > eps) return true;
+        }
+        if (mapFilterBounds.altimetric.ready) {
+            if (Math.abs(mapFilterState.altimetricMin - mapFilterBounds.altimetric.min) > eps) return true;
+            if (Math.abs(mapFilterState.altimetricMax - mapFilterBounds.altimetric.max) > eps) return true;
         }
         if (mapFilterBounds.year.ready) {
             if (Math.abs(mapFilterState.yearMin - mapFilterBounds.year.min) > eps) return true;
@@ -1186,10 +2067,14 @@
         return false;
     }
 
-    function rangeOverlaps(metricRange, selectedMin, selectedMax) {
+    function shouldApplyDatasetTypeFilter() {
+        return !!userHasAdjustedMapFilters;
+    }
+
+    function rangeOverlaps(metricRange, selectedMin, selectedMax, includeMissing) {
         if (!Number.isFinite(selectedMin) || !Number.isFinite(selectedMax)) return true;
         // No density data for this country/region → pass through (don't filter it out)
-        if (!metricRange || !Number.isFinite(metricRange.min) || !Number.isFinite(metricRange.max)) return true;
+        if (!metricRange || !Number.isFinite(metricRange.min) || !Number.isFinite(metricRange.max)) return !!includeMissing;
         return metricRange.max >= selectedMin && metricRange.min <= selectedMax;
     }
 
@@ -1199,18 +2084,89 @@
         const key = normalizeCountryKey(feature.properties.Name);
         const metrics = countryFilterMetrics.get(key);
         if (!metrics) return false;
-        if (!rangeOverlaps(metrics.spatial, mapFilterState.spatialMin, mapFilterState.spatialMax)) return false;
-        if (!rangeOverlaps(metrics.accuracy, mapFilterState.accuracyMin, mapFilterState.accuracyMax)) return false;
-        if (!rangeOverlaps(metrics.year, mapFilterState.yearMin, mapFilterState.yearMax)) return false;
+        if (!metrics.hasActiveRecords) return false;
+        const activeRecords = Array.isArray(metrics.records) ? metrics.records : [];
+        return activeRecords.some((record) => recordPassesCurrentMapFilters(record));
+    }
+
+    function recordPassesCurrentMapFilters(record) {
+        if (!record) return false;
+        if (shouldApplyDatasetTypeFilter() && (!mapFilterState.datasetTypes || !mapFilterState.datasetTypes.has(record.datasetType || 'national'))) return false;
+        if (!mapFilterState.dataCategories || !mapFilterState.dataCategories.size) return false;
+        const categoryMatch = Array.from(mapFilterState.dataCategories).some((category) =>
+            ((record && record.dataCategories) || new Set()).has(category)
+        );
+        if (!categoryMatch) return false;
+        if (!rangeOverlaps(record.spatial, mapFilterState.spatialMin, mapFilterState.spatialMax, mapFilterState.includeMissingSpatial)) return false;
+        if (!rangeOverlaps(record.planimetric, mapFilterState.planimetricMin, mapFilterState.planimetricMax, mapFilterState.includeMissingAccuracy)) return false;
+        if (!rangeOverlaps(record.altimetric, mapFilterState.altimetricMin, mapFilterState.altimetricMax, mapFilterState.includeMissingAccuracy)) return false;
+        if (!rangeOverlaps(record.year, mapFilterState.yearMin, mapFilterState.yearMax, mapFilterState.includeMissingYear)) return false;
         if (mapFilterState.classifications && mapFilterState.classifications.size > 0) {
-            const selected = Array.from(mapFilterState.classifications);
-            const matches = selected.some((selectedClass) => {
-                if (selectedClass === 'has') return !!metrics.hasClassification;
-                return metrics.classifications.has(selectedClass);
+            const matches = Array.from(mapFilterState.classifications).some((selectedClass) => {
+                if (selectedClass === 'has') return !!(record.classifications && record.classifications.size);
+                return !!(record.classifications && record.classifications.has(selectedClass));
             });
             if (!matches) return false;
         }
         return true;
+    }
+
+    // Filters sub-regions inside a selected country — skips the datasetType scope check
+    // (national/regional/city) because that's an overview-level concept and should not hide
+    // sub-regions that happen to have ADM > 0.
+    // Used when filtering sub-regions inside a selected country — the scope filter
+    // (national/regional/city) is an overview-level concept and should not hide
+    // sub-regions that happen to have ADM > 0.
+    function subRegionPassesRangeFilters(feature) {
+        if (!feature || !feature.properties) return false;
+        return extractFilterRecordsFromProps(feature.properties).some((record) => recordPassesCurrentMapFilters(record));
+    }
+
+    function getBestMatchingCountryDatasetIndex(regionCollection, countryFeature) {
+        if (!regionCollection || !Array.isArray(regionCollection.features) || !countryFeature || !countryFeature.properties) return undefined;
+        const scopePriority = { national: 3, regional: 2, city: 1 };
+        const fieldsToScope = [
+            'National', 'Urban', 'Planimetric', 'Altimetric', 'Year', 'year', 'Year_end', 'year_end',
+            'Year_start', 'year_start', 'Data', 'DataDisplay', 'RawDataTypes', 'Info'
+        ];
+        const candidates = [];
+
+        regionCollection.features.forEach((feature) => {
+            const props = (feature && feature.properties) || {};
+            const datasetNames = getDatasetNamesFromFeatureProperties(props);
+            if (!datasetNames.length) return;
+
+            datasetNames.forEach((datasetName, seriesIndex) => {
+                const scopedProps = { ...props };
+                fieldsToScope.forEach((fieldName) => {
+                    if (!Object.prototype.hasOwnProperty.call(scopedProps, fieldName)) return;
+                    scopedProps[fieldName] = valueAtRepresentativeIndex(scopedProps[fieldName], seriesIndex);
+                });
+                scopedProps.Dataset_name = datasetName;
+                scopedProps.dataset_name = datasetName;
+                scopedProps['Data Name'] = datasetName;
+                const record = extractFilterRecordFromProps(scopedProps);
+                if (!recordPassesCurrentMapFilters(record)) return;
+                const datasetIndex = getCountryDatasetIndexForDatasetName(datasetName);
+                if (!Number.isInteger(datasetIndex) || datasetIndex < 0) return;
+                candidates.push({
+                    datasetIndex,
+                    datasetName,
+                    datasetType: record.datasetType || 'national',
+                    yearScore: Number.isFinite(record.representativeYearScore) ? record.representativeYearScore : Number.NEGATIVE_INFINITY
+                });
+            });
+        });
+
+        if (!candidates.length) return undefined;
+
+        candidates.sort((a, b) => {
+            const scopeDelta = (scopePriority[b.datasetType] || 0) - (scopePriority[a.datasetType] || 0);
+            if (scopeDelta !== 0) return scopeDelta;
+            if (b.yearScore !== a.yearScore) return b.yearScore - a.yearScore;
+            return a.datasetIndex - b.datasetIndex;
+        });
+        return candidates[0].datasetIndex;
     }
 
     function getFilteredCountryNamesLowercase() {
@@ -1224,46 +2180,19 @@
     function loadCountryFilterMetrics() {
         if (countryFilterMetricsPromise) return countryFilterMetricsPromise;
 
-        // Helper: extract all numeric values from a field that may contain "||"-separated entries
-        const allNumeric = (v) => String(v || '').split('||').map(toNumeric).filter((n) => Number.isFinite(n));
-
-        // Classify a feature into dataset type based on ADM level
-        const getDatasetType = (props) => {
-            const adm = Number(props.ADM);
-            if (!Number.isFinite(adm) || adm === 0) return 'national';
-            if (adm === 1) return 'regional';
-            return 'city';
-        };
-
-        const extractRecord = (props) => {
-            const spatialValues = [props.National, props.Urban].flatMap(allNumeric);
-            const accuracyValues = [props.Planimetric, props.Altimetric].flatMap(allNumeric);
-            const filterYearValue = String(props.Year_end || props.year_end || props.Year || props.year || '').trim();
-            const years = parseYearValues(filterYearValue);
-            const representativeYearScore = getLatestYearScore(
-                filterYearValue,
-                String(props.Year_start || props.year_start || '').trim(),
-                String(props.Year || props.year || '').trim()
-            );
-            const classes = detectClassificationTags(String(props.Info || props.info || ''), props);
-            return {
-                spatial: computeRange(spatialValues),
-                accuracy: computeRange(accuracyValues),
-                year: computeRange(years),
-                classifications: classes,
-                representativeYearScore,
-                datasetType: getDatasetType(props)
-            };
-        };
-
         const addFeatureToBuckets = (feature, buckets, parentCountryOverride) => {
             const props = feature.properties || {};
+            const isRegionSummaryCountry = !parentCountryOverride
+                && !props.ParentCountry
+                && Number(props.ADM) === 0
+                && normalizeCat(props.Data) === 'Region';
+            if (isRegionSummaryCountry) return;
             const countryName = String(parentCountryOverride || props.ParentCountry || props.main_country || props.Name || props.country || '').trim();
             if (!countryName) return;
             const countryKey = normalizeCountryKey(countryName);
             if (!countryKey) return;
             if (!buckets.has(countryKey)) buckets.set(countryKey, { standard: [], research: [] });
-            buckets.get(countryKey).standard.push(extractRecord(props));
+            buckets.get(countryKey).standard.push(...extractFilterRecordsFromProps(props));
         };
 
         countryFilterMetricsPromise = Promise.resolve().then(() => {
@@ -1294,15 +2223,14 @@
                 const parentCountry = String(props.ParentCountry || '').trim();
                 if (!parentCountry) return; // skip country-level features
                 const parentKey = normalizeCountryKey(parentCountry);
-                const rfName = String(props.Name || '').toLowerCase();
-                if (!rfName || rfName === parentCountry.toLowerCase()) return;
-                const record = extractRecord(props);
-                const metricKey = `${parentKey}::${rfName}`;
+                const metricKey = getFeatureFilterMetricKey(props, parentKey);
+                if (!metricKey) return;
+                const records = extractFilterRecordsFromProps(props);
                 if (!newRegionFilterMetrics.has(metricKey)) {
-                    newRegionFilterMetrics.set(metricKey, { ...record, parentCountryKey: parentKey });
+                    newRegionFilterMetrics.set(metricKey, { records, parentCountryKey: parentKey });
                     newFilterRegionFeatures.push({
                         ...f,
-                        properties: { ...props, _filterRegion: true }
+                        properties: { ...props, _filterRegion: true, FilterMetricKey: metricKey }
                     });
                 }
             });
@@ -1313,19 +2241,23 @@
                 return fetchCountryRegions(countryName)
                     .then((rd) => {
                         if (!rd || !Array.isArray(rd.features)) return;
-                        const countryNameLc = countryName.toLowerCase();
                         rd.features.forEach((rf) => {
-                            const rfName = String((rf.properties && rf.properties.Name) || '').toLowerCase();
-                            if (rfName === countryNameLc) return; // skip country-level feature
+                            if (isCountrySummaryFeatureForCountry(rf, countryName)) return; // skip country-level feature
                             // Add to country buckets (so country passes filter if any region qualifies)
                             addFeatureToBuckets(rf, buckets, countryName);
                             // Store individual region metrics and features for precise per-region filtering
-                            const record = extractRecord(rf.properties || {});
-                            const metricKey = `${countryKey}::${rfName}`;
-                            newRegionFilterMetrics.set(metricKey, { ...record, parentCountryKey: countryKey });
+                            const records = extractFilterRecordsFromProps(rf.properties || {});
+                            const metricKey = getFeatureFilterMetricKey(rf.properties || {}, countryKey);
+                            if (!metricKey) return;
+                            newRegionFilterMetrics.set(metricKey, { records, parentCountryKey: countryKey });
                             newFilterRegionFeatures.push({
                                 ...rf,
-                                properties: { ...(rf.properties || {}), ParentCountry: countryName, _filterRegion: true }
+                                properties: {
+                                    ...(rf.properties || {}),
+                                    ParentCountry: countryName,
+                                    _filterRegion: true,
+                                    FilterMetricKey: metricKey
+                                }
                             });
                         });
                     })
@@ -1336,13 +2268,13 @@
                 regionFilterMetrics = newRegionFilterMetrics;
                 filterRegionFeatures = newFilterRegionFeatures;
                 countryFilterMetricBuckets = buckets;
+                renderDataCache.clear();
                 rebuildCountryFilterMetrics();
                 // Update filter-regions source if map is already loaded
                 const mapRef = getMapInstance();
                 if (mapRef && mapRef.getSource('filter-regions')) {
-                    // Only pass polygon features to the fill source; Points are rendered as markers
-                    const polygonFeatures = filterRegionFeatures.filter((f) => f.geometry && f.geometry.type !== 'Point');
-                    mapRef.getSource('filter-regions').setData({ type: 'FeatureCollection', features: polygonFeatures });
+                    currentFilterRegionRenderLevel = '';
+                    syncAdaptiveMapRendering(true);
                 }
                 // Re-render research markers now that Point features are available
                 renderResearchMarkers();
@@ -1364,9 +2296,8 @@
             const countryName = country.properties.Name;
             return fetchCountryRegions(countryName)
                 .then((rd) => {
-                    const countryNameLc = String(countryName).toLowerCase();
                     const features = (rd && rd.features ? rd.features : [])
-                        .filter((rf) => String((rf.properties && rf.properties.Name) || '').toLowerCase() !== countryNameLc)
+                        .filter((rf) => !isCountrySummaryFeatureForCountry(rf, countryName))
                         .map((rf) => ({
                             ...(rf || {}),
                             type: 'Feature',
@@ -1432,9 +2363,10 @@
             hideRegionsOnMap();
             syncLegendSelectionVisuals();
             if (!keepView) {
-                mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
+            mapRef.easeTo({ center: [5, 50], zoom: 5, pitch: 0, bearing: 0, duration: 1000 }); 
             }
             mapRef.setMinZoom(2); 
+            currentRegionRenderLevel = '';
         } 
         sidebar.style.display = 'none'; // Sidebar sluiten bij reset 
         if (infoTitleEl) infoTitleEl.textContent = 'Select a country.'; 
@@ -1482,20 +2414,30 @@
     const filterClassificationChecks = filterClassificationMenu
         ? Array.from(filterClassificationMenu.querySelectorAll('input[type="checkbox"]'))
         : [];
+    const filterDataTypeChecks = filterMenu
+        ? Array.from(filterMenu.querySelectorAll('.filter-data-types input[type="checkbox"]'))
+        : [];
     const filterTypeChecks = filterMenu
-        ? Array.from(filterMenu.querySelectorAll('.filter-dataset-types input[type="checkbox"]'))
+        ? Array.from(filterMenu.querySelectorAll('.filter-acquisition-types input[type="checkbox"]'))
         : [];
     const filterSpatialMin = document.getElementById('filterSpatialMin');
     const filterSpatialMax = document.getElementById('filterSpatialMax');
-    const filterAccuracyMin = document.getElementById('filterAccuracyMin');
-    const filterAccuracyMax = document.getElementById('filterAccuracyMax');
+    const filterPlanimetricMin = document.getElementById('filterPlanimetricMin');
+    const filterPlanimetricMax = document.getElementById('filterPlanimetricMax');
+    const filterAltimetricMin = document.getElementById('filterAltimetricMin');
+    const filterAltimetricMax = document.getElementById('filterAltimetricMax');
     const filterYearMin = document.getElementById('filterYearMin');
     const filterYearMax = document.getElementById('filterYearMax');
+    const filterSpatialIncludeMissing = document.getElementById('filterSpatialIncludeMissing');
+    const filterAccuracyIncludeMissing = document.getElementById('filterAccuracyIncludeMissing');
+    const filterYearIncludeMissing = document.getElementById('filterYearIncludeMissing');
     const filterSpatialRangeValue = document.getElementById('filterSpatialRangeValue');
-    const filterAccuracyRangeValue = document.getElementById('filterAccuracyRangeValue');
+    const filterPlanimetricRangeValue = document.getElementById('filterPlanimetricRangeValue');
+    const filterAltimetricRangeValue = document.getElementById('filterAltimetricRangeValue');
     const filterYearRangeValue = document.getElementById('filterYearRangeValue');
     const filterSpatialTrack = document.getElementById('filterSpatialTrack');
-    const filterAccuracyTrack = document.getElementById('filterAccuracyTrack');
+    const filterPlanimetricTrack = document.getElementById('filterPlanimetricTrack');
+    const filterAltimetricTrack = document.getElementById('filterAltimetricTrack');
     const filterYearTrack = document.getElementById('filterYearTrack');
     const tabs = { 
         toc: document.getElementById('tab-toc'), 
@@ -1653,6 +2595,8 @@
         const rightPct = ((maxValue - minBound) / (maxBound - minBound)) * 100;
         trackEl.style.left = `${Math.max(0, Math.min(100, leftPct))}%`;
         trackEl.style.right = `${Math.max(0, Math.min(100, 100 - rightPct))}%`;
+        // When both thumbs overlap (especially at max), raise min above max so it remains grabbable
+        minInput.style.zIndex = (minValue >= maxValue) ? '2' : '';
     };
 
     const updateClassificationLabel = () => {
@@ -1697,17 +2641,29 @@
     };
 
     const updateRangeValueLabels = () => {
-        if (filterSpatialRangeValue && Number.isFinite(mapFilterState.spatialMin) && Number.isFinite(mapFilterState.spatialMax)) {
-            filterSpatialRangeValue.textContent = `${formatRangeValue(mapFilterState.spatialMin)} to ${formatRangeValue(mapFilterState.spatialMax)}`;
+        const spatialMinLabelValue = Number.isFinite(mapFilterState.spatialMin) ? mapFilterState.spatialMin : mapFilterBounds.spatial.min;
+        const spatialMaxLabelValue = Number.isFinite(mapFilterState.spatialMax) ? mapFilterState.spatialMax : mapFilterBounds.spatial.max;
+        if (filterSpatialRangeValue && Number.isFinite(spatialMinLabelValue) && Number.isFinite(spatialMaxLabelValue)) {
+            filterSpatialRangeValue.textContent = `${formatRangeValue(spatialMinLabelValue)} to ${formatRangeValue(spatialMaxLabelValue)}`;
         }
-        if (filterAccuracyRangeValue && Number.isFinite(mapFilterState.accuracyMin) && Number.isFinite(mapFilterState.accuracyMax)) {
-            filterAccuracyRangeValue.textContent = `${formatRangeValue(mapFilterState.accuracyMin)} to ${formatRangeValue(mapFilterState.accuracyMax)}`;
+        const planimetricMinLabelValue = Number.isFinite(mapFilterState.planimetricMin) ? mapFilterState.planimetricMin : mapFilterBounds.planimetric.min;
+        const planimetricMaxLabelValue = Number.isFinite(mapFilterState.planimetricMax) ? mapFilterState.planimetricMax : mapFilterBounds.planimetric.max;
+        if (filterPlanimetricRangeValue && Number.isFinite(planimetricMinLabelValue) && Number.isFinite(planimetricMaxLabelValue)) {
+            filterPlanimetricRangeValue.textContent = `${formatRangeValue(planimetricMinLabelValue)} to ${formatRangeValue(planimetricMaxLabelValue)}`;
         }
-        if (filterYearRangeValue && Number.isFinite(mapFilterState.yearMin) && Number.isFinite(mapFilterState.yearMax)) {
-            filterYearRangeValue.textContent = `${formatRangeValue(mapFilterState.yearMin)} to ${formatRangeValue(mapFilterState.yearMax)}`;
+        const altimetricMinLabelValue = Number.isFinite(mapFilterState.altimetricMin) ? mapFilterState.altimetricMin : mapFilterBounds.altimetric.min;
+        const altimetricMaxLabelValue = Number.isFinite(mapFilterState.altimetricMax) ? mapFilterState.altimetricMax : mapFilterBounds.altimetric.max;
+        if (filterAltimetricRangeValue && Number.isFinite(altimetricMinLabelValue) && Number.isFinite(altimetricMaxLabelValue)) {
+            filterAltimetricRangeValue.textContent = `${formatRangeValue(altimetricMinLabelValue)} to ${formatRangeValue(altimetricMaxLabelValue)}`;
+        }
+        const yearMinLabelValue = Number.isFinite(mapFilterState.yearMin) ? mapFilterState.yearMin : mapFilterBounds.year.min;
+        const yearMaxLabelValue = Number.isFinite(mapFilterState.yearMax) ? mapFilterState.yearMax : mapFilterBounds.year.max;
+        if (filterYearRangeValue && Number.isFinite(yearMinLabelValue) && Number.isFinite(yearMaxLabelValue)) {
+            filterYearRangeValue.textContent = `${formatRangeValue(yearMinLabelValue)} to ${formatRangeValue(yearMaxLabelValue)}`;
         }
         updateTrackFill(filterSpatialMin, filterSpatialMax, filterSpatialTrack);
-        updateTrackFill(filterAccuracyMin, filterAccuracyMax, filterAccuracyTrack);
+        updateTrackFill(filterPlanimetricMin, filterPlanimetricMax, filterPlanimetricTrack);
+        updateTrackFill(filterAltimetricMin, filterAltimetricMax, filterAltimetricTrack);
         updateTrackFill(filterYearMin, filterYearMax, filterYearTrack);
     };
 
@@ -1722,15 +2678,25 @@
             filterSpatialMax.max = String(mapFilterBounds.spatial.max);
             filterSpatialMax.value = String(mapFilterState.spatialMax);
         }
-        if (filterAccuracyMin && mapFilterBounds.accuracy.ready) {
-            filterAccuracyMin.min = String(mapFilterBounds.accuracy.min);
-            filterAccuracyMin.max = String(mapFilterBounds.accuracy.max);
-            filterAccuracyMin.value = String(mapFilterState.accuracyMin);
+        if (filterPlanimetricMin && mapFilterBounds.planimetric.ready) {
+            filterPlanimetricMin.min = String(mapFilterBounds.planimetric.min);
+            filterPlanimetricMin.max = String(mapFilterBounds.planimetric.max);
+            filterPlanimetricMin.value = String(mapFilterState.planimetricMin);
         }
-        if (filterAccuracyMax && mapFilterBounds.accuracy.ready) {
-            filterAccuracyMax.min = String(mapFilterBounds.accuracy.min);
-            filterAccuracyMax.max = String(mapFilterBounds.accuracy.max);
-            filterAccuracyMax.value = String(mapFilterState.accuracyMax);
+        if (filterPlanimetricMax && mapFilterBounds.planimetric.ready) {
+            filterPlanimetricMax.min = String(mapFilterBounds.planimetric.min);
+            filterPlanimetricMax.max = String(mapFilterBounds.planimetric.max);
+            filterPlanimetricMax.value = String(mapFilterState.planimetricMax);
+        }
+        if (filterAltimetricMin && mapFilterBounds.altimetric.ready) {
+            filterAltimetricMin.min = String(mapFilterBounds.altimetric.min);
+            filterAltimetricMin.max = String(mapFilterBounds.altimetric.max);
+            filterAltimetricMin.value = String(mapFilterState.altimetricMin);
+        }
+        if (filterAltimetricMax && mapFilterBounds.altimetric.ready) {
+            filterAltimetricMax.min = String(mapFilterBounds.altimetric.min);
+            filterAltimetricMax.max = String(mapFilterBounds.altimetric.max);
+            filterAltimetricMax.value = String(mapFilterState.altimetricMax);
         }
         if (filterYearMin && mapFilterBounds.year.ready) {
             filterYearMin.min = String(mapFilterBounds.year.min);
@@ -1745,6 +2711,20 @@
         if (filterClassificationChecks.length) {
             filterClassificationChecks.forEach((check) => {
                 check.checked = mapFilterState.classifications.has(check.value);
+            });
+        }
+        if (filterSpatialIncludeMissing) {
+            filterSpatialIncludeMissing.checked = !!mapFilterState.includeMissingSpatial;
+        }
+        if (filterAccuracyIncludeMissing) {
+            filterAccuracyIncludeMissing.checked = !!mapFilterState.includeMissingAccuracy;
+        }
+        if (filterYearIncludeMissing) {
+            filterYearIncludeMissing.checked = !!mapFilterState.includeMissingYear;
+        }
+        if (filterDataTypeChecks.length) {
+            filterDataTypeChecks.forEach((check) => {
+                check.checked = mapFilterState.dataCategories.has(check.value);
             });
         }
         if (filterTypeChecks.length) {
@@ -1826,9 +2806,43 @@
         }
     };
 
+    const resetMapFiltersState = ({ closeMenuAfter = false, applyAfter = true } = {}) => {
+        if (mapFilterBounds.spatial.ready) {
+            mapFilterState.spatialMin = mapFilterBounds.spatial.min;
+            mapFilterState.spatialMax = mapFilterBounds.spatial.max;
+        }
+        if (mapFilterBounds.planimetric.ready) {
+            mapFilterState.planimetricMin = mapFilterBounds.planimetric.min;
+            mapFilterState.planimetricMax = mapFilterBounds.planimetric.max;
+        }
+        if (mapFilterBounds.altimetric.ready) {
+            mapFilterState.altimetricMin = mapFilterBounds.altimetric.min;
+            mapFilterState.altimetricMax = mapFilterBounds.altimetric.max;
+        }
+        if (mapFilterBounds.year.ready) {
+            mapFilterState.yearMin = mapFilterBounds.year.min;
+            mapFilterState.yearMax = mapFilterBounds.year.max;
+        }
+        mapFilterState.includeMissingSpatial = false;
+        mapFilterState.includeMissingAccuracy = false;
+        mapFilterState.includeMissingYear = false;
+        mapFilterState.classifications = new Set();
+        mapFilterState.dataCategories = new Set(['Pointcloud', 'DEM', 'No Info']);
+        mapFilterState.datasetTypes = new Set(['national']);
+        userHasAdjustedMapFilters = false;
+        rebuildCountryFilterMetrics();
+        syncFilterControlsFromState();
+        if (closeMenuAfter) closeFilterMenu();
+        if (applyAfter) applyMapFilters();
+    };
+
     const applyMapFilters = () => {
         if (typeof renderCountriesList === 'function') renderCountriesList();
         if (typeof applyCategoryFilterToMap === 'function') applyCategoryFilterToMap();
+        if (selectedCountryFeature && regionsData && typeof showRegionsOnMap === 'function') {
+            showRegionsOnMap(regionsData);
+        }
+        if (typeof syncLegendSelectionVisuals === 'function') syncLegendSelectionVisuals();
     };
     if (tocSearchToggle) {
         tocSearchToggle.addEventListener('click', () => openSearch(tocSearchToggle));
@@ -1906,6 +2920,7 @@
     if (filterClassificationChecks.length) {
         filterClassificationChecks.forEach((check) => {
             check.addEventListener('change', () => {
+                userHasAdjustedMapFilters = true;
                 const selected = filterClassificationChecks
                     .filter((c) => c.checked)
                     .map((c) => c.value);
@@ -1915,8 +2930,19 @@
             });
         });
     }
+    const onDataTypeChange = () => {
+        userHasAdjustedMapFilters = true;
+        mapFilterState.dataCategories = new Set(
+            filterDataTypeChecks.filter((c) => c.checked).map((c) => c.value)
+        );
+        rebuildCountryFilterMetrics();
+        syncFilterControlsFromState();
+        applyMapFilters();
+    };
+    filterDataTypeChecks.forEach((check) => check.addEventListener('change', onDataTypeChange));
     // Dataset type checkboxes (National / Regional / City)
     const onDatasetTypeChange = () => {
+        userHasAdjustedMapFilters = true;
         mapFilterState.datasetTypes = new Set(
             filterTypeChecks.filter((c) => c.checked).map((c) => c.value)
         );
@@ -1975,12 +3001,6 @@
         const menu = document.getElementById('dataMenu');
         if (menu && menu.style.display === 'block' && !menu.contains(e.target) && (!dataTab || !dataTab.contains(e.target))) {
             menu.style.display = 'none';
-        }
-        if (tabFilter && filterMenu && filterMenu.style.display === 'block' &&
-            !filterMenu.contains(e.target) &&
-            (!tabFilter || !tabFilter.contains(e.target)) &&
-            (!mobileFilterBtn || !mobileFilterBtn.contains(e.target))) {
-            closeFilterMenu();
         }
         if (filterClassificationMenu && filterClassificationMenu.classList.contains('open') &&
             !filterClassificationMenu.contains(e.target) &&
@@ -2090,6 +3110,7 @@
     }
     if (filterSpatialMin && filterSpatialMax) {
         const onSpatialInput = () => {
+            userHasAdjustedMapFilters = true;
             normalizeRangeInputs(filterSpatialMin, filterSpatialMax);
             mapFilterState.spatialMin = Number(filterSpatialMin.value);
             mapFilterState.spatialMax = Number(filterSpatialMax.value);
@@ -2099,19 +3120,33 @@
         filterSpatialMin.addEventListener('input', onSpatialInput);
         filterSpatialMax.addEventListener('input', onSpatialInput);
     }
-    if (filterAccuracyMin && filterAccuracyMax) {
-        const onAccuracyInput = () => {
-            normalizeRangeInputs(filterAccuracyMin, filterAccuracyMax);
-            mapFilterState.accuracyMin = Number(filterAccuracyMin.value);
-            mapFilterState.accuracyMax = Number(filterAccuracyMax.value);
+    if (filterPlanimetricMin && filterPlanimetricMax) {
+        const onPlanimetricInput = () => {
+            userHasAdjustedMapFilters = true;
+            normalizeRangeInputs(filterPlanimetricMin, filterPlanimetricMax);
+            mapFilterState.planimetricMin = Number(filterPlanimetricMin.value);
+            mapFilterState.planimetricMax = Number(filterPlanimetricMax.value);
             updateRangeValueLabels();
             applyMapFilters();
         };
-        filterAccuracyMin.addEventListener('input', onAccuracyInput);
-        filterAccuracyMax.addEventListener('input', onAccuracyInput);
+        filterPlanimetricMin.addEventListener('input', onPlanimetricInput);
+        filterPlanimetricMax.addEventListener('input', onPlanimetricInput);
+    }
+    if (filterAltimetricMin && filterAltimetricMax) {
+        const onAltimetricInput = () => {
+            userHasAdjustedMapFilters = true;
+            normalizeRangeInputs(filterAltimetricMin, filterAltimetricMax);
+            mapFilterState.altimetricMin = Number(filterAltimetricMin.value);
+            mapFilterState.altimetricMax = Number(filterAltimetricMax.value);
+            updateRangeValueLabels();
+            applyMapFilters();
+        };
+        filterAltimetricMin.addEventListener('input', onAltimetricInput);
+        filterAltimetricMax.addEventListener('input', onAltimetricInput);
     }
     if (filterYearMin && filterYearMax) {
         const onYearInput = () => {
+            userHasAdjustedMapFilters = true;
             normalizeRangeInputs(filterYearMin, filterYearMax);
             mapFilterState.yearMin = Number(filterYearMin.value);
             mapFilterState.yearMax = Number(filterYearMax.value);
@@ -2121,25 +3156,30 @@
         filterYearMin.addEventListener('input', onYearInput);
         filterYearMax.addEventListener('input', onYearInput);
     }
+    if (filterSpatialIncludeMissing) {
+        filterSpatialIncludeMissing.addEventListener('change', () => {
+            userHasAdjustedMapFilters = true;
+            mapFilterState.includeMissingSpatial = filterSpatialIncludeMissing.checked;
+            applyMapFilters();
+        });
+    }
+    if (filterAccuracyIncludeMissing) {
+        filterAccuracyIncludeMissing.addEventListener('change', () => {
+            userHasAdjustedMapFilters = true;
+            mapFilterState.includeMissingAccuracy = filterAccuracyIncludeMissing.checked;
+            applyMapFilters();
+        });
+    }
+    if (filterYearIncludeMissing) {
+        filterYearIncludeMissing.addEventListener('change', () => {
+            userHasAdjustedMapFilters = true;
+            mapFilterState.includeMissingYear = filterYearIncludeMissing.checked;
+            applyMapFilters();
+        });
+    }
     if (filterResetBtn) {
         filterResetBtn.addEventListener('click', () => {
-            if (mapFilterBounds.spatial.ready) {
-                mapFilterState.spatialMin = mapFilterBounds.spatial.min;
-                mapFilterState.spatialMax = mapFilterBounds.spatial.max;
-            }
-            if (mapFilterBounds.accuracy.ready) {
-                mapFilterState.accuracyMin = mapFilterBounds.accuracy.min;
-                mapFilterState.accuracyMax = mapFilterBounds.accuracy.max;
-            }
-            if (mapFilterBounds.year.ready) {
-                mapFilterState.yearMin = mapFilterBounds.year.min;
-                mapFilterState.yearMax = mapFilterBounds.year.max;
-            }
-            mapFilterState.classifications = new Set();
-            mapFilterState.datasetTypes = new Set(['national']);
-            rebuildCountryFilterMetrics();
-            syncFilterControlsFromState();
-            applyMapFilters();
+            resetMapFiltersState();
         });
     }
     if (filterMenu && filterMenu.classList.contains('filter-dock')) {
@@ -2166,27 +3206,10 @@
 
     // Load data 
     if (document.body.classList.contains('map-page')) {
-        fetchFirstAvailableText(['../data/map_data_overview.geojson', 'data/map_data_overview.geojson'])
+        fetchFirstAvailableText(UNIFIED_MAP_DATA_PATHS)
         .then((text) => JSON.parse(text))
         .then(cd => { 
-            countriesData = cd; 
-            countriesData.features.forEach((f, i) => { 
-                if (f.id === undefined) f.id = i; 
-                const representativeIndex = getLatestRepresentativeIndex(f.properties);
-                const rawDataValue = f.properties.Data;
-                const representativeDataValue = valueAtRepresentativeIndex(rawDataValue, representativeIndex);
-                f.properties.RepresentativeSeriesIndex = representativeIndex;
-                f.properties.RawDataTypes = rawDataValue || 'No Info';
-                f.properties.DataDisplay = getDisplayDataType(rawDataValue || 'No Info');
-                if (!representativeDataValue || representativeDataValue.trim() === '') { 
-                    f.properties.Data = 'No Info'; // altijd zelfde notatie 
-                    f.properties.DataDisplay = 'No Info';
-                } else {
-                    f.properties.Data = normalizeCat(representativeDataValue);
-                } 
-                setFeatureCategorySupport(f.properties);
-                f.properties.infoStatus = representativeDataValue ? (representativeDataValue.toLowerCase() === 'region' ? 'region' : 'hasinfo') : 'noinfo'; 
-            }); 
+            initializeUnifiedMapData(cd);
             return buildOverviewMapData();
         })
         .then(() => {
@@ -2219,22 +3242,9 @@
                 const label = (cat === 'DEM') ? 'Elevation model' : (cat === 'No Info' ? 'No data / unknown' : cat); 
                 btn.textContent = label; 
             } 
-            btn.onclick = () => { 
-                activeLegendCategories.clear();
-                document.querySelectorAll('.legend-btn').forEach(b => b.classList.remove('active')); 
-                if (activeCategory === cat) { 
-                    activeCategory = null; 
-                    renderCountriesList(); 
-                    syncLegendSelectionVisuals();
-                    applyCategoryFilterToMap();
-                    return; 
-                } 
-                activeCategory = cat; 
-                btn.classList.add('active'); 
-                renderCountriesList(); 
-                syncLegendSelectionVisuals();
-                applyCategoryFilterToMap();
-            }; 
+            btn.type = 'button';
+            btn.disabled = true;
+            btn.setAttribute('aria-disabled', 'true');
             legendCatsEl.appendChild(btn); 
         }); 
     } 
@@ -2330,6 +3340,15 @@
             ['==', ['get', 'Data'], 'No Info'], getCatColor('No Info'),
             getCatColor('No Info')
         ];
+    }
+
+    function buildSelectedDataCategoryFilterExpression() {
+        const selectedCategories = mapFilterState && mapFilterState.dataCategories instanceof Set
+            ? Array.from(mapFilterState.dataCategories)
+            : ['Pointcloud', 'DEM', 'No Info'];
+        if (!selectedCategories.length) return ['literal', false];
+        const filters = selectedCategories.map((category) => ['boolean', ['get', categorySupportProperty(category)], false]);
+        return filters.length === 1 ? filters[0] : ['any', ...filters];
     }
 
     function clearSelectedRegionHighlight() {
@@ -2462,9 +3481,8 @@
         showCountryTOC(); 
         let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName); 
         const q = tocSearch.value.trim().toLowerCase(); 
-        const selectedCats = getActiveCategorySelection();
         const hasFilter = isFilterActive();
-        if (!q && !selectedCats.length && !hasFilter) { 
+        if (!q && !hasFilter) { 
             countryListEl.innerHTML = ''; 
             dividerLine.style.display = 'none'; 
             return; 
@@ -2472,12 +3490,7 @@
         if (q) { 
             countries = countries.filter(f => f.properties.Name.toLowerCase().includes(q)); 
         } 
-        if (selectedCats.length) { 
-            countries = countries.filter((f) => selectedCats.some((category) => featureSupportsCategory(f, category))); 
-            dividerLine.style.display = 'block'; 
-        } else { 
-            dividerLine.style.display = 'none'; 
-        } 
+        dividerLine.style.display = 'none'; 
         if (hasFilter) {
             countries = countries.filter((f) => countryPassesMapFilters(f));
             dividerLine.style.display = 'block';
@@ -2504,9 +3517,19 @@
     function renderRegionList() { 
         showRegionTOC(); 
         const regionFilterBtns = document.getElementById('regionFilterBtns'); 
+        const regionList = document.getElementById('regionList');
         regionFilterBtns.innerHTML = ''; 
         regionFilterBtns.className = 'legend-categories'; 
             const countryDataType = selectedCountryFeature?.properties?.Data || 'No Info'; 
+        const currentCountryName = String(selectedCountryFeature?.properties?.Name || '').toLowerCase();
+        const regionalChildren = (regionsData && regionsData.features && regionsData.features.length > 0)
+            ? regionsData.features.filter(
+                (f) => !isCountrySummaryFeatureForCountry(f, currentCountryName)
+            )
+            : [];
+        const visibleRegionalChildren = isFilterActive()
+            ? regionalChildren.filter((f) => subRegionPassesRangeFilters(f))
+            : regionalChildren;
 
         // Overview knop (altijd) 
         const homeBtn = document.createElement('button'); 
@@ -2515,11 +3538,9 @@
         homeBtn.style.setProperty('--cat-color', getCatColor(countryDataType)); 
         homeBtn.onclick = () => { 
             // Geen active state meer – gewoon navigatie 
-            const mainRegion = regionsData.features.find( 
-                f => (f.properties.Name || '').toLowerCase() === (selectedCountryFeature.properties.Name || '').toLowerCase() 
-            ); 
+            const mainRegion = getCountrySummaryFeature(); 
             if (mainRegion) { 
-                selectRegion(mainRegion.id, mainRegion.properties); 
+                showInfo(mainRegion.properties, false); 
             } else { 
                 showInfo(selectedCountryFeature.properties, false); 
             } 
@@ -2528,9 +3549,9 @@
         regionFilterBtns.appendChild(homeBtn); 
 
         // Bepaal beschikbare categorieën 
-        if (regionsData && regionsData.features && regionsData.features.length > 0) { 
+        if (visibleRegionalChildren.length > 0) { 
             const catsAvailable = [...new Set(
-                regionsData.features.flatMap((f) => getFeatureAvailableCategories(f.properties))
+                visibleRegionalChildren.flatMap((f) => getFeatureAvailableCategories(f.properties))
             )]; 
             catsAvailable.forEach(cat => { 
                 if (cat === 'Country data') return; 
@@ -2541,7 +3562,7 @@
                 btn.onclick = () => { 
                     [...regionFilterBtns.children].forEach(b => b.classList.remove('active')); 
                     btn.classList.add('active'); 
-                    const filteredRegions = regionsData.features.filter( 
+                    const filteredRegions = visibleRegionalChildren.filter( 
                         f => featureSupportsCategory(f, cat)
                     ); 
                     showRegionList(filteredRegions, cat); 
@@ -2549,8 +3570,9 @@
                 regionFilterBtns.appendChild(btn); 
             }); 
         } 
-        // Start: geen lijst 
-        document.getElementById('regionList').innerHTML = ''; 
+        if (regionList) {
+            showRegionList(visibleRegionalChildren, null);
+        }
     } 
 
     function returnToCountryView() {
@@ -2568,12 +3590,7 @@
         showCountryTOC();
         renderCountriesList();
         clearDatasetRegionSelection();
-        const countrySummaryFeature = regionsData && Array.isArray(regionsData.features)
-            ? regionsData.features.find(
-                (f) => String((f && f.properties && f.properties.Name) || '').trim().toLowerCase() ===
-                    String(selectedCountryFeature.properties.Name || '').trim().toLowerCase()
-            )
-            : null;
+        const countrySummaryFeature = getCountrySummaryFeature();
         showInfo((countrySummaryFeature && countrySummaryFeature.properties) || selectedCountryFeature.properties, false);
         renderResearchMarkers();
         try {
@@ -2628,9 +3645,12 @@
                 }); 
             } 
             regionsData = rd; 
-            let mainRegion = regionsData.features.find( 
-                f => (f.properties.Name || '').toLowerCase() === (feature.properties.Name || '').toLowerCase() 
-            ); 
+            closeFilterMenu();
+            let mainRegion = getCountrySummaryFeature(); 
+            const summaryProperties = (mainRegion && mainRegion.properties) || feature.properties;
+            const preferredDatasetIndex = isFilterActive()
+                ? getBestMatchingCountryDatasetIndex(regionsData, feature)
+                : getLatestRepresentativeIndex(summaryProperties);
             const regionalChildren = regionsData.features.filter(
                 (f) => (f.properties.Name || '').toLowerCase() !== (feature.properties.Name || '').toLowerCase()
             );
@@ -2655,12 +3675,13 @@
                 map.setMinZoom(2);
                 return;
             }
-            showInfo((mainRegion && mainRegion.properties) || feature.properties, false);
+            showInfo(summaryProperties, false, undefined, preferredDatasetIndex);
             showTab('toc'); 
             zoomTo(feature, 0);
             map.setMinZoom(2); 
         }) 
         .catch(() => { 
+            closeFilterMenu();
             autoDrilldownCountryFeature = null;
             regionDrilldownVisible = false;
             regionsData = { type: 'FeatureCollection', features: [] }; 
@@ -2775,12 +3796,9 @@
             maxZoom: 10 
         }); 
     map.on('load', () => { 
-            const mapFeatures = (overviewMapData && overviewMapData.features) ? overviewMapData.features : countriesData.features;
-            const onlyCountries = { 
-                type: 'FeatureCollection', 
-                features: mapFeatures.filter(f => f.properties.Name && !f.properties.RegionName) 
-            }; 
-            map.addSource('countries', { type: 'geojson', data: onlyCountries, generateId: true }); 
+            const countryRender = getCountryRenderDataForZoom(map.getZoom());
+            currentCountryRenderLevel = countryRender.levelKey;
+            map.addSource('countries', { type: 'geojson', data: countryRender.data, generateId: true }); 
             map.addLayer({ 
                 id: 'country-fill', 
                 type: 'fill', 
@@ -2795,12 +3813,14 @@
                 type: 'line', 
                 source: 'countries', 
                 paint: { 
-                    'line-color': '#333', 
+                    'line-color': '#222222', 
                     'line-width': 2 
                 } 
             }); 
             // Filter-regions layer: shows individual sub-regions when spatial/accuracy filter is active
-            map.addSource('filter-regions', { type: 'geojson', data: { type: 'FeatureCollection', features: filterRegionFeatures.filter((f) => f.geometry && f.geometry.type !== 'Point') }, generateId: true });
+            const filterRegionRender = getFilterRegionRenderDataForZoom(map.getZoom());
+            currentFilterRegionRenderLevel = filterRegionRender.levelKey;
+            map.addSource('filter-regions', { type: 'geojson', data: filterRegionRender.data, generateId: true });
             map.addLayer({
                 id: 'filter-region-fill',
                 type: 'fill',
@@ -2813,13 +3833,15 @@
                 type: 'line',
                 source: 'filter-regions',
                 layout: { visibility: 'none' },
-                paint: { 'line-color': '#1a3a5c', 'line-width': 2, 'line-opacity': 0.85 }
+                paint: { 'line-color': '#222222', 'line-width': 2, 'line-opacity': 0.85 }
             });
 
             ['mouseenter', 'mouseleave'].forEach(evt => {
                 map.on(evt, 'country-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : '');
                 map.on(evt, 'filter-region-fill', () => map.getCanvas().style.cursor = evt === 'mouseenter' ? 'pointer' : '');
             });
+
+            map.on('zoomend', () => syncAdaptiveMapRendering());
 
             // Unified click handling: select region first, then country, otherwise reset
             map.on('click', e => {
@@ -2885,18 +3907,38 @@
         ensureRegionsSource(rd);
         if (activeCountry && activeCountry.properties && activeCountry.properties.Name) {
             const selectedName = activeCountry.properties.Name;
+            const dataCategoryFilter = buildSelectedDataCategoryFilterExpression();
+            // When range filters are active, restrict map layers to only passing sub-regions
+            let rangeNameFilter = null;
+            if (isFilterActive() && rd && Array.isArray(rd.features)) {
+                const passingNames = rd.features
+                    .filter((f) => {
+                        const name = String((f.properties || {}).Name || '').toLowerCase();
+                        if (name === selectedName.toLowerCase()) return false;
+                        return subRegionPassesRangeFilters(f);
+                    })
+                    .map((f) => String((f.properties || {}).Name || ''));
+                rangeNameFilter = ['in', ['get', 'Name'], ['literal', passingNames]];
+            }
+            const regionFillParts = [
+                ['==', ['geometry-type'], 'Polygon'],
+                ['!=', ['get', 'Name'], selectedName],
+                dataCategoryFilter,
+                ...(rangeNameFilter ? [rangeNameFilter] : [])
+            ];
             if (mapRef.getLayer('region-fill')) {
-                mapRef.setFilter('region-fill', ['all', ['==', ['geometry-type'], 'Polygon'], ['!=', ['get', 'Name'], selectedName]]);
+                mapRef.setFilter('region-fill', ['all', ...regionFillParts]);
             }
             if (mapRef.getLayer('region-fill')) {
                 mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
                 mapRef.setLayoutProperty('region-fill', 'visibility', 'visible');
             }
             if (mapRef.getLayer('region-border')) {
+                mapRef.setFilter('region-border', ['all', ...regionFillParts]);
                 mapRef.setPaintProperty('region-border', 'line-color', [
                     'case',
-                    ['boolean', ['feature-state', 'selected'], false], '#ffe900',
-                    '#333'
+                    ['boolean', ['feature-state', 'selected'], false], '#000000',
+                    '#222222'
                 ]);
                 mapRef.setPaintProperty('region-border', 'line-width', [
                     'case',
@@ -2906,12 +3948,14 @@
                 mapRef.setLayoutProperty('region-border', 'visibility', 'visible');
             }
             if (mapRef.getLayer('region-point')) {
-                mapRef.setFilter('region-point', [
-                    'all',
+                const regionPointParts = [
                     ['==', ['geometry-type'], 'Point'],
                     ['!=', ['get', 'Name'], selectedName],
-                    ['!', ['has', 'ADM_lookup']]
-                ]);
+                    ['!', ['has', 'ADM_lookup']],
+                    dataCategoryFilter,
+                    ...(rangeNameFilter ? [rangeNameFilter] : [])
+                ];
+                mapRef.setFilter('region-point', ['all', ...regionPointParts]);
                 mapRef.setPaintProperty('region-point', 'circle-color', buildRegionFillExpression());
                 mapRef.setPaintProperty('region-point', 'circle-radius', [
                     'case',
@@ -2931,9 +3975,7 @@
         selectedCountryFeature = activeCountry;
         autoDrilldownCountryFeature = null;
         regionDrilldownVisible = false;
-        selectedCountryFeature.mainRegion = regionsData.features.find(
-            (f) => (f.properties.Name || '').toLowerCase() === (activeCountry.properties.Name || '').toLowerCase()
-        ) || null;
+        selectedCountryFeature.mainRegion = getCountrySummaryFeature() || null;
         showRegionsOnMap(regionsData);
         showRegionTOC();
         renderRegionList();
@@ -3179,6 +4221,16 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       .replace(/'/g, '&#39;');
   }
 
+  const isResearchFeatureContext = !!(p && p.ADM_lookup);
+  const rawResearchLocationName = String(
+    (p && (p.Location || p.location || p['Name.1'] || p.RegionName)) || ''
+  ).trim();
+  const rawResearchDatasetName = String(
+    (p && (p['Dataset_name'] || p.Dataset_name || p['Data Name'] || p['Data name'] || p['Dataset Name'] || p.dataset_name || p.Dataset)) || ''
+  ).trim();
+  const objectName = isResearchFeatureContext
+    ? (rawResearchLocationName || rawResearchDatasetName || (p && p.Name) || 'No name')
+    : (p && p.Name) || 'No name';
   const hasInfo = [
     p && p.Data,
     p && p.Type,
@@ -3193,7 +4245,6 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     p && p['XY Ref'],
     p && p['Z Ref']
   ].some((value) => value !== null && value !== undefined && String(value).trim() !== '');
-  const objectName = p.Name || 'No name';
   const isCountrySummaryContext = !regionMode && Number(p && p.ADM) === 0;
   const formatMeters = (value) => {
     if (!(value || value === 0)) return 'N/A';
@@ -3218,16 +4269,26 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     if (/^(n\/a|na|none|null|geen data|no data|unknown)$/i.test(text)) return '';
     return text;
   };
+  const formatPpsmValue = (value) => {
+    const text = normalizeValue(value);
+    if (!text) return '';
+    const millionMatch = text.match(/^(\d+(?:[.,]\d+)?)\s*M$/i);
+    if (millionMatch) {
+      return `${millionMatch[1].replace(',', '.')} million points`;
+    }
+    return text;
+  };
   const formatSpatialDistribution = (national, urban) => {
-    const nationalVal = normalizeValue(national);
-    const urbanVal = normalizeValue(urban);
+    const nationalVal = formatPpsmValue(national);
+    const urbanVal = formatPpsmValue(urban);
+    const appendDensityUnit = (value) => value.includes('million points') ? value : `${value} ppsm`;
     if (nationalVal && urbanVal) {
       return nationalVal === urbanVal
-        ? `${nationalVal} ppsm`
-        : `${nationalVal} to ${urbanVal} ppsm`;
+        ? appendDensityUnit(nationalVal)
+        : `${appendDensityUnit(nationalVal)} to ${appendDensityUnit(urbanVal)}`;
     }
-    if (nationalVal) return `${nationalVal} ppsm`;
-    if (urbanVal) return `${urbanVal} ppsm`;
+    if (nationalVal) return appendDensityUnit(nationalVal);
+    if (urbanVal) return appendDensityUnit(urbanVal);
     return 'N/A';
   };
   const splitSeries = (value) => {
@@ -3265,28 +4326,41 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     p && p.Organization,
     p && p.Agency
   );
-  const datasetFieldCandidates = [
-    p && p['Dataset_name'],
-    p && p.Dataset_name,
-    p && p['Data Name'],
-    p && p['Data name'],
-    p && p['Dataset Name'],
-    p && p.dataset_name,
-    p && p.Dataset
-  ];
   const countryName = String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '').trim().toLowerCase();
-  const viewingCountrySummary = isCountrySummaryContext || (countryName && String(objectName || '').trim().toLowerCase() === countryName);
+  const viewingCountrySummary = !isResearchFeatureContext && (isCountrySummaryContext || (countryName && String(objectName || '').trim().toLowerCase() === countryName));
   const normalizeDatasetOptionKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const getDatasetNamesFromProperties = (properties) => uniqueValues([
-    properties && properties['Dataset_name'],
-    properties && properties.Dataset_name,
-    properties && properties['Data Name'],
-    properties && properties['Data name'],
-    properties && properties['Dataset Name'],
-    properties && properties.dataset_name,
-    properties && properties.Dataset
-  ].flatMap((value) => splitSeries(value)));
-  const datasetFieldValue = firstValue(...datasetFieldCandidates);
+  const getDatasetNamesFromProperties = (properties, { preserveDuplicates = false } = {}) => {
+    const nameFieldValues = [
+      properties && properties['Dataset_name'],
+      properties && properties.Dataset_name,
+      properties && properties['Data Name'],
+      properties && properties['Data name'],
+      properties && properties['Dataset Name'],
+      properties && properties.dataset_name,
+      properties && properties.Dataset
+    ];
+    const rawNames = nameFieldValues.flatMap((value) => splitSeries(value));
+    if (rawNames.length) {
+      if (!preserveDuplicates) return uniqueValues(rawNames);
+      const splitFields = nameFieldValues.map((value) => splitSeries(value));
+      const seriesCount = Math.max(...splitFields.map((parts) => parts.length), 0);
+      if (seriesCount <= 1) return uniqueValues(rawNames);
+      const orderedSeriesNames = Array.from({ length: seriesCount }, (_, index) => {
+        const match = splitFields
+          .map((parts) => String(parts[index] || '').trim())
+          .find((value) => value !== '');
+        return match || '';
+      }).filter(Boolean);
+      return orderedSeriesNames.length ? orderedSeriesNames : uniqueValues(rawNames);
+    }
+    const fallbackName = String((properties && properties.Name) || '').trim();
+    const parentCountryName = String(
+      (properties && (properties.ParentCountry || properties.main_country || properties.country)) || ''
+    ).trim();
+    const isSubCountryFeature = !!fallbackName && normalizeCountryKey(fallbackName) !== normalizeCountryKey(parentCountryName || fallbackName);
+    if (!isSubCountryFeature) return [];
+    return preserveDuplicates ? [fallbackName] : uniqueValues([fallbackName]);
+  };
   const dataTypeValue = firstValue(
     p && p.DataDisplay,
     p && p['Data display'],
@@ -3416,6 +4490,30 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
 
     return fallback;
   };
+  const yearBeginRaw = firstValue(
+    p && p.Year_start,
+    p && p.year_start,
+    p && p.year_begin,
+    p && p['Year begin'],
+    p && p['Acquisition start'],
+    p && p['Start year']
+  );
+  const yearEndRaw = firstValue(
+    p && p.Year_end,
+    p && p.year_end,
+    p && p['Year end'],
+    p && p['Acquisition end'],
+    p && p['End year']
+  );
+  const legacyYearSeries = splitSeries(p && p.Year);
+  const yearBeginSeries = splitSeries(yearBeginRaw);
+  const yearEndSeries = splitSeries(yearEndRaw);
+  const datasetSeriesPeriodLabel = (index) => {
+    const begin = String(yearBeginSeries[index] || '').trim();
+    const end = String(yearEndSeries[index] || legacyYearSeries[index] || '').trim();
+    if (begin && end) return begin === end ? end : `${begin}-${end}`;
+    return end || begin || `v${index + 1}`;
+  };
   const extractDatasetNamesFromInfo = (infoText) => {
     const text = String(infoText || '');
     if (!text.trim()) return [];
@@ -3425,7 +4523,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     );
   };
   const summaryDatasetOptions = (() => {
-    const fromProperties = getDatasetNamesFromProperties(p);
+    const fromProperties = getDatasetNamesFromProperties(p, { preserveDuplicates: true });
     if (fromProperties.length) return fromProperties;
     if (viewingCountrySummary) return extractDatasetNamesFromInfo(p && p.Info);
     return fromProperties;
@@ -3436,7 +4534,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       const properties = feature && feature.properties;
       if (!properties) return;
       const featureName = String(properties.Name || '').trim().toLowerCase();
-      if (countryName && featureName === countryName) return;
+      const isResearchFeature = !!properties.ADM_lookup;
+      if (countryName && featureName === countryName && !isResearchFeature) return;
       getDatasetNamesFromProperties(properties).forEach((name) => {
         const key = normalizeDatasetOptionKey(name);
         if (!key) return;
@@ -3460,11 +4559,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const meta = getDatasetVersionMeta(name);
     const existing = datasetGroupsByKey.get(meta.groupKey);
     const versionEntry = {
-      label: meta.versionLabel || name,
+      label: meta.versionLabel || name || datasetSeriesPeriodLabel(rawIndex),
       rawIndex,
       rawName: name
     };
     if (existing) {
+      if (!meta.versionLabel && normalizeDatasetOptionKey(existing.versions[0].rawName) === normalizeDatasetOptionKey(name)) {
+        existing.versioned = true;
+      }
       existing.rawIndices.push(rawIndex);
       existing.versions.push(versionEntry);
       return;
@@ -3477,11 +4579,22 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     });
   });
   const datasetGroupEntries = Array.from(datasetGroupsByKey.values()).map((entry) => {
-    const isVersionFamily = entry.versioned && entry.versions.length > 1;
+    const allSameRawName = entry.versions.every((version) =>
+      normalizeDatasetOptionKey(version.rawName) === normalizeDatasetOptionKey(entry.versions[0].rawName)
+    );
+    const isVersionFamily = (entry.versioned || allSameRawName) && entry.versions.length > 1;
+    const versions = isVersionFamily
+      ? entry.versions.map((version) => ({
+          ...version,
+          label: (version.label && version.label !== version.rawName)
+            ? version.label
+            : datasetSeriesPeriodLabel(version.rawIndex)
+        }))
+      : [];
     return {
       label: isVersionFamily ? entry.label : entry.versions[0].rawName,
       rawIndices: entry.rawIndices,
-      versions: isVersionFamily ? entry.versions : []
+      versions
     };
   });
   const summaryDatasetGroupsByKey = new Map();
@@ -3489,11 +4602,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const meta = getDatasetVersionMeta(name);
     const existing = summaryDatasetGroupsByKey.get(meta.groupKey);
     const versionEntry = {
-      label: meta.versionLabel || name,
+      label: meta.versionLabel || name || datasetSeriesPeriodLabel(rawIndex),
       rawIndex,
       rawName: name
     };
     if (existing) {
+      if (!meta.versionLabel && normalizeDatasetOptionKey(existing.versions[0].rawName) === normalizeDatasetOptionKey(name)) {
+        existing.versioned = true;
+      }
       existing.rawIndices.push(rawIndex);
       existing.versions.push(versionEntry);
       return;
@@ -3506,11 +4622,22 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     });
   });
   const summaryDatasetGroupEntries = Array.from(summaryDatasetGroupsByKey.values()).map((entry) => {
-    const isVersionFamily = entry.versioned && entry.versions.length > 1;
+    const allSameRawName = entry.versions.every((version) =>
+      normalizeDatasetOptionKey(version.rawName) === normalizeDatasetOptionKey(entry.versions[0].rawName)
+    );
+    const isVersionFamily = (entry.versioned || allSameRawName) && entry.versions.length > 1;
+    const versions = isVersionFamily
+      ? entry.versions.map((version) => ({
+          ...version,
+          label: (version.label && version.label !== version.rawName)
+            ? version.label
+            : datasetSeriesPeriodLabel(version.rawIndex)
+        }))
+      : [];
     return {
       label: isVersionFamily ? entry.label : entry.versions[0].rawName,
       rawIndices: entry.rawIndices,
-      versions: isVersionFamily ? entry.versions : []
+      versions
     };
   });
   const datasetRegionMap = (() => {
@@ -3532,21 +4659,29 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     });
     return mergedRegionMap;
   })();
-  const yearBeginRaw = firstValue(
-    p && p.year_begin,
-    p && p['Year begin'],
-    p && p['Acquisition start'],
-    p && p['Start year']
-  );
-  const yearEndRaw = firstValue(
-    p && p.year_end,
-    p && p['Year end'],
-    p && p['Acquisition end'],
-    p && p['End year']
-  );
-  const legacyYearSeries = splitSeries(p.Year);
-  const yearBeginSeries = splitSeries(yearBeginRaw);
-  const yearEndSeries = splitSeries(yearEndRaw);
+  const resolveDatasetRegionNames = (datasetName, datasetGroup) => {
+    const normalizedTarget = normalizeDatasetOptionKey(datasetName);
+    const namesByNormalizedKey = new Map(
+      Object.entries(datasetRegionMap || {}).map(([name, regions]) => [
+        normalizeDatasetOptionKey(name),
+        Array.isArray(regions) ? regions : []
+      ])
+    );
+    const directMatch = namesByNormalizedKey.get(normalizedTarget);
+    if (directMatch && directMatch.length) return uniqueValues(directMatch);
+
+    const groupNames = [];
+    if (datasetGroup && Array.isArray(datasetGroup.rawIndices)) {
+      datasetGroup.rawIndices.forEach((rawIndex) => {
+        const rawName = datasetOptions[rawIndex] || '';
+        const matches = namesByNormalizedKey.get(normalizeDatasetOptionKey(rawName));
+        if (Array.isArray(matches) && matches.length) {
+          groupNames.push(...matches);
+        }
+      });
+    }
+    return uniqueValues(groupNames);
+  };
   const yearSeries = yearBeginSeries.length || yearEndSeries.length
     ? Array.from({ length: Math.max(yearBeginSeries.length, yearEndSeries.length) }, (_, index) => {
         const begin = yearBeginSeries[index] || '';
@@ -3571,6 +4706,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
   const activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
   const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
+  const activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
   const activeVersionEntries = activeDatasetGroup && activeDatasetGroup.versions.length > 1
     ? activeDatasetGroup.versions
     : [];
@@ -3617,14 +4753,14 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const acquisitionStartValue = valueForSelection(yearBeginRaw) || valueForSelection(p.Year);
   const acquisitionEndValue = valueForSelection(yearEndRaw) || valueForSelection(p.Year);
   const acquisitionPeriodLabel = (() => {
-    const begin = String(acquisitionStartValue || '').trim();
-    const end = String(acquisitionEndValue || '').trim();
+    const begin = formatOngoingYearValue(acquisitionStartValue);
+    const end = formatOngoingYearValue(acquisitionEndValue);
     if (begin && end) return begin === end ? begin : `${begin} - ${end}`;
     return begin || end || 'N/A';
   })();
   const acquisitionPeriodMeta = (() => {
-    const begin = String(acquisitionStartValue || '').trim();
-    const end = String(acquisitionEndValue || '').trim();
+    const begin = formatOngoingYearValue(acquisitionStartValue);
+    const end = formatOngoingYearValue(acquisitionEndValue);
     if (begin && end) {
       return {
         label: 'Acquisition period',
@@ -3793,6 +4929,39 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       .filter(Boolean)
       .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
       .join('');
+  };
+  const focusDatasetRegionsByNames = (regionNames) => {
+    if (!viewingCountrySummary || !window.map || !regionsData || !Array.isArray(regionsData.features)) return;
+    const targets = new Set((regionNames || []).map((name) => normalizeCountryKey(name)).filter(Boolean));
+    if (!targets.size) return;
+    const matchingFeatures = regionsData.features.filter((feature) => {
+      const featureName = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
+      return featureName && targets.has(featureName);
+    });
+    if (!matchingFeatures.length) return;
+    try {
+      const featureCollection = { type: 'FeatureCollection', features: matchingFeatures };
+      const bbox = turf.bbox(featureCollection);
+      if (!Array.isArray(bbox) || bbox.length !== 4) return;
+      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
+        padding: getMapFitPadding(20),
+        duration: 800,
+        pitch: 45,
+        bearing: 0
+      });
+    } catch (e) {
+      console.warn('Unable to focus dataset regions:', e);
+    }
+  };
+  const focusDatasetSelection = (regionNames) => {
+    clearSelectedRegionHighlight();
+    if (Array.isArray(regionNames) && regionNames.length) {
+      focusDatasetRegionsByNames(regionNames);
+      return;
+    }
+    if (selectedCountryFeature) {
+      zoomTo(selectedCountryFeature, 0);
+    }
   };
   const buildDatasetSpecificInfo = (infoText, names, activeName) => {
     const normalized = String(infoText || '').replace(/\r\n/g, '\n').trim();
@@ -4052,9 +5221,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       !!(feature && feature.properties && feature.properties.ADM_lookup)
     )
   );
-  const displayTitle = isResearchDatasetContext
-    ? `${objectName}: ${activeDatasetName}`
-    : objectName;
+  const displayTitle = objectName;
   // Titel altijd tonen 
   if (infoTitleEl) infoTitleEl.textContent = displayTitle; 
   const flagCode = resolveFlagCodeForFeature(p);
@@ -4196,6 +5363,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         ? nextSummaryDatasetIndex
         : activeYearIndex;
       showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+      const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
+      focusDatasetSelection(nextDatasetRegionNames);
       });
     });
   }
@@ -4216,6 +5385,9 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           ? nextSummaryDatasetIndex
           : activeYearIndex;
         showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+        const nextDatasetGroup = datasetGroupEntries.find((entry) => entry.rawIndices.includes(nextDatasetIndex)) || null;
+        const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextDatasetGroup);
+        focusDatasetSelection(nextDatasetRegionNames);
       });
     });
   }
@@ -4243,7 +5415,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     });
   }
   if (viewingCountrySummary) {
-    setDatasetRegionSelectionByNames(datasetRegionMap[activeDatasetName] || []);
+    setDatasetRegionSelectionByNames(activeDatasetRegionNames);
   } else {
     clearDatasetRegionSelection();
   }
@@ -4264,7 +5436,6 @@ const legendBookmark = document.getElementById('legend-bookmark');
 const legendToggle = document.getElementById('legend-toggle');
 const legendPanel  = document.getElementById('legend-panel');
 const legendClose  = document.getElementById('legend-close');
-const legendResetBtn = document.getElementById('legendResetBtn');
 if (legendBookmark && legendToggle && legendPanel && legendClose) {
   const legendTitle = legendPanel.querySelector('.legend-header span');
 
@@ -4278,33 +5449,6 @@ if (legendBookmark && legendToggle && legendPanel && legendClose) {
   legendClose.onclick = closeLegend;
   if (legendTitle) {
     legendTitle.onclick = closeLegend;
-  }
-  document.addEventListener('click', (e) => {
-    if (!legendBookmark.contains(e.target)) {
-      closeLegend();
-    }
-  });
-
-  // Koppelt direct aan bestaande category-logica
-  legendPanel.querySelectorAll('li').forEach(li => {
-    li.addEventListener('click', () => {
-      const cat = String(li.dataset.cat || '').trim();
-      activeCategory = null;
-      if (activeLegendCategories.has(cat)) {
-        activeLegendCategories.delete(cat);
-      } else {
-        activeLegendCategories.add(cat);
-      }
-      syncLegendSelectionVisuals();
-      renderCountriesList();
-      applyCategoryFilterToMap();
-    });
-  });
-
-  if (legendResetBtn) {
-    legendResetBtn.addEventListener('click', () => {
-      overviewReset(true);
-    });
   }
 
   applyCategoryPalette();
@@ -4443,10 +5587,11 @@ function applyCategoryFilterToMap() {
   const mapRef = (typeof getMapInstance === 'function') ? getMapInstance() : null;
   if (!mapRef || !mapRef.getLayer('country-fill')) return;
 
-  const selectedCats = getActiveCategorySelection().filter((cat) => cat !== RESEARCH_LEGEND_CATEGORY);
-  const showNational  = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('national');
-  const showRegional  = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('regional');
-  const showCity      = !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
+  const inCountryView = !!(selectedCountryFeature && regionsData && Array.isArray(regionsData.features));
+  const applyDatasetTypeFilter = shouldApplyDatasetTypeFilter();
+  const showNational  = (inCountryView && !applyDatasetTypeFilter) || !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('national');
+  const showRegional  = (inCountryView && !applyDatasetTypeFilter) || !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('regional');
+  const showCity      = (inCountryView && !applyDatasetTypeFilter) || !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
 
   mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
   if (mapRef.getLayer('region-fill')) {
@@ -4457,12 +5602,18 @@ function applyCategoryFilterToMap() {
   }
 
   const filterActive = typeof isFilterActive === 'function' && isFilterActive();
+  const detailOverviewActive = currentCountryRenderLevel === 'detail';
+  const showRegionalOverlay = detailOverviewActive && (showRegional || (filterActive && showNational));
+  const dataCategoryFilter = buildSelectedDataCategoryFilterExpression();
 
   // --- Country layer (national) ---
-  const countryFilterParts = [['!', ['has', 'RegionName']]];
-  if (selectedCats.length) {
-    const categoryFilters = selectedCats.map((cat) => ['boolean', ['get', categorySupportProperty(cat)], false]);
-    countryFilterParts.push(categoryFilters.length === 1 ? categoryFilters[0] : ['any', ...categoryFilters]);
+  const countryFilterParts = [['!', ['has', 'RegionName']], dataCategoryFilter];
+
+  // Countries that are represented by regional sub-features (for example Italy)
+  // should rely on the regional overlay when regional filtering is enabled.
+  // Otherwise the aggregate country polygon makes excluded regions look like they still pass.
+  if (showRegionalOverlay) {
+    countryFilterParts.push(['!=', ['get', 'Data'], 'Region']);
   }
 
   if (!showNational) {
@@ -4480,40 +5631,47 @@ function applyCategoryFilterToMap() {
 
   mapRef.setFilter('country-fill', ['all', ...countryFilterParts]);
   mapRef.setFilter('country-border', ['all', ...countryFilterParts]);
-  // Green border on national layer when national is active; dark when only regional shown
+  const hasNationalRegionalOverlap = showNational && showRegional;
   if (mapRef.getLayer('country-border')) {
-    mapRef.setPaintProperty('country-border', 'line-color', showNational ? '#1a7a3c' : '#555');
-    mapRef.setPaintProperty('country-border', 'line-width', showNational ? 2 : 1);
+    mapRef.setPaintProperty('country-border', 'line-color', hasNationalRegionalOverlap ? '#000000' : '#222222');
+    mapRef.setPaintProperty('country-border', 'line-width', hasNationalRegionalOverlap ? 2.5 : 2);
   }
 
   // --- Regional overlay layer (filter-region-fill) ---
   if (mapRef.getLayer('filter-region-fill') && mapRef.getLayer('filter-region-border')) {
-    if (showRegional && filterRegionFeatures && filterRegionFeatures.length) {
+    if (showRegionalOverlay && filterRegionFeatures && filterRegionFeatures.length) {
       // Determine which regions pass the spatial/accuracy/year filter
       let passingRegionNames;
+      let passingRegionKeys;
       if (filterActive) {
         const names = (typeof getFilteredCountryNamesLowercase === 'function')
           ? getFilteredCountryNamesLowercase()
           : [];
         passingRegionNames = [];
+        passingRegionKeys = [];
         regionFilterMetrics.forEach((metrics, key) => {
           const [parentKey, regionNameLc] = key.split('::');
           if (!names.includes(parentKey)) return;
-          const passes = (
-            rangeOverlaps(metrics.spatial, mapFilterState.spatialMin, mapFilterState.spatialMax) &&
-            rangeOverlaps(metrics.accuracy, mapFilterState.accuracyMin, mapFilterState.accuracyMax) &&
-            rangeOverlaps(metrics.year, mapFilterState.yearMin, mapFilterState.yearMax)
-          );
-          if (passes) passingRegionNames.push(regionNameLc);
+          const regionRecords = Array.isArray(metrics && metrics.records) ? metrics.records : [];
+          const passes = regionRecords.some((record) => recordPassesCurrentMapFilters(record));
+          if (passes) {
+            passingRegionNames.push(regionNameLc);
+            passingRegionKeys.push(key);
+          }
         });
       } else {
         // No range filter active: show all regions
         passingRegionNames = (filterRegionFeatures || []).map(
           (f) => String((f.properties || {}).Name || '').toLowerCase()
         );
+        passingRegionKeys = (filterRegionFeatures || []).map(
+          (f) => String((f.properties || {}).FilterMetricKey || '').toLowerCase()
+        ).filter(Boolean);
       }
 
-      const regionFilter = ['in', ['downcase', ['get', 'Name']], ['literal', passingRegionNames]];
+      const regionFilter = passingRegionKeys && passingRegionKeys.length
+        ? ['in', ['downcase', ['get', 'FilterMetricKey']], ['literal', passingRegionKeys]]
+        : ['in', ['downcase', ['get', 'Name']], ['literal', passingRegionNames]];
       mapRef.setFilter('filter-region-fill', regionFilter);
       mapRef.setFilter('filter-region-border', regionFilter);
       mapRef.setLayoutProperty('filter-region-fill', 'visibility', 'visible');
@@ -4525,9 +5683,7 @@ function applyCategoryFilterToMap() {
   }
 
   // --- City / Research markers ---
-  // Research markers are driven by the legend category toggle AND the city checkbox
   if (showCity) {
-    // Ensure the Research legend category is considered active for marker rendering
     renderResearchMarkers();
   } else {
     clearResearchMarkers();
@@ -4540,27 +5696,32 @@ function syncLegendSelectionVisuals() {
   const items = Array.from(panel.querySelectorAll('li[data-cat]'));
   if (!items.length) return;
 
-  if (activeLegendCategories.size > 0) {
-    items.forEach((li) => {
-      const cat = String(li.dataset.cat || '').trim();
-      li.classList.toggle('active', activeLegendCategories.has(cat));
-    });
-    // continue to apply merged-border classes
-  } else if (activeCategory) {
-    items.forEach((li) => {
-      const cat = normalizeCat(li.dataset.cat);
-      li.classList.toggle('active', cat === activeCategory);
-    });
-  } else {
-    // No explicit category filter means all categories are shown.
-    items.forEach((li) => li.classList.add('active'));
-  }
+  const activeDataCategories = mapFilterState && mapFilterState.dataCategories instanceof Set
+    ? mapFilterState.dataCategories
+    : new Set(['Pointcloud', 'DEM', 'No Info']);
+  const activeDatasetTypes = mapFilterState && mapFilterState.datasetTypes instanceof Set
+    ? mapFilterState.datasetTypes
+    : new Set(['national']);
 
-  items.forEach((li, index) => {
+  items.forEach((li) => {
+    const cat = String(li.dataset.cat || '').trim();
+    const shouldShow = (
+      (cat === 'Pointcloud' && activeDataCategories.has('Pointcloud')) ||
+      (cat === 'DEM' && activeDataCategories.has('DEM')) ||
+      (cat === 'No Info' && activeDataCategories.has('No Info')) ||
+      (cat === 'Research' && activeDatasetTypes.has('city'))
+    );
+    li.style.display = shouldShow ? '' : 'none';
+    li.classList.toggle('active', shouldShow);
+  });
+
+  const visibleItems = items.filter((li) => li.style.display !== 'none');
+
+  visibleItems.forEach((li, index) => {
     li.classList.remove('active-start', 'active-middle', 'active-end');
     if (!li.classList.contains('active')) return;
-    const prevActive = index > 0 && items[index - 1].classList.contains('active');
-    const nextActive = index < items.length - 1 && items[index + 1].classList.contains('active');
+    const prevActive = index > 0 && visibleItems[index - 1].classList.contains('active');
+    const nextActive = index < visibleItems.length - 1 && visibleItems[index + 1].classList.contains('active');
     if (!prevActive && !nextActive) {
       li.classList.add('active-start', 'active-end');
     } else if (!prevActive && nextActive) {
@@ -4833,27 +5994,25 @@ function initCatalogueTable() {
         return String(value).trim();
     };
     const spatialDistribution = (row) => {
-        const direct = normalize(readFirst(row, 'spatialdistribution', 'spatialdensity', 'density'));
-        if (direct) return direct.toLowerCase().includes('ppsm') ? direct : `${direct} ppsm`;
-        const national = normalize(readFirst(row, 'national'));
-        const urban = normalize(readFirst(row, 'urban'));
-        if (national && urban && national === urban) return `${national} ppsm`;
-        if (national && urban) return `${national} to ${urban} ppsm`;
-        if (national) return `${national} ppsm`;
-        if (urban) return `${urban} ppsm`;
+        const formatPpsmValue = (value) => {
+            const text = normalize(value);
+            if (!text) return '';
+            const millionMatch = text.match(/^(\d+(?:[.,]\d+)?)\s*M$/i);
+            if (millionMatch) {
+                return `${millionMatch[1].replace(',', '.')} million points`;
+            }
+            return text;
+        };
+        const appendDensityUnit = (value) => value.includes('million points') ? value : `${value} ppsm`;
+        const direct = formatPpsmValue(readFirst(row, 'spatialdistribution', 'spatialdensity', 'density'));
+        if (direct) return direct.toLowerCase().includes('ppsm') || direct.includes('million points') ? direct : `${direct} ppsm`;
+        const national = formatPpsmValue(readFirst(row, 'national'));
+        const urban = formatPpsmValue(readFirst(row, 'urban'));
+        if (national && urban && national === urban) return appendDensityUnit(national);
+        if (national && urban) return `${appendDensityUnit(national)} to ${appendDensityUnit(urban)}`;
+        if (national) return appendDensityUnit(national);
+        if (urban) return appendDensityUnit(urban);
         return '-';
-    };
-    const buildRegionFileCandidatesShared = (countryName) => {
-        const base = String(countryName || '').toLowerCase().trim();
-        const underscored = base.replace(/\s+/g, '_');
-        const version = '20260403d';
-        const withVersion = (path) => `${path}?v=${version}`;
-        return [
-            withVersion(`../data/region_map_data_${underscored}.geojson`),
-            withVersion(`../data/region_map_data_${base}.geojson`),
-            withVersion(`data/region_map_data_${underscored}.geojson`),
-            withVersion(`data/region_map_data_${base}.geojson`)
-        ];
     };
     const normalizePropertiesRecord = (source) => {
         const normalizedRecord = {};
@@ -4881,8 +6040,8 @@ function initCatalogueTable() {
         const rawYearBegin = readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear');
         const rawYearEnd = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear');
         const rawYear = rawYearBegin || rawYearEnd
-            ? [rawYearBegin, rawYearEnd].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
-            : (readFirst(row, 'year') || '-');
+            ? [formatOngoingYearValue(rawYearBegin), formatOngoingYearValue(rawYearEnd)].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
+            : (formatOngoingYearValue(readFirst(row, 'year')) || '-');
         const rawAgency = readFirst(row, 'responsible', 'responsibleagency', 'responsibleagencie', 'agency', 'provider', 'dataprovider') || '-';
         const rawSpatial = spatialDistribution(row);
         const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
@@ -4932,28 +6091,14 @@ function initCatalogueTable() {
             <td>${linkHtml}</td>
         </tr>`;
     };
-    const loadResearchRecords = () => fetchFirstAvailableJsonShared(['../data/map_data_overview.geojson', 'data/map_data_overview.geojson'])
-        .then((overviewData) => {
-            const countries = Array.isArray(overviewData && overviewData.features)
-                ? overviewData.features
-                    .filter((feature) => feature && feature.properties && feature.properties.Name && !feature.properties.RegionName)
-                    .map((feature) => String(feature.properties.Name).trim())
-                    .filter(Boolean)
-                : [];
-            const uniqueCountries = Array.from(new Set(countries));
-            return Promise.all(uniqueCountries.map((countryName) =>
-                fetchFirstAvailableJsonShared(buildRegionFileCandidatesShared(countryName)).catch(() => null)
-            ));
-        })
-        .then((collections) => {
+    const loadResearchRecords = () => fetchFirstAvailableJsonShared(UNIFIED_MAP_DATA_PATHS)
+        .then((collection) => {
             const researchRecords = [];
-            collections.forEach((collection) => {
-                const features = Array.isArray(collection && collection.features) ? collection.features : [];
-                features.forEach((feature) => {
-                    const properties = feature && feature.properties ? feature.properties : null;
-                    if (!properties || !properties.ADM_lookup) return;
-                    researchRecords.push(normalizePropertiesRecord(properties));
-                });
+            const features = Array.isArray(collection && collection.features) ? collection.features : [];
+            features.forEach((feature) => {
+                const properties = feature && feature.properties ? feature.properties : null;
+                if (!properties || !properties.ADM_lookup) return;
+                researchRecords.push(normalizePropertiesRecord(properties));
             });
             return researchRecords;
         })
@@ -5013,5 +6158,3 @@ function initCatalogueTable() {
 document.addEventListener('DOMContentLoaded', () => {
     initCatalogueTable();
 });
-
-
