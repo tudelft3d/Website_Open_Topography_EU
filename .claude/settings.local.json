@@ -10,7 +10,9 @@
       "Bash(node -e ' *)",
       "Bash(xargs grep *)",
       "Bash(node -e \"1\")",
-      "Bash(powershell -Command \"node -e \\\\\"const fs=require\\('fs'\\);const d=JSON.parse\\(fs.readFileSync\\('website/data/region_map_data_belgium.geojson','utf8'\\)\\);d.features.forEach\\(f=>{const p=f.properties;console.log\\(p.Name, p.ADM, p.Planimetric, p.main_country, p.ParentCountry\\)}\\)\\\\\"\")"
+      "Bash(powershell -Command \"node -e \\\\\"const fs=require\\('fs'\\);const d=JSON.parse\\(fs.readFileSync\\('website/data/region_map_data_belgium.geojson','utf8'\\)\\);d.features.forEach\\(f=>{const p=f.properties;console.log\\(p.Name, p.ADM, p.Planimetric, p.main_country, p.ParentCountry\\)}\\)\\\\\"\")",
+      "Bash(python3 -c ' *)",
+      "Bash(powershell -Command ' *)"
     ]
   }
 }

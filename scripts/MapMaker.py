@@ -15,6 +15,7 @@ import geopandas as gpd
 import fiona
 import click
 import logging
+from shapely.geometry import Point
 
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -474,6 +475,48 @@ def merge_duplicate_rows(result_gdf):
 
     return gpd.GeoDataFrame(grouped_rows, geometry=geometry_col, crs=result_gdf.crs)
 
+
+def parse_coordinate_value(value):
+    if value is None or pd.isna(value):
+        return None
+    match = re.search(r'-?\d+(?:[,.]\d+)?', str(value).strip())
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(',', '.'))
+    except ValueError:
+        return None
+
+
+def get_explicit_research_point(row, target_crs=None):
+    lon_candidates = ('longitude', 'Longitude', 'LONGITUDE', 'lng', 'Lng', 'LNG', 'lon', 'Lon', 'LON')
+    lat_candidates = ('latitude', 'Latitude', 'LATITUDE', 'lat', 'Lat', 'LAT')
+
+    lon = None
+    for col in lon_candidates:
+        if col not in row.index:
+            continue
+        lon = parse_coordinate_value(row.get(col))
+        if lon is not None:
+            break
+
+    lat = None
+    for col in lat_candidates:
+        if col not in row.index:
+            continue
+        lat = parse_coordinate_value(row.get(col))
+        if lat is not None:
+            break
+
+    if lon is None or lat is None or not (-180 <= lon <= 180 and -90 <= lat <= 90):
+        return None
+
+    point = Point(lon, lat)
+    if target_crs:
+        point = gpd.GeoSeries([point], crs='EPSG:4326').to_crs(target_crs).iloc[0]
+    return point
+
+
 def AMD_reader(matched_rows, adm_match, row, special_dir, special_lookup=None, target_crs=None, country_boundaries=None):
     """
     Process a match from ADM layers or search in special directory if no match is found.
@@ -517,6 +560,15 @@ def AMD_reader(matched_rows, adm_match, row, special_dir, special_lookup=None, t
                 logger.error(f"Error reading {gadm_gpkg}: {e}")
                 return matched_rows
         elif normalized_lookup == 'research':
+            explicit_point = get_explicit_research_point(row, target_crs=target_crs)
+            if explicit_point is not None:
+                matched_row = row.drop('match_name').to_dict()
+                matched_row['geometry'] = explicit_point
+                matched_row['country'] = row.get('main_country') or row.get('country') or row.get('match_name')
+                matched_rows.append(matched_row)
+                logger.info(f'Created explicit research point for {row["match_name"]}')
+                return matched_rows
+
             country_name = row.get('main_country') or row.get('country') or row.get('match_name')
             if country_boundaries is not None and country_name:
                 country_mask = country_boundaries['COUNTRY'].fillna('').astype(str).str.upper().eq(normalize_name(country_name))
