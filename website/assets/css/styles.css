@@ -3683,6 +3683,11 @@ html.a11y-dyslexic-font #legend-panel {
   font-weight: 700;
 }
 
+.home-page .updates-card .update-study-link {
+  color: #ffffff;
+  font-weight: 800;
+}
+
 .home-page .cta-row {
   display: flex;
   gap: 12px;
