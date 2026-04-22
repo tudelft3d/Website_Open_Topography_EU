@@ -3034,6 +3034,9 @@ html.a11y-dyslexic-font #legend-panel {
   background: #dfeaf4;
   color: #334155;
   font-weight: 700;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .catalogue-sort-btn {
@@ -3042,10 +3045,7 @@ html.a11y-dyslexic-font #legend-panel {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
+  display: block;
   font: inherit;
   font-weight: 800;
   padding: 0;
@@ -3071,24 +3071,6 @@ html.a11y-dyslexic-font #legend-panel {
   color: #0f172a;
 }
 
-.catalogue-sort-btn::after {
-  content: "";
-  display: block;
-  justify-self: end;
-  flex-shrink: 0;
-  width: 10px;
-  height: 14px;
-  color: transparent;
-  font-size: 0;
-  line-height: 0;
-  white-space: normal;
-  background: center / 10px 14px no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14'%3E%3Cpath d='M5 1 L9 6 H1 Z' fill='%2364748b'/%3E%3Cpath d='M1 8 H9 L5 13 Z' fill='%2364748b'/%3E%3C/svg%3E");
-}
-
-.catalogue-sort-btn.active::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14' viewBox='0 0 10 14'%3E%3Cpath d='M5 1 L9 6 H1 Z' fill='%23111827'/%3E%3Cpath d='M1 8 H9 L5 13 Z' fill='%23111827'/%3E%3C/svg%3E");
-}
-
 .catalogue-table tbody tr {
   content-visibility: auto;
   contain-intrinsic-size: 42px;
@@ -3102,6 +3084,11 @@ html.a11y-dyslexic-font #legend-panel {
 
 .catalogue-table td a:hover {
   text-decoration: underline;
+}
+
+.catalogue-sort-btn::after,
+.catalogue-sort-btn.active::after {
+  content: none;
 }
 
 .catalogue-list {
