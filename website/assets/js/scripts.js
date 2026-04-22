@@ -6243,7 +6243,7 @@ const SHARED_CATALOGUE_DATA_PATHS = [
     '../data/catalogue.csv',
     '../data/Quality_parameters_v10022026.csv'
 ];
-const SHARED_UNIFIED_MAP_DATA_VERSION = '20260422v';
+const SHARED_UNIFIED_MAP_DATA_VERSION = '20260422w';
 const SHARED_UNIFIED_MAP_DATA_PATHS = [
     `/data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
     `../data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
