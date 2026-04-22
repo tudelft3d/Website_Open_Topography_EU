@@ -2502,9 +2502,9 @@
         if (document.getElementById('infoPanel')) { 
             document.getElementById('infoPanel').style.display = 'none'; 
         } 
-        renderCountriesList(); 
+        renderCountriesList();
         syncLegendSelectionVisuals();
-    } 
+    }
 
     const sidebar = document.getElementById('sidebar'); 
     const sidebarBackBtn = document.getElementById('sidebar-back');
@@ -3853,7 +3853,7 @@
             const regionalChildren = regionsData.features.filter(
                 (f) => (f.properties.Name || '').toLowerCase() !== (feature.properties.Name || '').toLowerCase()
             );
-            selectedCountryFeature.mainRegion = mainRegion || null; 
+            selectedCountryFeature.mainRegion = mainRegion || null;
             showRegionsOnMap(regionsData);
             renderResearchMarkers();
             showRegionTOC();
