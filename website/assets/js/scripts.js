@@ -4263,7 +4263,13 @@
 
     function getRegionFeatureByIdOrProperties(id, props) {
         if (!regionsData || !Array.isArray(regionsData.features)) return null;
-        const fallbackFeature = id !== undefined ? regionsData.features[id] : null;
+
+        // Prefer ID-based lookup first — MapLibre generateId:true assigns sequential
+        // indices so regionsData.features[id] is the feature at that position.
+        const idFeature = (id !== undefined && id !== null) ? regionsData.features[id] : null;
+        if (idFeature) return idFeature;
+
+        // Fall back to name/key matching when the ID is out of range.
         const lookupKeys = getFeatureLocationLookupKeys(props);
         if (lookupKeys.length) {
             const matchedFeature = regionsData.features.find((feature) => {
@@ -4272,7 +4278,17 @@
             });
             if (matchedFeature) return matchedFeature;
         }
-        return fallbackFeature || null;
+
+        // Last resort: plain Name match.
+        const propsName = normalizeCountryKey((props && props.Name) || '');
+        if (propsName) {
+            const nameMatch = regionsData.features.find(
+                (f) => f.properties && normalizeCountryKey(f.properties.Name || '') === propsName
+            );
+            if (nameMatch) return nameMatch;
+        }
+
+        return null;
     }
 
     function selectRegion(id, props) { 

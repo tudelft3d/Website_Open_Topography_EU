@@ -9,7 +9,6 @@ website/assets/images/Banner_index/test.gif
 *.gpkg
 *.dwg
 *.csv
-*.xlsx
 data/AHN5.zip
 data/AHN4.zip
 data/AHN3.zip
