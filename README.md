@@ -54,6 +54,6 @@ python MapMaker.py --gadm-gpkg C:\Users\Daan\Documents\Local_Data\gadm_410_level
 ## Locally
 ```
 cd website
-python3 -m http.server 800
+python3 -m http.server 8000
 ```
 
