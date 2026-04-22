@@ -2795,9 +2795,9 @@ li a:hover {
   background: rgba(255, 255, 255, 0.04);
   color: #fff;
   cursor: pointer;
-  padding: 6px 5px;
+  padding: 8px 7px;
   display: grid;
-  gap: 4px;
+  gap: 0;
   justify-items: center;
   align-content: center;
   font-family: inherit;
@@ -2825,7 +2825,7 @@ li a:hover {
 
 .a11y-label {
   font-size: 0.66rem;
-  line-height: 1.15;
+  line-height: 1.18;
   font-weight: 700;
 }
 
@@ -2833,11 +2833,6 @@ li a:hover {
   font-size: 1.2rem;
   line-height: 1;
   font-weight: 700;
-}
-
-.a11y-icon-eye {
-  font-size: 1.7rem;
-  line-height: 1;
 }
 
 .a11y-icon-aa {
@@ -2888,6 +2883,29 @@ html.a11y-colorblind a {
 
 html.a11y-large-text {
   font-size: 112.5%;
+}
+
+html.a11y-dyslexic-font,
+html.a11y-dyslexic-font body,
+html.a11y-dyslexic-font button,
+html.a11y-dyslexic-font input,
+html.a11y-dyslexic-font select,
+html.a11y-dyslexic-font textarea {
+  font-family: 'OpenDyslexic', 'Atkinson Hyperlegible', 'Lexend', 'Comic Sans MS', Verdana, Arial, sans-serif;
+}
+
+html.a11y-dyslexic-font body {
+  letter-spacing: 0.02em;
+  word-spacing: 0.08em;
+  line-height: 1.55;
+}
+
+html.a11y-dyslexic-font .a11y-label,
+html.a11y-dyslexic-font #info,
+html.a11y-dyslexic-font #toc,
+html.a11y-dyslexic-font #filterMenu,
+html.a11y-dyslexic-font #legend-panel {
+  line-height: 1.5;
 }
 
 .swatch {
@@ -2966,6 +2984,7 @@ html.a11y-large-text {
   background:
     radial-gradient(circle at top, rgba(143, 223, 255, 0.16), transparent 38%),
     linear-gradient(180deg, #eef5fb 0%, #e7f0f8 100%);
+  background-attachment: fixed;
   color: #1e293b;
   padding-top: 64px;
 }
@@ -2988,7 +3007,7 @@ html.a11y-large-text {
 
 .catalogue-table-wrap {
   margin-top: 16px;
-  background: rgba(255, 255, 255, 0.92);
+  background: #ffffff;
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
@@ -3019,6 +3038,37 @@ html.a11y-large-text {
   z-index: 1;
 }
 
+.catalogue-sort-btn {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
+.catalogue-sort-btn::after {
+  content: "▲\A▼";
+  display: block;
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 0.55em;
+  line-height: 0.85;
+  white-space: pre;
+}
+
+.catalogue-sort-btn.active::after {
+  content: "▲\A▼";
+  color: #111827;
+}
+
 .catalogue-table td {
   color: #0f172a;
 }
@@ -3031,6 +3081,91 @@ html.a11y-large-text {
 
 .catalogue-table td a:hover {
   text-decoration: underline;
+}
+
+.catalogue-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.catalogue-list-item {
+  background: #ffffff;
+  border: 1px solid #dfe7f3;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.catalogue-list-title {
+  display: inline-block;
+  color: #111827;
+  font-size: 1.04rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.catalogue-list-title:hover,
+.catalogue-action:hover {
+  text-decoration: underline;
+}
+
+.catalogue-list-location {
+  margin: 4px 0 12px;
+  color: #475569;
+}
+
+.catalogue-list-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.catalogue-list-meta div {
+  min-width: 0;
+}
+
+.catalogue-list-meta dt {
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.catalogue-list-meta dd {
+  margin: 2px 0 0;
+  color: #1e293b;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.catalogue-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.catalogue-action {
+  color: #111827;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.classification-present {
+  display: inline-block;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.classification-present-yes {
+  color: #15803d;
+}
+
+.classification-present-no {
+  color: #b91c1c;
 }
 
 .catalogue-page .note {
@@ -3527,11 +3662,17 @@ html.a11y-large-text {
 
 .home-page .inline-link {
   color: var(--bg);
+  font-weight: 700;
   text-decoration: none;
 }
 
 .home-page .inline-link:hover {
   text-decoration: underline;
+}
+
+.home-page .updates-card .inline-link {
+  color: #000000;
+  font-weight: 700;
 }
 
 .home-page .cta-row {

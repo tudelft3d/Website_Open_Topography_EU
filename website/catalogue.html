@@ -5,36 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catalogue - European Point Clouds</title>
   <link rel="icon" type="image/x-icon" href="assets/images/european_pointclouds_icon.ico">
-  <link rel="stylesheet" href="assets/css/styles.css?v=20260415b">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20260422b">
 </head>
 <body class="catalogue-page">
   <script src="assets/js/banner.js"></script>
   <main>
     <h1>Point Cloud Catalogue</h1>
-    <p id="catalogueStatus">In the table all the found point clouds and point cloud elevation models are given.</p>
+    <p id="catalogueStatus">Loading point cloud datasets from the GeoJSON catalogue...</p>
     <div class="catalogue-table-wrap">
       <table class="catalogue-table" aria-label="Point cloud dataset catalogue">
         <thead>
           <tr>
-            <th>Region</th>
-            <th>Coverage</th>
-            <th>Data version</th>
-            <th>Year</th>
-            <th>Responsible agency</th>
-            <th>Spatial distribution</th>
-            <th>Planimetric</th>
-            <th>Altimetric</th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="country">Country</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="scope">Scope</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="dataset">Data name</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="type">Type</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="year">Year</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="spatial">Spatial distribution</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="planimetric">Planimetric</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="altimetric">Altimetric</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="classification">Classification present</button></th>
             <th>Dataroom</th>
           </tr>
         </thead>
         <tbody id="catalogueBody">
           <tr>
-            <td colspan="9">Loading...</td>
+            <td colspan="10">Loading...</td>
           </tr>
         </tbody>
       </table>
     </div>
   </main>
-  <script src="assets/js/scripts.js?v=20260415j"></script>
+  <script src="assets/js/scripts.js?v=20260422v"></script>
 </body>
 </html>

@@ -59,7 +59,7 @@
         '    <div class="filter-dataset-types filter-acquisition-types">',
         '      <label class="filter-type-check"><input type="checkbox" id="filterTypeNational" value="national" checked> National</label>',
         '      <label class="filter-type-check"><input type="checkbox" id="filterTypeRegional" value="regional"> Regional</label>',
-        '      <label class="filter-type-check"><input type="checkbox" id="filterTypeCity" value="city"> Special / research</label>',
+        '      <label class="filter-type-check"><input type="checkbox" id="filterTypeCity" value="city"> City/ Research</label>',
         '    </div>',
         '  </div>',
         '  <div class="filter-group">',

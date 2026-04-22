@@ -113,6 +113,7 @@
     const REGION_DRILLDOWN_EXIT_ZOOM = 6.2;
     let regionDrilldownVisible = false;
     let autoDrilldownCountryFeature = null;
+    let restoreFilterMenuAfterSidebarClose = false;
     const regionDataCache = new Map();
     const renderDataCache = new Map();
     const COUNTRY_RENDER_LEVELS = [
@@ -150,7 +151,7 @@
         altimetric: { min: 0, max: 1, ready: false },
         year: { min: 2000, max: 2026, ready: false }
     };
-    const UNIFIED_MAP_DATA_VERSION = '20260421k';
+    const UNIFIED_MAP_DATA_VERSION = '20260422i';
     const UNIFIED_MAP_DATA_PATHS = [
         `../data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`,
         `data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`
@@ -310,8 +311,73 @@
         });
     }
 
+    function mergeStandardFeatureSeries(features) {
+        const isMissing = (value) => value === null || value === undefined || String(value).trim() === '';
+        const splitExistingSeries = (value) => {
+            if (isMissing(value)) return [];
+            return String(value).split(/\s*\|\|\s*/).map((part) => part.trim()).filter(Boolean);
+        };
+        const mergeValues = (values) => {
+            const uniqueValues = [];
+            const seen = new Set();
+            values.flatMap(splitExistingSeries).forEach((value) => {
+                const key = String(value).trim().toLowerCase();
+                if (!key || seen.has(key)) return;
+                seen.add(key);
+                uniqueValues.push(value);
+            });
+            if (!uniqueValues.length) return null;
+            return uniqueValues.length === 1 ? uniqueValues[0] : uniqueValues.join(' || ');
+        };
+        const getSeriesMergeKey = (feature, index) => {
+            const properties = normalizeFeatureIdentity({ ...((feature && feature.properties) || {}) });
+            if (!properties || properties.ADM_lookup) return `research::${index}`;
+            const parentCountry = getFeatureParentCountryName({ ...feature, properties });
+            const parentKey = normalizeCountryKey(parentCountry);
+            const nameKey = normalizeCountryKey(properties.RegionName || properties['Name.1'] || properties.Name);
+            const admKey = String(properties.ADM === null || properties.ADM === undefined ? '' : properties.ADM).trim();
+            const geometryType = String((feature && feature.geometry && feature.geometry.type) || '').trim();
+            if (!parentKey || !nameKey) return `feature::${index}`;
+            return [parentKey, nameKey, admKey, geometryType].join('::');
+        };
+
+        const grouped = new Map();
+        (features || []).forEach((feature, index) => {
+            if (!feature || !feature.properties) return;
+            const key = getSeriesMergeKey(feature, index);
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key).push(feature);
+        });
+
+        const mergedFeatures = [];
+        grouped.forEach((group) => {
+            if (group.length <= 1) {
+                mergedFeatures.push(group[0]);
+                return;
+            }
+            const mergedProperties = {};
+            const propertyNames = new Set();
+            group.forEach((feature) => {
+                Object.keys((feature && feature.properties) || {}).forEach((name) => propertyNames.add(name));
+            });
+            propertyNames.forEach((name) => {
+                const values = group.map((feature) => feature && feature.properties && feature.properties[name]).filter((value) => !isMissing(value));
+                mergedProperties[name] = mergeValues(values);
+            });
+            ['Name', 'ADM', 'main_country', 'country', 'ParentCountry', 'Name.1', 'RegionName', 'Coverage'].forEach((name) => {
+                const firstValue = group.map((feature) => feature && feature.properties && feature.properties[name]).find((value) => !isMissing(value));
+                if (!isMissing(firstValue)) mergedProperties[name] = firstValue;
+            });
+            mergedFeatures.push({
+                ...group[0],
+                properties: normalizeFeatureIdentity(mergedProperties)
+            });
+        });
+        return mergedFeatures;
+    }
+
     function initializeUnifiedMapData(collection) {
-        const sourceFeatures = Array.isArray(collection && collection.features) ? collection.features : [];
+        const sourceFeatures = mergeStandardFeatureSeries(Array.isArray(collection && collection.features) ? collection.features : []);
         unifiedMapData = { ...(collection || {}), type: 'FeatureCollection', features: sourceFeatures };
         unifiedCountryCollections = new Map();
         regionDataCache.clear();
@@ -735,6 +801,23 @@
         if (mapRef && mapRef.getSource('research-points')) {
             mapRef.getSource('research-points').setData({ type: 'FeatureCollection', features: [] });
         }
+    }
+
+    function zoomToResearchPoint(feature, targetMap) {
+        const coords = feature && feature.geometry && feature.geometry.type === 'Point'
+            ? feature.geometry.coordinates
+            : null;
+        const lon = coords ? Number(coords[0]) : NaN;
+        const lat = coords ? Number(coords[1]) : NaN;
+        if (!targetMap || !Number.isFinite(lon) || !Number.isFinite(lat)) return;
+        const currentZoom = targetMap.getZoom ? targetMap.getZoom() : 0;
+        targetMap.easeTo({
+            center: [lon, lat],
+            zoom: Math.max(currentZoom, 10.5),
+            pitch: 0,
+            bearing: 0,
+            duration: 900
+        });
     }
 
     function flattenCoordinates(coords, acc) {
@@ -1321,8 +1404,38 @@
         return request;
     }
 
+    function buildSearchIndexFromGeoJSON() {
+        const source = unifiedMapData || countriesData;
+        if (!source || !Array.isArray(source.features)) return [];
+        const seen = new Set();
+        const items = [];
+        source.features.forEach((f) => {
+            if (!f || !f.properties) return;
+            const props = f.properties;
+            const name = String(props.Name || props.RegionName || '').trim();
+            const parentCountry = String(props.ParentCountry || props.main_country || props.country || name).trim();
+            if (!name || !parentCountry) return;
+            const dedupeKey = `${normalizeCountryKey(name)}|${normalizeCountryKey(parentCountry)}`;
+            if (seen.has(dedupeKey)) return;
+            seen.add(dedupeKey);
+            items.push({
+                label: name,
+                country: parentCountry,
+                region: name,
+                searchText: `${name} ${parentCountry}`.toLowerCase()
+            });
+        });
+        return items.sort((a, b) => a.label.localeCompare(b.label));
+    }
+
     function loadLocationSearchIndex() {
         if (locationSearchIndexPromise) return locationSearchIndexPromise;
+        // Build index from the already-loaded GeoJSON if available, otherwise from CSV
+        if (unifiedMapData && Array.isArray(unifiedMapData.features) && unifiedMapData.features.length) {
+            locationSearchIndex = buildSearchIndexFromGeoJSON();
+            locationSearchIndexPromise = Promise.resolve(locationSearchIndex);
+            return locationSearchIndexPromise;
+        }
         locationSearchIndexPromise = fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
             .then((csvText) => {
                 const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
@@ -2333,6 +2446,7 @@
                         Data: normalizeCat((feature.properties || {}).Data || 'No Info'),
                         ParentCountry: countryName,
                         OverviewScope: 'regional',
+                        FilterMetricKey: getFeatureFilterMetricKey(feature.properties || {}, countryKey),
                         infoStatus: 'regionchild'
                     },
                     geometry: feature.geometry
@@ -2342,7 +2456,9 @@
                     return feature;
                 });
 
-            const childCategories = childFeatures.flatMap((feature) => getFeatureAvailableCategories(feature.properties));
+            const childCategories = childFeatures
+                .filter((feature) => !feature.properties.ADM_lookup)
+                .flatMap((feature) => getFeatureAvailableCategories(feature.properties));
             setFeatureCategorySupport(country.properties, childCategories);
             if (normalizeCat(country.properties.Data) === 'Region' && regionalFeatures.length) {
                 merged.push(...regionalFeatures);
@@ -2469,7 +2585,10 @@
         sidebarCloseBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
+            const shouldRestoreFilter = restoreFilterMenuAfterSidebarClose;
+            restoreFilterMenuAfterSidebarClose = false;
             overviewReset();
+            if (shouldRestoreFilter) openFilterMenu();
         });
     }
     if (sidebarBackBtn) {
@@ -2488,6 +2607,7 @@
         sidebarBackBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
+            clearFilterRestoreOnNavigation();
             if (window.history.length > 1) {
                 window.history.back();
             } else {
@@ -2817,6 +2937,14 @@
             filterClassificationToggle.setAttribute('aria-expanded', 'false');
         }
     };
+    const isFilterMenuOpen = () => !!(filterMenu && (
+        filterMenu.style.display === 'block' ||
+        filterMenu.classList.contains('open') ||
+        filterMenu.getAttribute('aria-hidden') === 'false'
+    ));
+    const clearFilterRestoreOnNavigation = () => {
+        restoreFilterMenuAfterSidebarClose = false;
+    };
 
     const resetMapFiltersState = ({ closeMenuAfter = false, applyAfter = true } = {}) => {
         if (mapFilterBounds.spatial.ready) {
@@ -3035,7 +3163,10 @@
     });
     loadLocationSearchIndex();
     if (overviewBtn) {
-        overviewBtn.onclick = overviewReset;
+        overviewBtn.onclick = () => {
+            clearFilterRestoreOnNavigation();
+            overviewReset();
+        };
     }
     if (tabs.help && tabs.help.tagName === 'BUTTON') {
         tabs.help.addEventListener('click', () => {
@@ -3232,8 +3363,11 @@
     if (document.body.classList.contains('map-page')) {
         fetchFirstAvailableText(UNIFIED_MAP_DATA_PATHS)
         .then((text) => JSON.parse(text))
-        .then(cd => { 
+        .then(cd => {
             initializeUnifiedMapData(cd);
+            // Rebuild search index from GeoJSON now that it's loaded
+            locationSearchIndex = buildSearchIndexFromGeoJSON();
+            locationSearchIndexPromise = Promise.resolve(locationSearchIndex);
             return buildOverviewMapData();
         })
         .then(() => {
@@ -3500,42 +3634,82 @@
     }
 
     // AANGEPAST: kleuren in landenlijst via getCatColor 
-    function renderCountriesList() { 
+    function renderCountriesList() {
         if (!countriesData || !countryListEl || !dividerLine || !tocSearch) return;
-        showCountryTOC(); 
-        let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName); 
-        const q = tocSearch.value.trim().toLowerCase(); 
+        showCountryTOC();
+        let countries = countriesData.features.filter(f => f.properties.Name && !f.properties.RegionName);
+        const q = tocSearch.value.trim().toLowerCase();
         const hasFilter = isFilterActive();
-        if (!q && !hasFilter) { 
-            countryListEl.innerHTML = ''; 
-            dividerLine.style.display = 'none'; 
-            return; 
-        } 
-        if (q) { 
-            countries = countries.filter(f => f.properties.Name.toLowerCase().includes(q)); 
-        } 
-        dividerLine.style.display = 'none'; 
+        if (!q && !hasFilter) {
+            countryListEl.innerHTML = '';
+            dividerLine.style.display = 'none';
+            return;
+        }
+        if (q) {
+            countries = countries.filter(f => f.properties.Name.toLowerCase().includes(q));
+        }
+        dividerLine.style.display = 'none';
         if (hasFilter) {
             countries = countries.filter((f) => countryPassesMapFilters(f));
             dividerLine.style.display = 'block';
         }
-        countries = countries.sort((a, b) => a.properties.Name.localeCompare(b.properties.Name)); 
-        countryListEl.innerHTML = ''; 
-        countries.forEach((c, idx) => { 
-            const li = document.createElement('li'); 
-            li.className = 'country-item'; 
-            li.style.setProperty('--cat-color', getFeatureDisplayColor(c.properties)); 
-            const a = document.createElement('a'); 
-            a.href = '#'; 
-            a.textContent = c.properties.Name; 
-            a.onclick = (e) => { 
-                e.preventDefault(); 
-                handleCountrySelect(c); 
-            }; 
-            li.appendChild(a); 
-            countryListEl.appendChild(li); 
-            setTimeout(() => li.classList.add('show'), 70 + idx * 45); 
-        }); 
+        countries = countries.sort((a, b) => a.properties.Name.localeCompare(b.properties.Name));
+        countryListEl.innerHTML = '';
+        let itemIndex = 0;
+        countries.forEach((c) => {
+            const li = document.createElement('li');
+            li.className = 'country-item';
+            li.style.setProperty('--cat-color', getFeatureDisplayColor(c.properties));
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = c.properties.Name;
+            a.onclick = (e) => {
+                e.preventDefault();
+                handleCountrySelect(c);
+            };
+            li.appendChild(a);
+            countryListEl.appendChild(li);
+            setTimeout(() => li.classList.add('show'), 70 + itemIndex * 45);
+            itemIndex += 1;
+        });
+
+        // When there's a query, also search region and research names from unifiedMapData
+        if (q && unifiedMapData && Array.isArray(unifiedMapData.features)) {
+            const matchedCountryKeys = new Set(countries.map(c => normalizeCountryKey(c.properties.Name)));
+            const seenRegionKeys = new Set();
+            const regionMatches = [];
+            unifiedMapData.features.forEach((f) => {
+                if (!f || !f.properties) return;
+                const props = f.properties;
+                const name = String(props.Name || props.RegionName || '').trim();
+                const parentCountry = String(props.ParentCountry || props.main_country || '').trim();
+                if (!name || !parentCountry) return;
+                if (normalizeCountryKey(name) === normalizeCountryKey(parentCountry)) return; // skip country-level
+                if (!name.toLowerCase().includes(q) && !String(props.RegionName || '').toLowerCase().includes(q)) return;
+                const dedupeKey = `${normalizeCountryKey(parentCountry)}::${normalizeCountryKey(name)}`;
+                if (seenRegionKeys.has(dedupeKey)) return;
+                seenRegionKeys.add(dedupeKey);
+                regionMatches.push({ name, parentCountry, color: getFeatureDisplayColor(props) });
+            });
+            regionMatches.sort((a, b) => a.name.localeCompare(b.name));
+            regionMatches.forEach((r) => {
+                const li = document.createElement('li');
+                li.className = 'country-item';
+                li.style.setProperty('--cat-color', r.color);
+                const a = document.createElement('a');
+                a.href = '#';
+                a.innerHTML = `${escapeHtml(r.name)} <span style="font-weight:400;opacity:0.65;font-size:0.85em">${escapeHtml(r.parentCountry)}</span>`;
+                a.onclick = (e) => {
+                    e.preventDefault();
+                    focusCountryAndRegion(r.parentCountry, r.name);
+                    closeSearch();
+                };
+                li.appendChild(a);
+                countryListEl.appendChild(li);
+                setTimeout(() => li.classList.add('show'), 70 + itemIndex * 45);
+                itemIndex += 1;
+            });
+        }
     } 
 
     function renderRegionList() { 
@@ -3653,6 +3827,8 @@
     } 
 
     function handleCountrySelect(feature, initialRegionName) { 
+        restoreFilterMenuAfterSidebarClose = isFilterMenuOpen();
+        closeFilterMenu();
         clearSelectedRegionHighlight();
         selectedCountryFeature = feature; 
         autoDrilldownCountryFeature = null;
@@ -3669,7 +3845,6 @@
                 }); 
             } 
             regionsData = rd; 
-            closeFilterMenu();
             let mainRegion = getCountrySummaryFeature(); 
             const summaryProperties = (mainRegion && mainRegion.properties) || feature.properties;
             const preferredDatasetIndex = isFilterActive()
@@ -3705,7 +3880,6 @@
             map.setMinZoom(2); 
         }) 
         .catch(() => { 
-            closeFilterMenu();
             autoDrilldownCountryFeature = null;
             regionDrilldownVisible = false;
             regionsData = { type: 'FeatureCollection', features: [] }; 
@@ -3721,10 +3895,16 @@
 
     const regionOverviewBtn = document.getElementById('regionOverviewBtn');
     if (regionOverviewBtn) {
-        regionOverviewBtn.onclick = overviewReset;
+        regionOverviewBtn.onclick = () => {
+            clearFilterRestoreOnNavigation();
+            overviewReset();
+        };
     }
     if (regionBackToCountryBtn) {
-        regionBackToCountryBtn.onclick = returnToCountryView;
+        regionBackToCountryBtn.onclick = () => {
+            clearFilterRestoreOnNavigation();
+            returnToCountryView();
+        };
     }
 
     function updateTOCForType(type) { 
@@ -3907,22 +4087,22 @@
                     if (researchHits.length) {
                         const researchFeature = researchHits[0];
                         const properties = researchFeature.properties || {};
-                        const datasetName = String(properties.DisplayName || getResearchDatasetName(researchFeature)).trim();
                         if (selectedCountryFeature && regionsData && Array.isArray(regionsData.features)) {
                             const matchedFeature = getRegionFeatureByIdOrProperties(properties.ResearchFeatureId, properties);
                             if (matchedFeature) {
                                 focusRegionFeature(matchedFeature.id, matchedFeature.properties);
+                                zoomToResearchPoint(researchFeature, map);
                                 showInfo(matchedFeature.properties, false, undefined, getCountryDatasetIndexForFeature(matchedFeature));
                                 return;
                             }
+                            zoomToResearchPoint(researchFeature, map);
                             showInfo(properties, false);
                             return;
                         }
-                        const resolvedCountry = resolveCountryFeatureFromMapFeature(researchFeature);
-                        if (resolvedCountry) {
-                            handleCountrySelect(resolvedCountry, datasetName);
-                            return;
-                        }
+                        zoomToResearchPoint(researchFeature, map);
+                        showInfo(properties, false);
+                        showTab('toc');
+                        return;
                     }
                 }
 
@@ -5557,7 +5737,8 @@ function initAccessibilityControls() {
   const storageKeys = {
     colorBlind: 'a11yColorBlindEnabled',
     legacyContrast: 'a11yContrastEnabled',
-    largeText: 'a11yLargeTextEnabled'
+    largeText: 'a11yLargeTextEnabled',
+    dyslexicFont: 'a11yDyslexicFontEnabled'
   };
   const root = document.documentElement;
   const getStored = (key, fallbackKey) => {
@@ -5587,11 +5768,13 @@ function initAccessibilityControls() {
     controls.innerHTML = `
       <button id="a11yColorBlindBtn" class="a11y-btn" type="button" aria-pressed="false">
         <span class="a11y-label">Color blindness mode</span>
-        <span class="a11y-icon a11y-icon-eye" aria-hidden="true">&#128065;</span>
+      </button>
+      <button id="a11yDyslexicBtn" class="a11y-btn" type="button" aria-pressed="false">
+        <span class="a11y-label">Dyslexic font</span>
       </button>
       <button id="a11yTextBtn" class="a11y-btn" type="button" aria-pressed="false">
         <span class="a11y-label">Increase text size</span>
-        <span class="a11y-icon a11y-icon-aa" aria-hidden="true">AA</span>
+        <span class="a11y-icon a11y-icon-aa" aria-hidden="true">aA</span>
       </button>
     `;
     document.body.appendChild(controls);
@@ -5599,11 +5782,13 @@ function initAccessibilityControls() {
 
   const colorBlindBtn = document.getElementById('a11yColorBlindBtn');
   const textBtn = document.getElementById('a11yTextBtn');
-  if (!colorBlindBtn || !textBtn) return;
+  const dyslexicBtn = document.getElementById('a11yDyslexicBtn');
+  if (!colorBlindBtn || !textBtn || !dyslexicBtn) return;
 
   const refreshButtons = () => {
     const colorBlindEnabled = root.classList.contains('a11y-colorblind');
     const largeTextEnabled = root.classList.contains('a11y-large-text');
+    const dyslexicFontEnabled = root.classList.contains('a11y-dyslexic-font');
     updateButtonState(colorBlindBtn, colorBlindEnabled, {
       enable: 'Enable color blindness mode',
       disable: 'Disable color blindness mode'
@@ -5611,6 +5796,10 @@ function initAccessibilityControls() {
     updateButtonState(textBtn, largeTextEnabled, {
       enable: 'Enable large text',
       disable: 'Disable large text'
+    });
+    updateButtonState(dyslexicBtn, dyslexicFontEnabled, {
+      enable: 'Enable dyslexic font',
+      disable: 'Disable dyslexic font'
     });
   };
 
@@ -5625,6 +5814,11 @@ function initAccessibilityControls() {
   const setLargeText = (enabled) => {
     applyMode('a11y-large-text', enabled);
     setStored(storageKeys.largeText, enabled);
+    refreshButtons();
+  };
+  const setDyslexicFont = (enabled) => {
+    applyMode('a11y-dyslexic-font', enabled);
+    setStored(storageKeys.dyslexicFont, enabled);
     refreshButtons();
   };
 
@@ -5669,12 +5863,15 @@ function initAccessibilityControls() {
   window.toggleColorBlindMode = () => setColorBlind(!root.classList.contains('a11y-colorblind'));
   window.toggleContrastMode = window.toggleColorBlindMode;
   window.toggleTextSizeMode = () => setLargeText(!root.classList.contains('a11y-large-text'));
+  window.toggleDyslexicFontMode = () => setDyslexicFont(!root.classList.contains('a11y-dyslexic-font'));
 
   colorBlindBtn.addEventListener('click', window.toggleColorBlindMode);
   textBtn.addEventListener('click', window.toggleTextSizeMode);
+  dyslexicBtn.addEventListener('click', window.toggleDyslexicFontMode);
 
   setColorBlind(getStored(storageKeys.colorBlind, storageKeys.legacyContrast));
   setLargeText(getStored(storageKeys.largeText));
+  setDyslexicFont(getStored(storageKeys.dyslexicFont));
   initMapAwarePositioning();
 }
 
@@ -5699,8 +5896,28 @@ function applyCategoryFilterToMap() {
   }
 
   const filterActive = typeof isFilterActive === 'function' && isFilterActive();
-  const showRegionalOverlay = false;
+  const showRegionalOverlay = !inCountryView && showRegional;
   const dataCategoryFilter = buildSelectedDataCategoryFilterExpression();
+  const overviewRegionalKeys = new Set(((overviewMapData && overviewMapData.features) || [])
+    .filter((feature) => feature && feature.properties && feature.properties.OverviewScope === 'regional')
+    .map((feature) => {
+      const properties = feature.properties || {};
+      const parentKey = normalizeCountryKey(properties.ParentCountry || properties.main_country || properties.country || '');
+      return String(properties.FilterMetricKey || getFeatureFilterMetricKey(properties, parentKey)).toLowerCase();
+    })
+    .filter(Boolean));
+  const getPassingRegionMetricKeys = (excludeOverviewRegions = false) => {
+    const passingKeys = [];
+    regionFilterMetrics.forEach((metrics, key) => {
+      const normalizedKey = String(key || '').toLowerCase();
+      if (excludeOverviewRegions && overviewRegionalKeys.has(normalizedKey)) return;
+      const regionRecords = Array.isArray(metrics && metrics.records) ? metrics.records : [];
+      if (regionRecords.some((record) => recordPassesCurrentMapFilters(record))) {
+        passingKeys.push(normalizedKey);
+      }
+    });
+    return passingKeys;
+  };
 
   // --- Country layer (national) ---
   const countryFilterParts = [['!', ['has', 'RegionName']]];
@@ -5710,15 +5927,38 @@ function applyCategoryFilterToMap() {
     countryFilterParts.push(['literal', false]);
   } else if (showNational && !showRegional) {
     countryFilterParts.push(['!=', ['get', 'OverviewScope'], 'regional']);
+    if (filterActive) {
+      const names = (typeof getFilteredCountryNamesLowercase === 'function')
+        ? getFilteredCountryNamesLowercase()
+        : [];
+      countryFilterParts.push(names.length
+        ? ['in', ['downcase', ['get', 'Name']], ['literal', names]]
+        : ['literal', false]);
+    }
   } else if (!showNational && showRegional) {
     countryFilterParts.push(['==', ['get', 'OverviewScope'], 'regional']);
+    if (filterActive) {
+      const passingRegionKeys = getPassingRegionMetricKeys(false);
+      countryFilterParts.push(passingRegionKeys.length
+        ? ['in', ['downcase', ['get', 'FilterMetricKey']], ['literal', passingRegionKeys]]
+        : ['literal', false]);
+    }
   } else if (filterActive) {
     const names = (typeof getFilteredCountryNamesLowercase === 'function')
       ? getFilteredCountryNamesLowercase()
       : [];
+    const passingRegionKeys = getPassingRegionMetricKeys(false);
     countryFilterParts.push(['any',
-      ['in', ['downcase', ['get', 'Name']], ['literal', names]],
-      ['in', ['downcase', ['get', 'ParentCountry']], ['literal', names]]
+      ['all',
+        ['!=', ['get', 'OverviewScope'], 'regional'],
+        ['in', ['downcase', ['get', 'Name']], ['literal', names]]
+      ],
+      ['all',
+        ['==', ['get', 'OverviewScope'], 'regional'],
+        passingRegionKeys.length
+          ? ['in', ['downcase', ['get', 'FilterMetricKey']], ['literal', passingRegionKeys]]
+          : ['literal', false]
+      ]
     ]);
   } else {
     countryFilterParts.push(dataCategoryFilter);
@@ -5746,20 +5986,24 @@ function applyCategoryFilterToMap() {
         passingRegionKeys = [];
         regionFilterMetrics.forEach((metrics, key) => {
           const [parentKey, regionNameLc] = key.split('::');
+          if (overviewRegionalKeys.has(String(key || '').toLowerCase())) return;
           if (!names.includes(parentKey)) return;
           const regionRecords = Array.isArray(metrics && metrics.records) ? metrics.records : [];
           const passes = regionRecords.some((record) => recordPassesCurrentMapFilters(record));
           if (passes) {
             passingRegionNames.push(regionNameLc);
-            passingRegionKeys.push(key);
+            passingRegionKeys.push(String(key || '').toLowerCase());
           }
         });
       } else {
         // No range filter active: show all regions
-        passingRegionNames = (filterRegionFeatures || []).map(
+        const visibleFilterRegionFeatures = (filterRegionFeatures || []).filter(
+          (f) => !overviewRegionalKeys.has(String((f.properties || {}).FilterMetricKey || '').toLowerCase())
+        );
+        passingRegionNames = visibleFilterRegionFeatures.map(
           (f) => String((f.properties || {}).Name || '').toLowerCase()
         );
-        passingRegionKeys = (filterRegionFeatures || []).map(
+        passingRegionKeys = visibleFilterRegionFeatures.map(
           (f) => String((f.properties || {}).FilterMetricKey || '').toLowerCase()
         ).filter(Boolean);
       }
@@ -5983,6 +6227,12 @@ const SHARED_CATALOGUE_DATA_PATHS = [
     '../data/catalogue.csv',
     '../data/Quality_parameters_v10022026.csv'
 ];
+const SHARED_UNIFIED_MAP_DATA_VERSION = '20260422v';
+const SHARED_UNIFIED_MAP_DATA_PATHS = [
+    `/data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
+    `../data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
+    `data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`
+];
 
 function fetchFirstAvailableTextShared(paths) {
     const tryAt = (index) => {
@@ -6051,11 +6301,11 @@ function parseCsvText(text, delimiter) {
 
 function initCatalogueTable() {
     const body = document.getElementById('catalogueBody');
+    const list = document.getElementById('catalogueList');
     const status = document.getElementById('catalogueStatus');
-    if (!body || !status || !document.body.classList.contains('catalogue-page')) return;
-    status.textContent = 'Loading catalogue data...';
+    if ((!body && !list) || !status || !document.body.classList.contains('catalogue-page')) return;
+    status.textContent = 'Loading catalogue data from GeoJSON...';
 
-    const key = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, '');
     const readFirst = (row, ...candidates) => {
         for (let i = 0; i < candidates.length; i += 1) {
             const value = row[candidates[i]];
@@ -6079,16 +6329,43 @@ function initCatalogueTable() {
         const v = String(value || '').trim().toLowerCase();
         return !v || v === 'n/a' || v === '-';
     };
+    const formatCatalogueYearValue = (value) => {
+        const text = normalize(value);
+        if (!text) return '';
+        const numeric = Number(text);
+        if (Number.isFinite(numeric)) return String(Math.trunc(numeric));
+        return text;
+    };
+    const splitSeries = (value) => {
+        if (value === null || value === undefined) return [];
+        const text = String(value).trim();
+        if (!text) return [];
+        return text.split(/\s*\|\|\s*/).map((part) => part.trim()).filter(Boolean);
+    };
+    const getSeriesValue = (row, index, ...candidates) => {
+        const raw = readFirst(row, ...candidates);
+        const parts = splitSeries(raw);
+        return parts.length ? (parts[index] || parts[parts.length - 1] || '') : raw;
+    };
+    const getSeriesCount = (row) => Math.max(
+        1,
+        ...[
+            'Dataset_name', 'dataset_name', 'Data Name', 'Data name', 'Dataset Name', 'Dataset',
+            'Data', 'DataDisplay', 'Year_start', 'year_start', 'Year_end', 'year_end',
+            'Year', 'National', 'Urban', 'Planimetric', 'Altimetric',
+            'Link', 'Dataroom', 'link_point_cloud', 'link_point cloud', 'Documentation link', 'link_info'
+        ].map((field) => splitSeries(row[field]).length)
+    );
     const formatDataVersion = (value) => {
         const v = String(value || '').trim().toLowerCase();
         if (!v || v === 'n/a' || v === '-') return '-';
         if (v === 'region' || v === 'regional') return 'Region';
         if (v.includes('dense') || v === 'dm' || v.includes('matching')) return 'Dense matching';
-        if (v.includes('dem') || v.includes('elevation')) return 'Point cloud elevation model (DEM)';
+        if (v.includes('dem') || v.includes('elevation')) return 'Point cloud based Digital Elevation models';
         if (v.includes('point')) return 'Point cloud';
         return String(value).trim();
     };
-    const spatialDistribution = (row) => {
+    const spatialDistribution = (row, index) => {
         const formatPpsmValue = (value) => {
             const text = normalize(value);
             if (!text) return '';
@@ -6099,49 +6376,136 @@ function initCatalogueTable() {
             return text;
         };
         const appendDensityUnit = (value) => value.includes('million points') ? value : `${value} ppsm`;
-        const direct = formatPpsmValue(readFirst(row, 'spatialdistribution', 'spatialdensity', 'density'));
+        const direct = formatPpsmValue(getSeriesValue(row, index, 'spatialdistribution', 'spatialdensity', 'density'));
         if (direct) return direct.toLowerCase().includes('ppsm') || direct.includes('million points') ? direct : `${direct} ppsm`;
-        const national = formatPpsmValue(readFirst(row, 'national'));
-        const urban = formatPpsmValue(readFirst(row, 'urban'));
+        const national = formatPpsmValue(getSeriesValue(row, index, 'National', 'national'));
+        const urban = formatPpsmValue(getSeriesValue(row, index, 'Urban', 'urban'));
         if (national && urban && national === urban) return appendDensityUnit(national);
         if (national && urban) return `${appendDensityUnit(national)} to ${appendDensityUnit(urban)}`;
         if (national) return appendDensityUnit(national);
         if (urban) return appendDensityUnit(urban);
         return '-';
     };
-    const normalizePropertiesRecord = (source) => {
-        const normalizedRecord = {};
-        Object.keys(source || {}).forEach((propertyName) => {
-            normalizedRecord[key(propertyName)] = source[propertyName];
-        });
-        return normalizedRecord;
-    };
     const inferCoverage = (row) => {
-        const direct = normalize(readFirst(row, 'coverage'));
+        const direct = normalize(readFirst(row, 'Coverage', 'coverage'));
         if (direct) return direct;
-        const admLookup = normalize(readFirst(row, 'adm_lookup'));
+        const admLookup = normalize(readFirst(row, 'ADM_lookup', 'adm_lookup'));
         if (admLookup) return 'Research';
-        const adm = normalize(readFirst(row, 'adm'));
+        const adm = normalize(readFirst(row, 'ADM', 'adm'));
         if (adm === '0' || adm === '0.0') return 'National';
         if (adm === '1' || adm === '1.0') return 'Regional';
         return '-';
     };
+    const hasCatalogueClassification = (row) => {
+        const direct = normalize(readFirst(row, 'Classification available', 'Classification', 'classification'));
+        if (/^(1|1\.0|yes|true)$/i.test(direct)) return true;
+        const classFields = [
+            'Created, never classified', 'Unclassified', 'ground', 'Low vegetation',
+            'Medium vegetation', 'High vegetation', 'common vegetation', 'building',
+            'low point', 'water', 'rail', 'road surface', 'WG', 'WC',
+            'transmission tower', 'wire structure connector', 'bridge', 'overhead',
+            'snow', 'user', 'user.1'
+        ];
+        return classFields.some((field) => normalize(row[field]) !== '');
+    };
+    const featureToCatalogueRows = (feature) => {
+        const props = feature && feature.properties ? feature.properties : null;
+        if (!props) return [];
+        const count = getSeriesCount(props);
+        return Array.from({ length: count }, (_, index) => ({ ...props, __seriesIndex: index }));
+    };
+    const getCatalogueSortYear = (row) => {
+        const index = Number(row.__seriesIndex) || 0;
+        const year = getSeriesValue(row, index, 'Year_start', 'year_start', 'Year_end', 'year_end', 'Year', 'year');
+        const match = String(year || '').match(/\d{4}/);
+        return match ? Number(match[0]) : Number.POSITIVE_INFINITY;
+    };
+    const getCatalogueScopeName = (row) => {
+        const admLookup = normalize(readFirst(row, 'ADM_lookup', 'adm_lookup'));
+        const adm = normalize(readFirst(row, 'ADM', 'adm'));
+        if (!admLookup && (adm === '0' || adm === '0.0')) return 'national';
+        return readFirst(row, 'Name.1', 'place', 'Location', 'location', 'RegionName', 'Name') || '';
+    };
+    const getCatalogueScopeRank = (row) => {
+        const admLookup = normalize(readFirst(row, 'ADM_lookup', 'adm_lookup'));
+        const adm = normalize(readFirst(row, 'ADM', 'adm'));
+        if (!admLookup && (adm === '0' || adm === '0.0')) return 0;
+        if (!admLookup) return 1;
+        return 2;
+    };
+    const sortCatalogueRecords = (records) => [...records].sort((a, b) => {
+        const countryA = readFirst(a, 'main_country', 'country', 'ParentCountry', 'Name').toLowerCase();
+        const countryB = readFirst(b, 'main_country', 'country', 'ParentCountry', 'Name').toLowerCase();
+        if (countryA !== countryB) return countryA.localeCompare(countryB);
+        const scopeRankDiff = getCatalogueScopeRank(a) - getCatalogueScopeRank(b);
+        if (scopeRankDiff !== 0) return scopeRankDiff;
+        const scopeA = getCatalogueScopeName(a).toLowerCase();
+        const scopeB = getCatalogueScopeName(b).toLowerCase();
+        if (scopeA !== scopeB) return scopeA.localeCompare(scopeB);
+        return getCatalogueSortYear(a) - getCatalogueSortYear(b);
+    });
+    let catalogueRecords = [];
+    let catalogueSortState = { key: 'default', direction: 'asc' };
+    const firstNumericValue = (value) => {
+        const match = String(value || '').match(/-?\d+(?:[.,]\d+)?/);
+        return match ? Number(match[0].replace(',', '.')) : Number.POSITIVE_INFINITY;
+    };
+    const getCatalogueSortValue = (row, sortKey) => {
+        const index = Number(row.__seriesIndex) || 0;
+        switch (sortKey) {
+            case 'country':
+                return readFirst(row, 'main_country', 'country', 'ParentCountry', 'Name').toLowerCase();
+            case 'scope':
+                return getCatalogueScopeName(row).toLowerCase();
+            case 'dataset':
+                return getSeriesValue(row, index, 'Dataset_name', 'dataset_name', 'Data Name', 'Data name', 'Dataset Name', 'Dataset').toLowerCase();
+            case 'type':
+                return formatDataVersion(getSeriesValue(row, index, 'DataDisplay', 'Data display', 'Data', 'dataversion', 'data_version', 'datasettype', 'dataset_type', 'type')).toLowerCase();
+            case 'year':
+                return getCatalogueSortYear(row);
+            case 'spatial':
+                return firstNumericValue(spatialDistribution(row, index));
+            case 'planimetric':
+                return firstNumericValue(normalize(getSeriesValue(row, index, 'Planimetric', 'planimetric', 'AVG_plan', 'avg_plan')));
+            case 'altimetric':
+                return firstNumericValue(normalize(getSeriesValue(row, index, 'Altimetric', 'altimetric', 'AVG_alti', 'avg_alti')));
+            case 'classification':
+                return hasCatalogueClassification(row) ? 1 : 0;
+            default:
+                return '';
+        }
+    };
+    const sortRecordsByColumn = (records, sortKey, direction) => {
+        if (!sortKey || sortKey === 'default') return sortCatalogueRecords(records);
+        const multiplier = direction === 'desc' ? -1 : 1;
+        return [...records].sort((a, b) => {
+            const aValue = getCatalogueSortValue(a, sortKey);
+            const bValue = getCatalogueSortValue(b, sortKey);
+            if (typeof aValue === 'number' || typeof bValue === 'number') {
+                return ((Number(aValue) || Number.POSITIVE_INFINITY) - (Number(bValue) || Number.POSITIVE_INFINITY)) * multiplier;
+            }
+            const comparison = String(aValue || '').localeCompare(String(bValue || ''));
+            if (comparison !== 0) return comparison * multiplier;
+            return sortCatalogueRecords([a, b])[0] === a ? -1 : 1;
+        });
+    };
     const buildTableRowHtml = (row) => {
-        const rawName = readFirst(row, 'name', 'country', 'main_country', 'regionname') || '-';
-        const rawMainCountry = readFirst(row, 'main_country', 'country') || '';
+        const index = Number(row.__seriesIndex) || 0;
+        const rawName = readFirst(row, 'Name.1', 'place', 'Location', 'location', 'RegionName', 'Name', 'country', 'main_country') || '-';
+        const rawMainCountry = readFirst(row, 'main_country', 'country', 'ParentCountry') || '';
         const rawCoverage = inferCoverage(row);
-        const rawDataVersion = formatDataVersion(readFirst(row, 'dataversion', 'data_version', 'data', 'datasettype', 'dataset_type', 'type'));
+        const rawDataVersion = formatDataVersion(getSeriesValue(row, index, 'DataDisplay', 'Data display', 'Data', 'dataversion', 'data_version', 'datasettype', 'dataset_type', 'type'));
         if (String(rawDataVersion).toLowerCase() === 'region') return '';
-        const rawYearBegin = readFirst(row, 'year_begin', 'yearbegin', 'start_year', 'startyear');
-        const rawYearEnd = readFirst(row, 'year_end', 'yearend', 'end_year', 'endyear');
+        const rawYearBegin = getSeriesValue(row, index, 'Year_start', 'year_start', 'year_begin', 'yearbegin', 'start_year', 'startyear');
+        const rawYearEnd = getSeriesValue(row, index, 'Year_end', 'year_end', 'yearend', 'end_year', 'endyear');
         const rawYear = rawYearBegin || rawYearEnd
-            ? [formatOngoingYearValue(rawYearBegin), formatOngoingYearValue(rawYearEnd)].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
-            : (formatOngoingYearValue(readFirst(row, 'year')) || '-');
-        const rawAgency = readFirst(row, 'responsible', 'responsibleagency', 'responsibleagencie', 'agency', 'provider', 'dataprovider') || '-';
-        const rawSpatial = spatialDistribution(row);
-        const rawPlanimetric = normalize(readFirst(row, 'planimetric', 'avg_plan')) || '-';
-        const rawAltimetric = normalize(readFirst(row, 'altimetric', 'avg_alti')) || '-';
-        const link = readFirst(row, 'link_point_cloud', 'linkpointcloud', 'dataroom', 'link', 'access');
+            ? [formatCatalogueYearValue(rawYearBegin), formatCatalogueYearValue(rawYearEnd)].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
+            : (formatCatalogueYearValue(getSeriesValue(row, index, 'Year', 'year')) || '-');
+        const rawAgency = getSeriesValue(row, index, 'Responsible', 'responsible', 'Data Provider', 'responsibleagency', 'responsibleagencie', 'agency', 'provider', 'dataprovider') || '-';
+        const rawSpatial = spatialDistribution(row, index);
+        const rawPlanimetric = normalize(getSeriesValue(row, index, 'Planimetric', 'planimetric', 'AVG_plan', 'avg_plan')) || '-';
+        const rawAltimetric = normalize(getSeriesValue(row, index, 'Altimetric', 'altimetric', 'AVG_alti', 'avg_alti')) || '-';
+        const link = getSeriesValue(row, index, 'link_point_cloud', 'link_point cloud', 'Dataroom', 'Link', 'Documentation link', 'link_info', 'linkpointcloud', 'access');
 
         const allDataNA = [
             rawCoverage,
@@ -6155,98 +6519,138 @@ function initCatalogueTable() {
         ].every(isNA);
         if (allDataNA) return '';
 
-        const name = escapeHtml(rawName);
-        const mapCountry = rawMainCountry || rawName;
-        const mapHref = (mapCountry && rawName && rawName !== '-')
-            ? `map.html?focusCountry=${encodeURIComponent(mapCountry)}&focusRegion=${encodeURIComponent(rawName)}`
+        const datasetName = getSeriesValue(row, index, 'Dataset_name', 'dataset_name', 'Data Name', 'Data name', 'Dataset Name', 'Dataset') || rawName;
+        const countryName = rawMainCountry || rawName;
+        const admLookup = normalize(readFirst(row, 'ADM_lookup', 'adm_lookup'));
+        const adm = normalize(readFirst(row, 'ADM', 'adm'));
+        const isResearch = !!admLookup;
+        const isNational = !isResearch && (adm === '0' || adm === '0.0' || String(rawCoverage).toLowerCase() === 'national');
+        const scopeLabel = isResearch ? rawName : (isNational ? 'National' : rawName);
+        const scopeHref = countryName && scopeLabel && scopeLabel !== '-'
+            ? (isNational
+                ? `map.html?focusCountry=${encodeURIComponent(countryName)}`
+                : `map.html?focusCountry=${encodeURIComponent(countryName)}&focusRegion=${encodeURIComponent(rawName)}`)
             : '';
-        const nameHtml = mapHref
-            ? `<a href="${mapHref}" title="Go to maps location -->">${name}</a>`
-            : name;
-        const coverage = escapeHtml(rawCoverage);
+        const scopeHtml = scopeHref
+            ? `<a href="${scopeHref}" title="Go to maps location -->">${escapeHtml(scopeLabel)}</a>`
+            : escapeHtml(scopeLabel);
         const dataVersion = escapeHtml(rawDataVersion);
         const year = escapeHtml(rawYear);
-        const agency = escapeHtml(rawAgency);
         const spatial = escapeHtml(rawSpatial);
         const planimetric = escapeHtml(rawPlanimetric);
         const altimetric = escapeHtml(rawAltimetric);
+        const classificationHtml = hasCatalogueClassification(row)
+            ? '<span class="classification-present classification-present-yes" aria-label="Classification present">V</span>'
+            : '<span class="classification-present classification-present-no" aria-label="Classification not present">X</span>';
         const linkHtml = link
             ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Link to local dataset</a>`
             : '-';
 
         return `<tr>
-            <td>${nameHtml}</td>
-            <td>${coverage}</td>
+            <td>${escapeHtml(countryName)}</td>
+            <td>${scopeHtml}</td>
+            <td>${escapeHtml(datasetName)}</td>
             <td>${dataVersion}</td>
             <td>${year}</td>
-            <td>${agency}</td>
             <td>${spatial}</td>
             <td>${planimetric}</td>
             <td>${altimetric}</td>
+            <td>${classificationHtml}</td>
             <td>${linkHtml}</td>
         </tr>`;
     };
-    const loadResearchRecords = () => fetchFirstAvailableJsonShared(UNIFIED_MAP_DATA_PATHS)
+    const buildListItemHtml = (row) => {
+        const index = Number(row.__seriesIndex) || 0;
+        const rawName = readFirst(row, 'Name.1', 'place', 'Location', 'location', 'RegionName', 'Name', 'country', 'main_country') || '-';
+        const rawMainCountry = readFirst(row, 'main_country', 'country', 'ParentCountry') || '';
+        const datasetName = getSeriesValue(row, index, 'Dataset_name', 'dataset_name', 'Data Name', 'Data name', 'Dataset Name', 'Dataset') || rawName;
+        const dataVersion = formatDataVersion(getSeriesValue(row, index, 'DataDisplay', 'Data display', 'Data', 'dataversion', 'data_version', 'datasettype', 'dataset_type', 'type'));
+        if (String(dataVersion).toLowerCase() === 'region') return '';
+        const coverage = inferCoverage(row);
+        const rawYearBegin = getSeriesValue(row, index, 'Year_start', 'year_start', 'year_begin', 'yearbegin', 'start_year', 'startyear');
+        const rawYearEnd = getSeriesValue(row, index, 'Year_end', 'year_end', 'yearend', 'end_year', 'endyear');
+        const year = rawYearBegin || rawYearEnd
+            ? [formatCatalogueYearValue(rawYearBegin), formatCatalogueYearValue(rawYearEnd)].filter(Boolean).join(rawYearBegin && rawYearEnd && rawYearBegin !== rawYearEnd ? ' - ' : '')
+            : (formatCatalogueYearValue(getSeriesValue(row, index, 'Year', 'year')) || '-');
+        const agency = getSeriesValue(row, index, 'Responsible', 'responsible', 'Data Provider', 'responsibleagency', 'responsibleagencie', 'agency', 'provider', 'dataprovider') || '-';
+        const spatial = spatialDistribution(row, index);
+        const planimetric = normalize(getSeriesValue(row, index, 'Planimetric', 'planimetric', 'AVG_plan', 'avg_plan')) || '-';
+        const altimetric = normalize(getSeriesValue(row, index, 'Altimetric', 'altimetric', 'AVG_alti', 'avg_alti')) || '-';
+        const link = getSeriesValue(row, index, 'link_point_cloud', 'link_point cloud', 'Dataroom', 'Link', 'Documentation link', 'link_info', 'linkpointcloud', 'access');
+        const mapHref = (rawMainCountry && rawName && rawName !== '-')
+            ? `map.html?focusCountry=${encodeURIComponent(rawMainCountry)}&focusRegion=${encodeURIComponent(rawName)}`
+            : `map.html?skipIntro=1`;
+        const linkHtml = link
+            ? `<a class="catalogue-action" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Open dataset</a>`
+            : '';
+
+        return `<article class="catalogue-list-item">
+            <a class="catalogue-list-title" href="${mapHref}">${escapeHtml(datasetName)}</a>
+            <p class="catalogue-list-location">${escapeHtml(rawName)}${rawMainCountry && rawMainCountry !== rawName ? `, ${escapeHtml(rawMainCountry)}` : ''}</p>
+            <dl class="catalogue-list-meta">
+                <div><dt>Coverage</dt><dd>${escapeHtml(coverage)}</dd></div>
+                <div><dt>Data</dt><dd>${escapeHtml(dataVersion)}</dd></div>
+                <div><dt>Year</dt><dd>${escapeHtml(year)}</dd></div>
+                <div><dt>Spatial</dt><dd>${escapeHtml(spatial)}</dd></div>
+                <div><dt>Plan / Alti</dt><dd>${escapeHtml(planimetric)} / ${escapeHtml(altimetric)}</dd></div>
+                <div><dt>Agency</dt><dd>${escapeHtml(agency)}</dd></div>
+            </dl>
+            <div class="catalogue-list-actions">
+                <a class="catalogue-action" href="${mapHref}">View on map</a>
+                ${linkHtml}
+            </div>
+        </article>`;
+    };
+    const updateCatalogueSortButtons = () => {
+        document.querySelectorAll('.catalogue-sort-btn').forEach((button) => {
+            const active = button.dataset.sortKey === catalogueSortState.key;
+            button.classList.toggle('active', active);
+            button.setAttribute('aria-sort', active ? (catalogueSortState.direction === 'desc' ? 'descending' : 'ascending') : 'none');
+        });
+    };
+    const renderCatalogueRecords = () => {
+        const sortedRecords = sortRecordsByColumn(catalogueRecords, catalogueSortState.key, catalogueSortState.direction);
+        const html = list ? sortedRecords.map(buildListItemHtml).join('') : sortedRecords.map(buildTableRowHtml).join('');
+        if (list) list.innerHTML = html || '<p class="note">No catalogue rows to display after filtering empty data.</p>';
+        if (body) body.innerHTML = html || '<tr><td colspan="10">No catalogue rows to display after filtering empty data.</td></tr>';
+        updateCatalogueSortButtons();
+        return html;
+    };
+    document.querySelectorAll('.catalogue-sort-btn').forEach((button) => {
+        button.addEventListener('click', () => {
+            const key = button.dataset.sortKey || 'default';
+            catalogueSortState = {
+                key,
+                direction: catalogueSortState.key === key && catalogueSortState.direction === 'asc' ? 'desc' : 'asc'
+            };
+            renderCatalogueRecords();
+        });
+    });
+
+    fetchFirstAvailableJsonShared(SHARED_UNIFIED_MAP_DATA_PATHS)
         .then((collection) => {
-            const researchRecords = [];
-            const features = Array.isArray(collection && collection.features) ? collection.features : [];
-            features.forEach((feature) => {
-                const properties = feature && feature.properties ? feature.properties : null;
-                if (!properties || !properties.ADM_lookup) return;
-                researchRecords.push(normalizePropertiesRecord(properties));
-            });
-            return researchRecords;
-        })
-        .catch(() => []);
+            catalogueRecords = sortCatalogueRecords((Array.isArray(collection && collection.features) ? collection.features : [])
+                .flatMap(featureToCatalogueRows));
+            if (!catalogueRecords.length) {
+                if (body) body.innerHTML = '<tr><td colspan="10">No catalogue rows found in GeoJSON data.</td></tr>';
+                if (list) list.innerHTML = '<p class="note">No catalogue rows found in GeoJSON data.</p>';
+                status.textContent = 'Catalogue loaded, but no data rows were found.';
+                return;
+            }
 
-    fetchFirstAvailableTextShared(SHARED_CATALOGUE_DATA_PATHS)
-        .then((csvText) => {
-            const firstLine = (csvText.split(/\r?\n/, 1)[0] || '');
-            const commaCount = (firstLine.match(/,/g) || []).length;
-            const semicolonCount = (firstLine.match(/;/g) || []).length;
-            const delimiter = semicolonCount > commaCount ? ';' : ',';
-            const rows = parseCsvText(csvText, delimiter);
-            if (!rows.length || rows[0].length === 0) throw new Error('CSV empty');
-            const headers = rows[0].map((h) => key(h));
-            const records = rows.slice(1).filter((r) => r.some((v) => String(v).trim() !== ''))
-                .map((r) => {
-                    const obj = {};
-                    headers.forEach((h, i) => {
-                        obj[h] = r[i] !== undefined ? r[i] : '';
-                    });
-                    return obj;
-                });
-
-            return loadResearchRecords().then((researchRecords) => {
-                const seen = new Set();
-                const mergedRecords = [];
-                [...records, ...researchRecords].forEach((row) => {
-                    const dedupeKey = [
-                        String(readFirst(row, 'main_country', 'country') || '').trim().toLowerCase(),
-                        String(readFirst(row, 'name', 'regionname', 'dataname', 'dataset_name') || '').trim().toLowerCase(),
-                        String(readFirst(row, 'year', 'year_end', 'yearend') || '').trim().toLowerCase()
-                    ].join('|');
-                    if (seen.has(dedupeKey)) return;
-                    seen.add(dedupeKey);
-                    mergedRecords.push(row);
-                });
-
-                if (!mergedRecords.length) {
-                    body.innerHTML = '<tr><td colspan="9">No catalogue rows found in CSV or region data.</td></tr>';
-                    status.textContent = 'Catalogue loaded, but no data rows were found.';
-                    return;
-                }
-
-                const html = mergedRecords.map(buildTableRowHtml).join('');
-                body.innerHTML = html || '<tr><td colspan="9">No catalogue rows to display after filtering empty data.</td></tr>';
-                status.textContent = html
-                    ? `Catalogue loaded with ${mergedRecords.length} row${mergedRecords.length === 1 ? '' : 's'}, including research datasets.`
-                    : 'Catalogue loaded, but no displayable rows were found.';
-            });
+            const html = renderCatalogueRecords();
+            const uniqueNations = new Set(catalogueRecords
+                .map((row) => readFirst(row, 'main_country', 'country', 'ParentCountry', 'Name'))
+                .map((value) => String(value || '').trim().toLowerCase())
+                .filter(Boolean));
+            status.textContent = html
+                ? `Find your dataset here from all currently available European datasets. There are ${catalogueRecords.length} datasets available in ${uniqueNations.size} unique nation${uniqueNations.size === 1 ? '' : 's'}.`
+                : 'Catalogue loaded, but no displayable rows were found.';
         })
         .catch((error) => {
-            body.innerHTML = '<tr><td colspan="9">Could not load a catalogue CSV from ../data. Add catalogue.csv or Quality_parameters_v10022026.csv.</td></tr>';
-            status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected CSV in ../data.'}`;
+            if (body) body.innerHTML = '<tr><td colspan="10">Could not load catalogue data from map_data_unified.geojson.</td></tr>';
+            if (list) list.innerHTML = '<p class="note">Could not load catalogue data from map_data_unified.geojson.</p>';
+            status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected GeoJSON in /data or ../data.'}`;
         });
 }
 
