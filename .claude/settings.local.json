@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk -F';' 'NR==59 {print}' \"c:/Users/Daan/Documents/GitHub/Website_Open_Topography_EU/website/data/catalogue.csv\")",
+      "Bash(node -e ':*)",
+      "Bash(node.exe -e ':*)",
+      "Bash(powershell -Command ':*)",
+      "Bash(python3 -c \" import json with open\\('/c/Users/Daan/Documents/GitHub/Website_Open_Topography_EU/website/data/region_map_data_belgium.geojson'\\) as f: data = json.load\\(f\\) for feat in data['features']: props = feat['properties'] name = props.get\\('Name', ''\\) planimetric = props.get\\('Planimetric', 'MISSING'\\) parent = props.get\\('ParentCountry', ''\\) adm = props.get\\('ADM', ''\\) print\\(f'Name={name}, Parent={parent}, ADM={adm}, Planimetric={planimetric}'\\) \")",
+      "Bash(python -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(xargs grep *)",
+      "Bash(node -e \"1\")",
+      "Bash(powershell -Command \"node -e \\\\\"const fs=require\\('fs'\\);const d=JSON.parse\\(fs.readFileSync\\('website/data/region_map_data_belgium.geojson','utf8'\\)\\);d.features.forEach\\(f=>{const p=f.properties;console.log\\(p.Name, p.ADM, p.Planimetric, p.main_country, p.ParentCountry\\)}\\)\\\\\"\")",
+      "Bash(python3 -c ' *)",
+      "Bash(powershell -Command ' *)"
+    ]
+  }
+}

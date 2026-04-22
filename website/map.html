@@ -7,7 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="assets/images/european_pointclouds_icon.ico">
     <link href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css" rel="stylesheet" />
-    <link href="assets/css/styles.css?v=20260224h" rel="stylesheet" />
+    <link href="assets/css/styles.css?v=20260422h" rel="stylesheet" />
 </head>
 
 <body class="map-page">
@@ -27,7 +27,13 @@
       
       <!-- Regio-TOC --> 
       <div id="toc-region"> 
-        <h2>National level data overview</h2> 
+        <div class="region-header">
+          <button id="regionBackToCountryBtn" class="region-back-btn" type="button" aria-label="Return to country view" title="Return to country view">
+            <span aria-hidden="true">&#8592;</span>
+            <span>Back to country</span>
+          </button>
+          <h2>National level data overview</h2> 
+        </div>
         <div id="regionFilterBtns"></div> 
         <div id="regionDividerLine" class="divider">&mdash;&mdash;&mdash; Available regions &mdash;&mdash;&mdash;</div> 
         <ul id="regionList" class="country-list"></ul> 
@@ -49,44 +55,8 @@
       </div> 
           
           
-      <div id="tabs"> 
-        <div id="tab-left">
-          <a id="tab-title" href="index.html" aria-label="European Point Clouds">
-            <img class="tab-title-logo" src="assets/images/logo_website.png" alt="European Point Clouds">
-          </a>
-        </div>
-        <div id="tab-buttons">
-          <div id="tab-search">
-            <button id="tocSearchToggle" aria-label="Open search"></button>
-            <input id="tocSearch" placeholder="Search for a point cloud in a country, province or city" />
-          </div>
-          <button id="tab-data">DATA ▼</button> 
-          <button id="tab-info" onclick="window.location.href='getting-started.html'">Getting started</button> 
-          <a id="tab-help" href="contribute.html" target="_blank" rel="noopener noreferrer" title="fill in the MSForm and help us grow">Add Pointclouds</a> 
-        </div>
-        <div id="mobile-controls" aria-label="Mobile navigation controls">
-          <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
-          <button id="mobileSearchToggle" aria-label="Open search"></button>
-        </div>
-        <div id="tab-spacer"></div>
-        <div id="mobileMenu">
-          <a href="catalogue.html">Data</a>
-          <a href="getting-started.html">Getting started</a>
-          <a href="contribute.html" target="_blank" rel="noopener noreferrer">Add Pointclouds</a>
-        </div>
-        <div id="mobileSearchOverlay" aria-hidden="true">
-          <div id="mobileSearchCard">
-            <p>Start search for clouds</p>
-            <input id="mobileSearchInput" type="text" placeholder="Start search for clouds" autocomplete="off" />
-            <div id="mobileSearchHint"></div>
-          </div>
-        </div>
-        <div id="dataMenu">
-          <button id="dataMapBtn">Find your data on the map</button>
-          <button id="dataCatalogueBtn">Find your data in the catalogue</button>
-        </div>
-          </div> 
-                
+    <script src="assets/js/banner.js?v=20260402j"></script>
+
                 <!-- Information Panel --> 
 
                 <div id="infoPanel" class="panel"> 
@@ -129,12 +99,6 @@
                             </div> <div class="info-gif"> <img src="assets/images/gifs/step5.gif" alt="GIF showing overview reset" /> </div> 
                             </div> 
                             </div>
-                            <div id="logo-bar-bottom">
-                               <div id="contributors-label">Contributors</div> 
-                               <a id="logo-tudelft" href="https://3d.bk.tudelft.nl/" target="_blank"> <img src="assets/images/logo_tudelft.png" alt="TU Delft"> </a> 
-                               <a id="logo-rws" href="https://www.rijkswaterstaat.nl/" target="_blank"> <img src="assets/images/logo_rws.png" alt="Rijkswaterstaat"> </a> 
-                               <a id="logo-eurosdr" href="https://www.eurosdr.net/" target="_blank"> <img src="assets/images/logo_eurosdr.png" alt="EuroSDR"> </a> 
-                            </div> 
 <div id="legend-bookmark" class="legend-bookmark">
   <button id="legend-toggle" aria-label="Open legend"></button>
 
@@ -142,7 +106,6 @@
     <div class="legend-header">
       <span>Legend</span>
       <div class="legend-actions">
-        <button id="legendResetBtn" class="legend-icon-btn" type="button" aria-label="Reset overview" data-tip="Reset overview">&#8635;</button>
         <button id="legend-close" class="legend-icon-btn" aria-label="Close legend">&times;</button>
       </div>
     </div>
@@ -154,6 +117,9 @@
       <li data-cat="DEM">
         <span class="swatch dem"></span> PC Based Digital Elevation Model
       </li>
+      <li data-cat="Research">
+        <span class="swatch research"><span class="legend-research-pin" aria-hidden="true"></span></span> Research data
+      </li>
       <li data-cat="No Info">
         <span class="swatch noinfo"></span> No data / unknown
       </li>
@@ -163,16 +129,18 @@
 <div id="a11y-controls" class="a11y-controls">
   <button id="a11yColorBlindBtn" class="a11y-btn" type="button" aria-pressed="false">
     <span class="a11y-label">Color blindness mode</span>
-    <span class="a11y-icon a11y-icon-eye" aria-hidden="true">&#128065;</span>
+  </button>
+  <button id="a11yDyslexicBtn" class="a11y-btn" type="button" aria-pressed="false">
+    <span class="a11y-label">Dyslexic font</span>
   </button>
   <button id="a11yTextBtn" class="a11y-btn" type="button" aria-pressed="false">
     <span class="a11y-label">Increase text size</span>
-    <span class="a11y-icon a11y-icon-aa" aria-hidden="true">AA</span>
+    <span class="a11y-icon a11y-icon-aa" aria-hidden="true">aA</span>
   </button>
 </div>
     <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
-    <script src="assets/js/scripts.js?v=20260224h"></script>
+    <script src="assets/js/scripts.js?v=20260422i"></script>
 </body>
 
 </html>

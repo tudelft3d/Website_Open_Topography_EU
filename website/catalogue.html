@@ -5,70 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Catalogue - European Point Clouds</title>
   <link rel="icon" type="image/x-icon" href="assets/images/european_pointclouds_icon.ico">
-  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/styles.css?v=20260422c">
 </head>
 <body class="catalogue-page">
-  <div id="tabs">
-    <div id="tab-left">
-      <a id="tab-title" href="index.html" aria-label="European Point Clouds">
-        <img class="tab-title-logo" src="assets/images/logo_website.png" alt="European Point Clouds">
-      </a>
-    </div>
-    <div id="tab-buttons">
-      <div id="tab-search">
-        <button id="tocSearchToggle" aria-label="Open search"></button>
-      <input id="tocSearch" placeholder="Search for a point cloud in a country, province or city" />
-      </div>
-      <button id="tab-data" class="active">DATA ▼</button>
-      <a id="tab-info" href="getting-started.html">Getting started</a>
-      <a id="tab-help" href="contribute.html" target="_blank" rel="noopener noreferrer" title="fill in the MSForm and help us grow">Add Pointclouds</a>
-    </div>
-    <div id="mobile-controls" aria-label="Mobile navigation controls">
-      <button id="mobileMenuToggle" aria-label="Open navigation menu"></button>
-      <button id="mobileSearchToggle" aria-label="Open search"></button>
-    </div>
-    <div id="mobileMenu">
-      <a href="catalogue.html">Data</a>
-      <a href="getting-started.html">Getting started</a>
-      <a href="contribute.html" target="_blank" rel="noopener noreferrer">Add Pointclouds</a>
-    </div>
-    <div id="mobileSearchOverlay" aria-hidden="true">
-      <div id="mobileSearchCard">
-        <p>Start search for clouds</p>
-        <input id="mobileSearchInput" type="text" placeholder="Start search for clouds" autocomplete="off" />
-        <div id="mobileSearchHint"></div>
-      </div>
-    </div>
-  </div>
-  <div id="dataMenu">
-    <a href="map.html?skipIntro=1">PC on the map</a>
-    <a href="catalogue.html">PC in the catalogue</a>
-  </div>
+  <script src="assets/js/banner.js"></script>
   <main>
     <h1>Point Cloud Catalogue</h1>
-    <p id="catalogueStatus">In the table all the found point clouds and point cloud elevation models are given.</p>
+    <p id="catalogueStatus">Loading point cloud datasets from the GeoJSON catalogue...</p>
     <div class="catalogue-table-wrap">
       <table class="catalogue-table" aria-label="Point cloud dataset catalogue">
         <thead>
           <tr>
-            <th>Region</th>
-            <th>Data version</th>
-            <th>Year</th>
-            <th>Responsible agency</th>
-            <th>Spatial distribution</th>
-            <th>Planimetric</th>
-            <th>Altimetric</th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="country">Country</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="scope">Scope</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="dataset">Data name</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="type">Type</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="year">Year</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="spatial">Spatial distribution</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="planimetric">Planimetric</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="altimetric">Altimetric</button></th>
+            <th><button class="catalogue-sort-btn" type="button" data-sort-key="classification">Classification present</button></th>
             <th>Dataroom</th>
           </tr>
         </thead>
         <tbody id="catalogueBody">
           <tr>
-            <td colspan="8">Loading...</td>
+            <td colspan="10">Loading...</td>
           </tr>
         </tbody>
       </table>
     </div>
   </main>
-  <script src="assets/js/scripts.js"></script>
+  <script src="assets/js/scripts.js?v=20260422w"></script>
 </body>
 </html>
