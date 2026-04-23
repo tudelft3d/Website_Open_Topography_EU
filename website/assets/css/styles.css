@@ -1541,18 +1541,22 @@ body.home-page {
 }
 
 /* DATA tab + dropdown (styled like 3d.bk.tudelft.nl navbar/dropdown palette) */
-#tab-data {
+#tab-data,
+#tab-info {
   color: #ffffff;
   font-weight: 700;
   letter-spacing: 0.2px;
 }
 
 #tab-data:hover,
-#tab-data:focus {
+#tab-data:focus,
+#tab-info:hover,
+#tab-info:focus {
   color: #30bfeb;
 }
 
-#tab-data.active {
+#tab-data.active,
+#tab-info.active {
   color: #30bfeb;
 }
 
@@ -2245,7 +2249,8 @@ body.home-page {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-#tabs button.active {
+#tabs button.active,
+#tabs a.active {
   border-bottom: 2px solid #fff;
 }
 
@@ -2849,8 +2854,33 @@ html.a11y-colorblind #tabs {
 
 html.a11y-colorblind #tab-data:hover,
 html.a11y-colorblind #tab-data:focus,
-html.a11y-colorblind #tab-data.active {
+html.a11y-colorblind #tab-data.active,
+html.a11y-colorblind #tab-info:hover,
+html.a11y-colorblind #tab-info:focus,
+html.a11y-colorblind #tab-info.active {
   color: #EE6677;
+}
+
+html.a11y-colorblind .category-region {
+  color: #AA3377;
+}
+
+html.a11y-colorblind .category-pointcloud {
+  color: #EE6677;
+}
+
+html.a11y-colorblind .category-dem {
+  color: #66CCEE;
+}
+
+html.a11y-colorblind .category-no-info {
+  color: #111827;
+  background: #BBBBBB;
+}
+
+html.a11y-colorblind .research-marker-pin,
+html.a11y-colorblind .legend-research-pin {
+  background: linear-gradient(180deg, #EE6677 0%, #AA3377 100%);
 }
 
 html.a11y-colorblind .home-page {
@@ -2928,6 +2958,22 @@ html.a11y-dyslexic-font #legend-panel {
 
 .swatch.noinfo {
   background: #7F7F7F;
+}
+
+html.a11y-colorblind .swatch.pc {
+  background: #EE6677;
+}
+
+html.a11y-colorblind .swatch.dem {
+  background: #66CCEE;
+}
+
+html.a11y-colorblind .swatch.region {
+  background: #AA3377;
+}
+
+html.a11y-colorblind .swatch.noinfo {
+  background: #BBBBBB;
 }
 
 .swatch.research {
@@ -3832,6 +3878,22 @@ html.a11y-dyslexic-font #legend-panel {
 .map-page .category-no-data {
   color: #7F7F7F;
   font-weight: bold;
+}
+
+html.a11y-colorblind .map-page .category-region {
+  color: #AA3377;
+}
+
+html.a11y-colorblind .map-page .category-pointcloud {
+  color: #EE6677;
+}
+
+html.a11y-colorblind .map-page .category-elevation {
+  color: #66CCEE;
+}
+
+html.a11y-colorblind .map-page .category-no-data {
+  color: #BBBBBB;
 }
 
 /* Final mobile header alignment override for all pages */
