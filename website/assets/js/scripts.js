@@ -151,7 +151,7 @@
         altimetric: { min: 0, max: 1, ready: false },
         year: { min: 2000, max: 2026, ready: false }
     };
-    const UNIFIED_MAP_DATA_VERSION = '20260423b';
+    const UNIFIED_MAP_DATA_VERSION = '20260423c';
     const UNIFIED_MAP_DATA_PATHS = [
         `../data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`,
         `data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`
@@ -1742,6 +1742,17 @@
         return Number.NEGATIVE_INFINITY;
     }
 
+    function getDatasetPriorityForCountry(properties, datasetName) {
+        const parentCountry = normalizeCountryKey(
+            (properties && (properties.ParentCountry || properties.main_country || properties.country || properties.Name)) || ''
+        );
+        const datasetKey = String(datasetName || '').toLowerCase();
+        const normalizedDatasetKey = datasetKey.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (parentCountry === 'france' && /\blidar\s*(haute\s*densite|hd)\b/i.test(normalizedDatasetKey)) return 100;
+        if (parentCountry === 'france' && /\blidar\s*(haute\s*densit[eé]|hd)\b/i.test(datasetKey)) return 100;
+        return 0;
+    }
+
     function getLatestRepresentativeIndex(properties) {
         if (!properties) return 0;
 
@@ -1780,6 +1791,17 @@
             dataTypeParts.length
         );
         if (partCount <= 1) return 0;
+
+        let priorityIndex = -1;
+        let priorityScore = 0;
+        for (let index = 0; index < partCount; index += 1) {
+            const score = getDatasetPriorityForCountry(properties, datasetNameParts[index]);
+            if (score > priorityScore) {
+                priorityScore = score;
+                priorityIndex = index;
+            }
+        }
+        if (priorityIndex !== -1) return priorityIndex;
 
         let bestIndex = 0;
         let bestScore = Number.NEGATIVE_INFINITY;
@@ -1835,6 +1857,17 @@
             dataTypeParts.length
         );
         if (partCount <= 1) return 0;
+
+        let priorityIndex = -1;
+        let priorityScore = 0;
+        for (let index = 0; index < partCount; index += 1) {
+            const score = getDatasetPriorityForCountry(properties, datasetNameParts[index]);
+            if (score > priorityScore) {
+                priorityScore = score;
+                priorityIndex = index;
+            }
+        }
+        if (priorityIndex !== -1) return priorityIndex;
 
         const chooseLatestIndex = (predicate) => {
             let bestIndex = -1;
@@ -2268,6 +2301,9 @@
         if (!candidates.length) return undefined;
 
         candidates.sort((a, b) => {
+            const priorityDelta = getDatasetPriorityForCountry(countryFeature.properties, b.datasetName) -
+                getDatasetPriorityForCountry(countryFeature.properties, a.datasetName);
+            if (priorityDelta !== 0) return priorityDelta;
             const scopeDelta = (scopePriority[b.datasetType] || 0) - (scopePriority[a.datasetType] || 0);
             if (scopeDelta !== 0) return scopeDelta;
             if (b.yearScore !== a.yearScore) return b.yearScore - a.yearScore;
@@ -4995,9 +5031,10 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const defaultSeriesIndex = Number.isInteger(p && p.RepresentativeSeriesIndex)
     ? p.RepresentativeSeriesIndex
     : getLatestRepresentativeIndex(p);
+  const priorityDatasetIndex = datasetOptions.findIndex((name) => getDatasetPriorityForCountry(p, name) > 0);
   const requestedSeriesIndex = Number.isInteger(datasetIndex)
     ? datasetIndex
-    : (Number.isInteger(yearIndex) ? yearIndex : defaultSeriesIndex);
+    : (priorityDatasetIndex !== -1 ? priorityDatasetIndex : (Number.isInteger(yearIndex) ? yearIndex : defaultSeriesIndex));
   const activeDatasetIndex = hasDatasetSwitcher
     ? Math.max(0, Math.min(requestedSeriesIndex, datasetOptions.length - 1))
     : 0;
@@ -6309,7 +6346,7 @@ function initHomePageEnhancements() {
     }
 }
 
-const SHARED_UNIFIED_MAP_DATA_VERSION = '20260423b';
+const SHARED_UNIFIED_MAP_DATA_VERSION = '20260423c';
 const SHARED_UNIFIED_MAP_DATA_PATHS = [
     `/data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
     `../data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
