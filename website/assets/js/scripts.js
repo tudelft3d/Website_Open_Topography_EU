@@ -5994,16 +5994,38 @@ function initAccessibilityControls() {
         const style = window.getComputedStyle(panel);
         return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
       });
+      controls.classList.remove('a11y-under-popup');
+      controls.style.top = '';
+      controls.style.bottom = '';
+      controls.style.left = '';
+      controls.style.right = '';
+
       if (!visiblePanel) {
-        controls.classList.remove('a11y-under-popup');
-        controls.style.top = '';
-        controls.style.bottom = '';
         return;
       }
 
       const rect = visiblePanel.getBoundingClientRect();
       const margin = 8;
-      const maxTop = window.innerHeight - controls.offsetHeight - margin;
+      const controlsWidth = controls.offsetWidth || 84;
+      const controlsHeight = controls.offsetHeight || 144;
+      const dockedLeft = window.innerWidth - controlsWidth;
+      const overlapsRightDock = rect.right > dockedLeft - margin && rect.left < window.innerWidth - margin;
+      const hasRoomOnLeft = rect.left - margin - controlsWidth >= margin;
+
+      if (overlapsRightDock && hasRoomOnLeft) {
+        const maxTop = window.innerHeight - controlsHeight - margin;
+        const desiredTop = 80;
+        const finalTop = Math.max(72, Math.min(desiredTop, maxTop));
+
+        controls.classList.add('a11y-under-popup');
+        controls.style.left = '0';
+        controls.style.right = 'auto';
+        controls.style.top = `${finalTop}px`;
+        controls.style.bottom = 'auto';
+        return;
+      }
+
+      const maxTop = window.innerHeight - controlsHeight - margin;
       const desiredTop = Math.round(rect.bottom + margin);
       const finalTop = Math.max(72, Math.min(desiredTop, maxTop));
 
