@@ -2878,9 +2878,12 @@ html.a11y-colorblind .category-no-info {
   background: #BBBBBB;
 }
 
-html.a11y-colorblind .research-marker-pin,
-html.a11y-colorblind .legend-research-pin {
+html.a11y-colorblind .research-marker-pin {
   background: linear-gradient(180deg, #EE6677 0%, #AA3377 100%);
+}
+
+html.a11y-colorblind .legend-research-pin {
+  background: #EE6677;
 }
 
 html.a11y-colorblind .home-page {
@@ -2986,22 +2989,12 @@ html.a11y-colorblind .swatch.noinfo {
 }
 
 .legend-research-pin {
-  position: relative;
-  width: 12px;
-  height: 12px;
-  border-radius: 999px 999px 999px 0;
-  background: linear-gradient(180deg, #7dd3fc 0%, #2563eb 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.85);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.28);
-  transform: rotate(-45deg);
-}
-
-.legend-research-pin::after {
-  content: "";
-  position: absolute;
-  inset: 2.5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1B9E77;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.28);
 }
 
 #helpModal button {

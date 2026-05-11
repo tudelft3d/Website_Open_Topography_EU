@@ -1275,6 +1275,8 @@
             const datasetNames = getResearchDatasetNames(feature);
             if (!datasetNames.length) return;
 
+            const sourceIndex = feature.id !== undefined ? feature.id : sourceFeatures.indexOf(feature);
+
             datasetNames.forEach((datasetName, datasetIndexWithinFeature) => {
                 const coords = baseCoords;
                 const markerKey = [
@@ -1289,7 +1291,7 @@
                     properties: {
                         ...(feature.properties || {}),
                         DisplayName: datasetName,
-                        ResearchFeatureId: feature.id !== undefined ? feature.id : index
+                        ResearchFeatureId: sourceIndex
                     },
                     geometry: {
                         type: 'Point',
@@ -1620,7 +1622,7 @@
 
     function getDatasetTypeFromProps(props) {
         const adm = Number(props && props.ADM);
-        if (props && props.ADM_lookup) return adm === 1 ? 'regional' : 'city';
+        if (props && props.ADM_lookup) return 'city';
         if (!Number.isFinite(adm) || adm === 0) return 'national';
         if (adm === 1) return 'regional';
         return 'city';
@@ -5049,6 +5051,18 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
   const activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
   const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
+  // If the selected dataset belongs to a research feature, show that feature's info directly.
+  if (viewingCountrySummary && activeDatasetName) {
+    const activeEntry = countryDatasetFeatureMap.get(normalizeDatasetOptionKey(activeDatasetName));
+    if (activeEntry) {
+      const researchFeat = activeEntry.features.find((f) => f && f.properties && f.properties.ADM_lookup);
+      if (researchFeat) {
+        showInfo(researchFeat.properties, false, undefined, undefined, activeTabOverride, activeDataTypeOverride);
+        return;
+      }
+    }
+  }
+
   const activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
   const activeVersionEntries = activeDatasetGroup && activeDatasetGroup.versions.length > 1
     ? activeDatasetGroup.versions
@@ -5756,7 +5770,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           <div class="info-row"><span>Data provider</span><strong>${escapeHtml(resolveProviderName())}</strong></div>
           <div class="info-row"><span>Documentation page</span><strong>${documentationPageHtml}</strong></div>
           <div class="info-row"><span>Licence</span><strong>${buildLicenceHtml(licenceText)}</strong></div>
-          <div class="info-row"><span>Processing fee</span><strong>${buildProcessingFeeHtml(processingFeeText)}</strong></div>
+          ${processingFeeText !== 'No information available' ? `<div class="info-row"><span>Processing fee</span><strong>${buildProcessingFeeHtml(processingFeeText)}</strong></div>` : ''}
           <div class="info-row"><span>Access</span><strong>${accessHtml}</strong></div>
         </section>
       </div>
@@ -6222,7 +6236,7 @@ function syncLegendSelectionVisuals() {
     : new Set(['Pointcloud', 'DEM', 'No Info']);
   const activeDatasetTypes = mapFilterState && mapFilterState.datasetTypes instanceof Set
     ? mapFilterState.datasetTypes
-    : new Set(['national']);
+    : new Set(['national', 'regional', 'city']);
 
   items.forEach((li) => {
     const cat = String(li.dataset.cat || '').trim();
