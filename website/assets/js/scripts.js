@@ -3494,13 +3494,10 @@
             'case',
             ['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'),
             ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
-            ['boolean', ['get', 'SupportsRegion'], false], getCatColor('Region'),
-            ['boolean', ['get', 'SupportsPointcloud'], false], getCatColor('Pointcloud'),
-            ['boolean', ['get', 'SupportsDEM'], false], getCatColor('DEM'),
-            ['boolean', ['get', 'SupportsNoInfo'], false], getCatColor('No Info'),
             ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
             ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
             ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
+            ['==', ['get', 'Data'], 'No Info'], getCatColor('No Info'),
             getCatColor('No Info')
         ];
     }
@@ -3527,7 +3524,6 @@
         const focusedProperty = focusedCategory ? categorySupportProperty(focusedCategory) : null;
         return [
             'case',
-            ['boolean', ['feature-state', 'datasetSelected'], false], getSelectionColor(),
             ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
             ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
             ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
@@ -4384,14 +4380,15 @@
         map.easeTo({ center: [5,50], zoom:5, pitch:0, bearing:0, duration:1000 }); 
     } 
 
-    function zoomTo(feature, pitch) { 
-        const bbox = turf.bbox(feature); 
+    function zoomTo(feature, pitch) {
+        const bbox = turf.bbox(feature);
         map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], {
             padding: getMapFitPadding(20),
             duration: 1000,
             pitch,
-            bearing: 0
-        }); 
+            bearing: 0,
+            maxZoom: 8
+        });
     }
 
 function normalizeCountryKey(name) {
