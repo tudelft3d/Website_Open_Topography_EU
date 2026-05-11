@@ -262,8 +262,9 @@ def layer_match_mask(layer_gdf, name, country_name=None):
         values = layer_gdf[column].fillna('').astype(str).str.upper()
         mask = mask | values.eq(name) | values.str.contains(rf'(?:^|[|,;])\s*{re.escape(name)}\s*(?:$|[|,;])', regex=True)
 
-    if country_name and 'COUNTRY' in layer_gdf.columns:
-        mask = mask & layer_gdf['COUNTRY'].fillna('').astype(str).str.upper().eq(normalize_name(country_name))
+    country_col = next((c for c in ('COUNTRY', 'NAME_0') if c in layer_gdf.columns), None)
+    if country_name and country_col:
+        mask = mask & layer_gdf[country_col].fillna('').astype(str).str.upper().eq(normalize_name(country_name))
 
     return mask
 
@@ -592,6 +593,7 @@ def match_names_and_export(
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry='geometry', crs=adm0.crs)
 
         # Split regional vs national
+        result_gdf['ADM'] = pd.to_numeric(result_gdf['ADM'], errors='coerce').fillna(1)
         region_gdf = result_gdf[result_gdf['ADM'] > 0]
         nations_gdf = result_gdf[result_gdf['ADM'] == 0]
 
@@ -601,9 +603,10 @@ def match_names_and_export(
             # Simplify geometries to reduce file size (tolerance in degrees)
             region_match = region_match.copy()
             region_match['geometry'] = region_match['geometry'].simplify(tolerance=0.001)
+            nation_slug = nation.lower().replace(' ', '_')
             output_region_gpkg = os.path.join(
                 output_dir,
-                f"region_map_data_{nation.lower().replace(" ", "_")}.geojson"
+                f"region_map_data_{nation_slug}.geojson"
             )
             region_match.to_file(output_region_gpkg, driver='GeoJSON')
 
@@ -628,6 +631,9 @@ def match_names_and_export(
         region_simplified = region_gdf.copy()
         region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
         region_simplified.to_file(output_region_final_geojson, driver='GeoJSON')
+
+        # Export unified GeoJSON used by the website
+        export_geojson_outputs(result_gdf, output_dir)
     else:
         logger.warning("No matches found, nothing to export.")
 
