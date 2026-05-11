@@ -143,7 +143,7 @@
         includeMissingYear: false,
         classifications: new Set(),
         dataCategories: new Set(['Pointcloud', 'DEM', 'No Info']),
-        datasetTypes: new Set(['national']) // which ADM levels are included
+        datasetTypes: new Set(['national', 'regional', 'city']) // which ADM levels are included
     };
     const mapFilterBounds = {
         spatial: { min: 0, max: 100, ready: false },
@@ -2983,7 +2983,7 @@
         activeRangeFilters.year = false;
         mapFilterState.classifications = new Set();
         mapFilterState.dataCategories = new Set(['Pointcloud', 'DEM', 'No Info']);
-        mapFilterState.datasetTypes = new Set(['national']);
+        mapFilterState.datasetTypes = new Set(['national', 'regional', 'city']);
         userHasAdjustedMapFilters = false;
         rebuildCountryFilterMetrics();
         syncFilterControlsFromState();
@@ -5051,18 +5051,6 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
   const activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
   const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
-  // If the selected dataset belongs to a research feature, show that feature's info directly.
-  if (viewingCountrySummary && activeDatasetName) {
-    const activeEntry = countryDatasetFeatureMap.get(normalizeDatasetOptionKey(activeDatasetName));
-    if (activeEntry) {
-      const researchFeat = activeEntry.features.find((f) => f && f.properties && f.properties.ADM_lookup);
-      if (researchFeat) {
-        showInfo(researchFeat.properties, false, undefined, undefined, activeTabOverride, activeDataTypeOverride);
-        return;
-      }
-    }
-  }
-
   const activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
   const activeVersionEntries = activeDatasetGroup && activeDatasetGroup.versions.length > 1
     ? activeDatasetGroup.versions
@@ -5672,7 +5660,12 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       !!(feature && feature.properties && feature.properties.ADM_lookup)
     )
   );
-  const displayTitle = objectName;
+  const rp = isResearchDatasetContext
+    ? ((activeDatasetFeatureEntry.features.find((f) => f && f.properties && f.properties.ADM_lookup) || {}).properties || null)
+    : null;
+  const displayTitle = rp
+    ? String(rp['Name.1'] || rp.location || rp.Location || rp.place || rp['Dataset_name'] || rp.Name || objectName).trim()
+    : objectName;
   // Titel altijd tonen 
   if (infoTitleEl) infoTitleEl.textContent = displayTitle; 
   const flagCode = resolveFlagCodeForFeature(p);
@@ -5694,13 +5687,41 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       </div>
     </section>`;
 
-  if (!hasInfo) { 
-    infoBox.innerHTML = bannerHtml + generalRows; 
-  } else { 
-    const xyRef = p['XY Ref'] ? linkifyEPSG(valueForSelection(p['XY Ref'])) : 'N/A'; 
-    const zRef = p['Z Ref'] ? linkifyEPSG(valueForSelection(p['Z Ref'])) : 'N/A'; 
-    const dataroomLinkValue = resolveDataRoomLink();
-    const documentationLinkValue = resolveDocumentationLink();
+  if (!hasInfo && !rp) {
+    infoBox.innerHTML = bannerHtml + generalRows;
+  } else {
+    const sp = rp || p;
+    const xyRef = sp['XY Ref'] ? linkifyEPSG(rp ? String(sp['XY Ref']) : valueForSelection(sp['XY Ref'])) : 'N/A';
+    const zRef = sp['Z Ref'] ? linkifyEPSG(rp ? String(sp['Z Ref']) : valueForSelection(sp['Z Ref'])) : 'N/A';
+    const rpYearBegin = rp && (rp.year_begin || rp.Year_start || rp.Year_begin);
+    const rpYearEnd = rp && (rp.year_end || rp.Year_end || rp.Year);
+    const rpAcqStart = rp ? formatOngoingYearValue(String(rpYearBegin || '').trim() || String(rpYearEnd || '').trim()) : null;
+    const rpAcqEnd = rp ? formatOngoingYearValue(String(rpYearEnd || '').trim()) : null;
+    const rpAcqMeta = rp ? (() => {
+      if (rpAcqStart && rpAcqEnd && rpAcqStart !== rpAcqEnd) return { label: 'Acquisition period', value: `${rpAcqStart} to ${rpAcqEnd}` };
+      const v = rpAcqEnd || rpAcqStart;
+      return v ? { label: 'Acquisition year', value: v } : { label: 'Acquisition period', value: 'N/A' };
+    })() : null;
+    const rpCoverage = rp && (rp.Coverage || rp.coverage || '');
+    const rpType = rp && (rp.Type || rp.type || '');
+    const rpDataTypes = rp ? getAvailableDatasetTypes(rp.Data || rp.RawDataTypes || '', rp.DTM, rp.DSM) : null;
+    const rpPlanimetric = rp ? formatMeters(rp.Planimetric || rp.planimetric) : null;
+    const rpAltimetric = rp ? formatMeters(rp.Altimetric || rp.altimetric) : null;
+    const rpDensity = rp ? formatSpatialDistribution(rp.National, rp.Urban) : null;
+    const rpProvider = rp ? (() => {
+      const v = firstValue(rp.Responsible, rp.responsible, rp['Data Provider'], rp['Data provider'], rp.Provider, rp.provider, rp.Organisation, rp.Organization, rp.Agency);
+      if (v) return v;
+      const link = rp.Link || rp.Dataroom || rp.link_point_cloud;
+      if (!link) return 'N/A';
+      try { return new URL(String(link)).hostname.replace(/^www\./i, '') || 'N/A'; } catch (e) { return link; }
+    })() : null;
+    const rpLicence = rp && (rp.Licence || rp.License || rp.licence || rp.license || '');
+    const rpDocLink = rp && (rp['Documentation link'] || rp['Documentation Link'] || rp.link_info || rp.Link_info || '');
+    const rpDataroom = rp && (rp.Dataroom || rp.dataroom || rp.link_point_cloud || rp['link_point cloud'] || rp.Link || '');
+    const rpFeeRaw = rp && (rp.Fee || rp.fee || '');
+    const rpFee = (() => { const n = String(rpFeeRaw || '').trim().toLowerCase(); if (!n || n === 'nan') return null; if (n === 'yes') return '&euro;'; if (n === 'no') return 'X'; return rpFeeRaw; })();
+    const dataroomLinkValue = rp ? rpDataroom : resolveDataRoomLink();
+    const documentationLinkValue = rp ? rpDocLink : resolveDocumentationLink();
     const accessHtml = dataroomLinkValue
       ? `<a href="${dataroomLinkValue}" target="_blank" rel="noopener noreferrer">View dataroom</a>`
       : 'N/A';
@@ -5746,31 +5767,31 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         <section class="info-card">
           <h4>Acquisition & Coverage</h4>
           ${versionControlHtml ? `<div class="info-row"><span>Version</span><strong>${versionControlHtml}</strong></div>` : ''}
-          <div class="info-row"><span>${escapeHtml(acquisitionPeriodMeta.label)}</span><strong>${escapeHtml(acquisitionPeriodMeta.value)}</strong></div>
-          <div class="info-row"><span>Coverage</span><strong>${escapeHtml(coverageValue)}</strong></div>
+          <div class="info-row"><span>${escapeHtml((rpAcqMeta || acquisitionPeriodMeta).label)}</span><strong>${escapeHtml((rpAcqMeta || acquisitionPeriodMeta).value)}</strong></div>
+          <div class="info-row"><span>Coverage</span><strong>${escapeHtml(rpCoverage || coverageValue)}</strong></div>
           <div class="info-row info-row-stacked">
             <span>Type of data</span>
-            <strong>${buildDatasetTypeIndicators(availableDatasetTypes, activeDataType)}</strong>
+            <strong>${buildDatasetTypeIndicators(rpDataTypes || availableDatasetTypes, activeDataType)}</strong>
           </div>
           <div class="info-platform-block">
             <span class="info-platform-title">Acquisition method</span>
-            ${buildTypeBadges(valueForSelection(p.Type))}
+            ${buildTypeBadges(rp ? rpType : valueForSelection(p.Type))}
           </div>
         </section>
         <section class="info-card">
           <h4>Quality descriptions</h4>
-          <div class="info-row"><span>${qualityPrimaryLabel}</span><strong>${escapeHtml(qualityPrimaryValue)}</strong></div>
-          <div class="info-row"><span>Planimetric</span><strong>${formatMeters(valueForSpecs(p.Planimetric))}</strong></div>
-          <div class="info-row"><span>Altimetric</span><strong>${formatMeters(valueForSpecs(p.Altimetric))}</strong></div>
+          <div class="info-row"><span>${rp ? 'Spatial distribution' : qualityPrimaryLabel}</span><strong>${escapeHtml(rp ? (rpDensity || 'N/A') : qualityPrimaryValue)}</strong></div>
+          <div class="info-row"><span>Planimetric</span><strong>${rp ? (rpPlanimetric || 'N/A') : formatMeters(valueForSpecs(p.Planimetric))}</strong></div>
+          <div class="info-row"><span>Altimetric</span><strong>${rp ? (rpAltimetric || 'N/A') : formatMeters(valueForSpecs(p.Altimetric))}</strong></div>
           <div class="info-row"><span>XY-ref</span><strong>${xyRef}</strong></div>
           <div class="info-row"><span>Z-ref</span><strong>${zRef}</strong></div>
         </section>
         <section class="info-card">
           <h4>Additional Info</h4>
-          <div class="info-row"><span>Data provider</span><strong>${escapeHtml(resolveProviderName())}</strong></div>
+          <div class="info-row"><span>Data provider</span><strong>${escapeHtml(rp ? (rpProvider || 'N/A') : resolveProviderName())}</strong></div>
           <div class="info-row"><span>Documentation page</span><strong>${documentationPageHtml}</strong></div>
-          <div class="info-row"><span>Licence</span><strong>${buildLicenceHtml(licenceText)}</strong></div>
-          ${processingFeeText !== 'No information available' ? `<div class="info-row"><span>Processing fee</span><strong>${buildProcessingFeeHtml(processingFeeText)}</strong></div>` : ''}
+          <div class="info-row"><span>Licence</span><strong>${buildLicenceHtml(rp ? (rpLicence || 'No licence information available.') : licenceText)}</strong></div>
+          ${(rp ? rpFee : processingFeeText) && (rp ? rpFee : processingFeeText) !== 'No information available' ? `<div class="info-row"><span>Processing fee</span><strong>${buildProcessingFeeHtml(rp ? rpFee : processingFeeText)}</strong></div>` : ''}
           <div class="info-row"><span>Access</span><strong>${accessHtml}</strong></div>
         </section>
       </div>
