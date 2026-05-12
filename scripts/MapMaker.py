@@ -591,49 +591,10 @@ def match_names_and_export(
     # ---- OUTPUT ----
     if matched_rows:
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry='geometry', crs=adm0.crs)
-
-        # Split regional vs national
         result_gdf['ADM'] = pd.to_numeric(result_gdf['ADM'], errors='coerce').fillna(1)
-        region_gdf = result_gdf[result_gdf['ADM'] > 0]
-        nations_gdf = result_gdf[result_gdf['ADM'] == 0]
 
-        # Export regional file per country
-        for nation in result_gdf['country'].unique():
-            region_match = result_gdf[result_gdf['country'].str.lower() == nation.lower()]
-            # Simplify geometries to reduce file size (tolerance in degrees)
-            region_match = region_match.copy()
-            region_match['geometry'] = region_match['geometry'].simplify(tolerance=0.001)
-            nation_slug = nation.lower().replace(' ', '_')
-            output_region_gpkg = os.path.join(
-                output_dir,
-                f"region_map_data_{nation_slug}.geojson"
-            )
-            region_match.to_file(output_region_gpkg, driver='GeoJSON')
-
-        # Export total files
-        output_region_final_geojson = os.path.join(
-            output_dir,
-            "region_map_data_Europe.geojson"
-        )
-
-        # keep standard columns if they exist, otherwise all
-        keep_cols = [c for c in ['Name', 'Data', 'geometry'] if c in nations_gdf.columns]
-        if not keep_cols:
-            keep_cols = nations_gdf.columns
-
-        # Simplify geometries before saving
-        nations_simplified = nations_gdf[keep_cols].copy()
-        nations_simplified['geometry'] = nations_simplified['geometry'].simplify(tolerance=0.001)
-        main_output_file = os.path.join(output_dir, 'map_data_overview.geojson')
-        nations_simplified.to_file(main_output_file, driver='GeoJSON')
-        
-        # Simplify regional geometries before saving
-        region_simplified = region_gdf.copy()
-        region_simplified['geometry'] = region_simplified['geometry'].simplify(tolerance=0.001)
-        region_simplified.to_file(output_region_final_geojson, driver='GeoJSON')
-
-        # Export unified GeoJSON used by the website
-        export_geojson_outputs(result_gdf, output_dir)
+        unified_path = export_geojson_outputs(result_gdf, output_dir)
+        logger.info(f"Unified GeoJSON saved to: {unified_path}")
     else:
         logger.warning("No matches found, nothing to export.")
 
