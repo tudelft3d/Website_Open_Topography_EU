@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk -F';' 'NR==59 {print}' \"c:/Users/Daan/Documents/GitHub/Website_Open_Topography_EU/website/data/catalogue.csv\")",
+      "Bash(node -e ':*)",
+      "Bash(node.exe -e ':*)",
+      "Bash(powershell -Command ':*)",
+      "Bash(python3 -c \" import json with open\\('/c/Users/Daan/Documents/GitHub/Website_Open_Topography_EU/website/data/region_map_data_belgium.geojson'\\) as f: data = json.load\\(f\\) for feat in data['features']: props = feat['properties'] name = props.get\\('Name', ''\\) planimetric = props.get\\('Planimetric', 'MISSING'\\) parent = props.get\\('ParentCountry', ''\\) adm = props.get\\('ADM', ''\\) print\\(f'Name={name}, Parent={parent}, ADM={adm}, Planimetric={planimetric}'\\) \")",
+      "Bash(python -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(xargs grep *)",
+      "Bash(node -e \"1\")",
+      "Bash(powershell -Command \"node -e \\\\\"const fs=require\\('fs'\\);const d=JSON.parse\\(fs.readFileSync\\('website/data/region_map_data_belgium.geojson','utf8'\\)\\);d.features.forEach\\(f=>{const p=f.properties;console.log\\(p.Name, p.ADM, p.Planimetric, p.main_country, p.ParentCountry\\)}\\)\\\\\"\")",
+      "Bash(python3 -c ' *)",
+      "Bash(powershell -Command ' *)",
+      "Bash(py -c ' *)",
+      "Bash(py -m pip install openpyxl -q)",
+      "Bash(grep -v \"^.*//.*$\")",
+      "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\({k:v for k,v in json.loads\\(l\\)['properties'].items\\(\\) if v is not None and k in ['Name','ADM','main_country','Data','ADM_lookup','Name.1','Info','Type','Dataset_name','Data Name','Link','Dataroom','link_point cloud','Documentation link','Year_start','Year_end','Year','DSM','DTM','National','Urban','Planimetric','Altimetric','Avg_dens']}, indent=2\\)\\) for l in sys.stdin]\")",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(sort -t'\"' -k4 -rn)"
+    ]
+  }
+}
