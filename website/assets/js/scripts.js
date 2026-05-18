@@ -725,7 +725,7 @@
                 'fill-opacity': [
                     'case',
                     ['boolean', ['feature-state', 'datasetSelected'], false], 0.8,
-                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.12,
+                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.4,
                     0.6
                 ]
             }
@@ -747,7 +747,7 @@
                 'line-opacity': [
                     'case',
                     ['boolean', ['feature-state', 'datasetSelected'], false], 1,
-                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.2,
+                    ['boolean', ['feature-state', 'datasetDimmed'], false], 0.5,
                     1
                 ]
             }
@@ -796,7 +796,11 @@
         if (mapRef.getLayer('region-border')) mapRef.setLayoutProperty('region-border', 'visibility', 'none');
         if (mapRef.getLayer('region-point')) mapRef.setLayoutProperty('region-point', 'visibility', 'none');
         if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
-        if (mapRef.getLayer('country-border')) mapRef.setFilter('country-border', null);
+        if (mapRef.getLayer('country-border')) {
+            mapRef.setFilter('country-border', null);
+            mapRef.setPaintProperty('country-border', 'line-color', '#222222');
+            mapRef.setPaintProperty('country-border', 'line-width', 2);
+        }
         applyCategoryFilterToMap();
         if (!selectedCountryFeature) renderResearchMarkers();
     }
@@ -3480,7 +3484,6 @@
     function buildRegionBorderColorExpression(activeCountryName) {
         return [
             'case',
-            ['boolean', ['feature-state', 'datasetSelected'], false], getSelectionColor(),
             ['boolean', ['feature-state', 'selected'], false], getSelectedBorderColor(),
             ...(activeCountryName ? [[ '==', ['get', 'Name'], activeCountryName ], getCatColor('Region')] : []),
             '#222222'
@@ -3777,9 +3780,15 @@
                 (f) => !isCountrySummaryFeatureForCountry(f, currentCountryName)
             )
             : [];
-        const visibleRegionalChildren = isFilterActive()
+        const visibleRegionalChildren = (isFilterActive()
             ? regionalChildren.filter((f) => subRegionPassesRangeFilters(f))
-            : regionalChildren;
+            : regionalChildren
+        ).slice().sort((a, b) => {
+            const aIsResearch = !!(a.properties && a.properties.ADM_lookup);
+            const bIsResearch = !!(b.properties && b.properties.ADM_lookup);
+            if (aIsResearch !== bIsResearch) return aIsResearch ? 1 : -1;
+            return 0;
+        });
 
         // Overview knop (altijd) 
         const homeBtn = document.createElement('button'); 
@@ -4238,10 +4247,16 @@
             ];
             if (mapRef.getLayer('region-fill')) {
                 mapRef.setFilter('region-fill', ['all', ...regionFillParts]);
-            }
-            if (mapRef.getLayer('region-fill')) {
                 mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
                 mapRef.setLayoutProperty('region-fill', 'visibility', showBoundaries ? 'visible' : 'none');
+            }
+            if (mapRef.getLayer('country-fill')) {
+                mapRef.setFilter('country-fill', ['!=', ['get', 'Name'], selectedName]);
+            }
+            if (mapRef.getLayer('country-border')) {
+                mapRef.setFilter('country-border', ['==', ['get', 'Name'], selectedName]);
+                mapRef.setPaintProperty('country-border', 'line-color', '#000000');
+                mapRef.setPaintProperty('country-border', 'line-width', 5);
             }
             if (mapRef.getLayer('region-border')) {
                 mapRef.setFilter('region-border', ['all', ...regionFillParts]);
@@ -4918,7 +4933,12 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const summaryDatasetOptions = (() => {
     const fromProperties = getDatasetNamesFromProperties(p, { preserveDuplicates: true });
     if (fromProperties.length) return fromProperties;
-    if (viewingCountrySummary) return extractDatasetNamesFromInfo(p && p.Info);
+    if (viewingCountrySummary) {
+      const countryFallbackName = String((p && p.Name) || '').trim();
+      const hasOwnData = !!(p && (p.Data || p.Main_data || p.Info || p.Link));
+      if (countryFallbackName && hasOwnData) return [countryFallbackName];
+      return extractDatasetNamesFromInfo(p && p.Info);
+    }
     return fromProperties;
   })();
   const countryDatasetFeatureMap = new Map();
@@ -5156,9 +5176,10 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const begin = formatOngoingYearValue(acquisitionStartValue);
     const end = formatOngoingYearValue(acquisitionEndValue);
     if (begin && end) {
+      const endRedundant = begin === end || begin.toLowerCase().includes('onwards');
       return {
         label: 'Acquisition period',
-        value: begin === end ? begin : `${begin} to ${end}`
+        value: endRedundant ? begin : `${begin} to ${end}`
       };
     }
     if (end) {
@@ -5973,11 +5994,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       });
     });
   }
-  if (viewingCountrySummary) {
-    setDatasetRegionSelectionByNames(activeDatasetRegionNames);
-  } else {
-    clearDatasetRegionSelection();
-  }
+  clearDatasetRegionSelection();
 
   sidebar.style.display = 'block';
 
