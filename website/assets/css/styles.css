@@ -2285,6 +2285,13 @@ body.home-page {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
+#tabs button:hover,
+#tabs button:focus,
+#tabs a:hover,
+#tabs a:focus {
+  color: #30bfeb;
+}
+
 #tabs button.active,
 #tabs a.active {
   font-weight: 700;
