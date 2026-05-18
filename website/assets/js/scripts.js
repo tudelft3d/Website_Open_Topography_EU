@@ -3196,6 +3196,7 @@
     const dataTab = document.getElementById('tab-data');
     const dataMenu = document.getElementById('dataMenu');
     let dataMenuCloseTimer = null;
+    let dataMenuPinned = false;
     const isDataMenuOpen = () => dataMenu && dataMenu.style.display === 'block';
     const cancelCloseDataMenu = () => {
         if (dataMenuCloseTimer) {
@@ -3212,6 +3213,7 @@
     const closeDataMenu = () => {
         if (!dataTab || !dataMenu) return;
         cancelCloseDataMenu();
+        dataMenuPinned = false;
         dataMenu.style.display = 'none';
         dataTab.setAttribute('aria-expanded', 'false');
     };
@@ -3223,11 +3225,8 @@
         dataMenu.style.display = 'block';
         dataTab.setAttribute('aria-expanded', 'true');
     };
-    const toggleDataMenu = () => {
-        if (isDataMenuOpen()) closeDataMenu();
-        else openDataMenu();
-    };
     const scheduleCloseDataMenu = () => {
+        if (dataMenuPinned) return;
         cancelCloseDataMenu();
         if (!dataMenu) return;
         dataMenuCloseTimer = setTimeout(() => {
@@ -3252,13 +3251,21 @@
         dataTab.setAttribute('aria-expanded', 'false');
         dataTab.addEventListener('click', (e) => {
             e.stopPropagation();
-            toggleDataMenu();
+            if (isDataMenuOpen() && dataMenuPinned) {
+                closeDataMenu();
+            } else {
+                dataMenuPinned = true;
+                openDataMenu();
+            }
         });
         dataTab.addEventListener('pointerenter', openDataMenu);
         dataTab.addEventListener('pointerleave', scheduleCloseDataMenu);
         dataMenu.addEventListener('pointerenter', cancelCloseDataMenu);
         dataMenu.addEventListener('pointerleave', scheduleCloseDataMenu);
         dataMenu.addEventListener('click', (e) => e.stopPropagation());
+        document.addEventListener('click', () => {
+            if (isDataMenuOpen()) closeDataMenu();
+        });
     }
     window.addEventListener('resize', () => {
         updateMobileOverviewChrome();
