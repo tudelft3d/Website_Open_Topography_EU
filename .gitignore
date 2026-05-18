@@ -18,5 +18,5 @@ website/assets/images/icons/color_blindness.png
 .venv/
 config
 data/
-.claude/worktrees/focused-feynman-fb18e7/
-.claude/settings.local.json
+
+
