@@ -1630,7 +1630,8 @@
 
     function extractFilterRecordFromProps(props) {
         const allNumeric = (v) => String(v || '').split('||').map(toNumeric).filter((n) => Number.isFinite(n));
-        const spatialValues = [props && props.National, props && props.Urban].flatMap(allNumeric);
+        const isResearch = !!(props && props.ADM_lookup);
+        const spatialValues = isResearch ? [] : [props && props.National, props && props.Urban].flatMap(allNumeric);
         const planimetricValues = allNumeric(props && props.Planimetric);
         const altimetricValues = allNumeric(props && props.Altimetric);
         const filterYearEndValue = String((props && (props.Year_end || props.year_end || props['Year end'] || props['Acquisition end'] || props['End year'])) || '').trim();
@@ -4453,6 +4454,57 @@ const countryFlagCodes = {
   europe: 'eu'
 };
 
+const regionFlagCodes = {
+  // Germany
+  'baden-wurttemberg': 'de-bw', 'badenwurttemberg': 'de-bw',
+  'bayern': 'de-by', 'bavaria': 'de-by',
+  'berlin': 'de-be',
+  'brandenburg': 'de-bb',
+  'bremen': 'de-hb',
+  'hamburg': 'de-hh',
+  'hessen': 'de-he', 'hesse': 'de-he',
+  'mecklenburg-vorpommern': 'de-mv', 'mecklenburgvorpommern': 'de-mv',
+  'niedersachsen': 'de-ni', 'lower saxony': 'de-ni',
+  'nordrhein-westfalen': 'de-nw', 'nordrheinwestfalen': 'de-nw',
+  'rheinland-pfalz': 'de-rp', 'rheinlandpfalz': 'de-rp',
+  'saarland': 'de-sl',
+  'sachsen': 'de-sn', 'saxony': 'de-sn',
+  'sachsen-anhalt': 'de-st', 'sachsenanhalt': 'de-st',
+  'schleswig-holstein': 'de-sh', 'schleswigholstein': 'de-sh',
+  'thuringen': 'de-th', 'thuringia': 'de-th',
+  // Austria
+  'burgenland': 'at-1',
+  'karnten': 'at-2', 'carinthia': 'at-2',
+  'niederosterreich': 'at-3', 'lower austria': 'at-3',
+  'oberosterreich': 'at-4', 'upper austria': 'at-4',
+  'salzburg': 'at-5',
+  'steiermark': 'at-6', 'styria': 'at-6',
+  'tirol': 'at-7', 'tyrol': 'at-7',
+  'vorarlberg': 'at-8',
+  // United Kingdom
+  'england': 'gb-eng',
+  'scotland': 'gb-sct',
+  'wales': 'gb-wls',
+  'northern ireland': 'gb-nir', 'northernireland': 'gb-nir',
+  // Belgium
+  'vlaanderen': 'be-vlg', 'flanders': 'be-vlg',
+  'wallonie': 'be-wal', 'wallonia': 'be-wal',
+  'bruxelles': 'be-bru', 'brussels': 'be-bru',
+  // Spain
+  'cataluna': 'es-ct', 'catalonia': 'es-ct',
+  'madrid': 'es-md',
+  'pais vasco': 'es-pv', 'paisvasco': 'es-pv', 'basque country': 'es-pv',
+  // Italy
+  'emilia-romagna': 'it-45', 'emiliaromagna': 'it-45',
+  'sardegna': 'it-88', 'sardinia': 'it-88',
+  'trentino-alto adige': 'it-32', 'trentinoalto adige': 'it-32',
+};
+
+function resolveRegionFlagCode(p) {
+  const name = normalizeCountryKey(String((p && p.Name) || ''));
+  return name ? (regionFlagCodes[name] || null) : null;
+}
+
 function resolveFlagCodeForFeature(p) {
   const explicitCode = p && (p.FlagCode || p.flag_code || p.flag);
   if (explicitCode) return String(explicitCode).toLowerCase().trim();
@@ -5303,10 +5355,10 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         : (availableDatasetTypes[0] && availableDatasetTypes[0].key) || '');
   const navItems = getBannerNavigationItems();
   const navHtml = navItems.length > 1
-    ? `<div class="info-banner-nav">
-         <button id="infoBannerPrev" class="info-banner-btn" aria-label="Previous region">‹</button>
-         <button id="infoBannerNext" class="info-banner-btn" aria-label="Next region">›</button>
-       </div>`
+    ? `<button id="infoBannerPrev" class="info-banner-btn" aria-label="Previous region">‹</button>`
+    : '';
+  const navHtmlNext = navItems.length > 1
+    ? `<button id="infoBannerNext" class="info-banner-btn" aria-label="Next region">›</button>`
     : '';
   const buildTypeBadges = (typeText) => {
     if (!typeText || !String(typeText).trim()) return '<strong>N/A</strong>';
@@ -5665,16 +5717,41 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     : objectName;
   // Titel altijd tonen 
   if (infoTitleEl) infoTitleEl.textContent = displayTitle; 
-  const flagCode = resolveFlagCodeForFeature(p);
+  const nationalFlagCode = resolveFlagCodeForFeature(p);
+  const regionFlagCode = regionMode ? resolveRegionFlagCode(p) : null;
+  const flagCode = regionFlagCode || nationalFlagCode;
   const flagName = escapeHtml((p && (p.ParentCountry || p.main_country || p.country || p.Name)) || objectName);
+  const fallbackSrc = nationalFlagCode
+    ? `https://flagcdn.com/w320/${nationalFlagCode}.png`
+    : 'assets/images/banner-placeholder.svg';
   const flagHtml = flagCode
-    ? `<img class="info-banner-flag" src="https://flagcdn.com/w320/${flagCode}.png" srcset="https://flagcdn.com/w640/${flagCode}.png 2x, https://flagcdn.com/w960/${flagCode}.png 3x" width="320" height="170" alt="${flagName} flag">`
+    ? `<img class="info-banner-flag" src="https://flagcdn.com/w320/${flagCode}.png" srcset="https://flagcdn.com/w640/${flagCode}.png 2x, https://flagcdn.com/w960/${flagCode}.png 3x" width="320" height="170" alt="${flagName} flag" onerror="this.onerror=null;this.srcset='';this.src='${fallbackSrc}'">`
     : `<img class="info-banner-flag" src="assets/images/banner-placeholder.svg" width="320" height="170" alt="Flag not available">`;
+  const _scf = selectedCountryFeature;
+  const _scfProps = _scf && _scf.properties;
+  const isRegionView = !!_scfProps && (
+    isResearchFeatureContext ||
+    (!viewingCountrySummary && normalizeCountryKey(objectName) !== normalizeCountryKey(String(_scfProps.Name || '')))
+  );
+  const parentCountryName = isRegionView
+    ? escapeHtml(String(p.ParentCountry || p.main_country || p.country || _scfProps.Name || '').trim())
+    : null;
+  const titleColHtml = isRegionView
+    ? `<div class="info-banner-title-col info-banner-title-col--region">
+        <button class="info-banner-country-link" type="button">${parentCountryName || escapeHtml(String((_scfProps && _scfProps.Name) || ''))}</button>
+        <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
+      </div>`
+    : `<div class="info-banner-title-col">
+        <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
+      </div>`;
   const bannerHtml = `
-    <div class="info-banner">
-      ${flagHtml}
-      <div class="info-banner-title">${escapeHtml(displayTitle)}</div>
+    <div class="info-banner-wrapper">
       ${navHtml}
+      <div class="info-banner">
+        <div class="info-banner-flag-col">${flagHtml}</div>
+        ${titleColHtml}
+      </div>
+      ${navHtmlNext}
     </div>`;
   const generalRows = `
     <section class="info-panel-section${effectiveTab === 'general' ? ' is-active' : ''}" data-info-panel="general">
@@ -5825,6 +5902,19 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       const nextDatasetIndex = nextGroup && nextGroup.rawIndices.length ? nextGroup.rawIndices[0] : 0;
       const nextDatasetName = datasetOptions[nextDatasetIndex] || '';
       const nextDatasetKey = normalizeDatasetOptionKey(nextDatasetName);
+
+      // When in the country summary, navigate directly to the sub-feature if one is mapped.
+      if (viewingCountrySummary && nextDatasetKey) {
+        const mappedEntry = countryDatasetFeatureMap.get(nextDatasetKey);
+        if (mappedEntry && mappedEntry.features && mappedEntry.features.length) {
+          const targetFeature = mappedEntry.features[0];
+          if (targetFeature && targetFeature.id !== undefined) {
+            selectRegion(targetFeature.id, targetFeature.properties);
+            return;
+          }
+        }
+      }
+
       const nextSummaryDatasetIndex = summaryDatasetOptions.findIndex(
         (name) => normalizeDatasetOptionKey(name) === nextDatasetKey
       );
@@ -5889,7 +5979,24 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     clearDatasetRegionSelection();
   }
 
-  sidebar.style.display = 'block'; 
+  sidebar.style.display = 'block';
+
+  const countryLinkBtn = sidebar.querySelector('.info-banner-country-link');
+  if (countryLinkBtn && selectedCountryFeature) {
+    const snapFeature = selectedCountryFeature;
+    countryLinkBtn.addEventListener('click', () => handleCountrySelect(snapFeature, null));
+  }
+
+  const bannerTitleEl = sidebar.querySelector('.info-banner-title');
+  const bannerTitleCol = sidebar.querySelector('.info-banner-title-col');
+  if (bannerTitleEl && bannerTitleCol) {
+    bannerTitleEl.style.fontSize = '';
+    let fs = 1.9;
+    while (fs > 0.85 && bannerTitleEl.scrollWidth > bannerTitleCol.clientWidth - 32) {
+      fs = Math.round((fs - 0.05) * 100) / 100;
+      bannerTitleEl.style.fontSize = fs + 'rem';
+    }
+  }
 }
 function linkifyEPSG(text) { 
   const m = text.match(/\(EPSG:(\d+)\)/i); 

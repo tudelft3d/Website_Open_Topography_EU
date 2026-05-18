@@ -15,7 +15,10 @@
       "Bash(powershell -Command ' *)",
       "Bash(py -c ' *)",
       "Bash(py -m pip install openpyxl -q)",
-      "Bash(grep -v \"^.*//.*$\")"
+      "Bash(grep -v \"^.*//.*$\")",
+      "Bash(python3 -c \"import sys,json; [print\\(json.dumps\\({k:v for k,v in json.loads\\(l\\)['properties'].items\\(\\) if v is not None and k in ['Name','ADM','main_country','Data','ADM_lookup','Name.1','Info','Type','Dataset_name','Data Name','Link','Dataroom','link_point cloud','Documentation link','Year_start','Year_end','Year','DSM','DTM','National','Urban','Planimetric','Altimetric','Avg_dens']}, indent=2\\)\\) for l in sys.stdin]\")",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(sort -t'\"' -k4 -rn)"
     ]
   }
 }
