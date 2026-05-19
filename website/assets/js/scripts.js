@@ -740,7 +740,7 @@
                 'line-color': buildRegionBorderColorExpression(activeCountryName),
                 'line-width': [
                     'case',
-                    ['boolean', ['feature-state', 'datasetSelected'], false], 2,
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 3.5,
                     ['==', ['get', 'Name'], activeCountryName], 4,
                     2
                 ],
@@ -1309,6 +1309,8 @@
             type: 'FeatureCollection',
             features: markerFeatures
         });
+        if (mapRef.getLayer('research-point')) mapRef.moveLayer('research-point');
+        if (mapRef.getLayer('research-point-hit')) mapRef.moveLayer('research-point-hit');
     }
 
     function resolveCountryFeatureFromMapFeature(feature) {
@@ -3500,7 +3502,7 @@
         return [
             'case',
             ['boolean', ['feature-state', 'selected'], false], getSelectedBorderColor(),
-            ['boolean', ['feature-state', 'datasetSelected'], false], '#000000',
+            ['boolean', ['feature-state', 'datasetSelected'], false], '#111111',
             ...(activeCountryName ? [[ '==', ['get', 'Name'], activeCountryName ], getCatColor('Region')] : []),
             '#222222'
         ];
@@ -3614,7 +3616,11 @@
         if (!targets.size) return;
 
         const matchingFeatures = regionsData.features.filter((feature) => {
-            const name = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
+            const fp = feature && feature.properties;
+            const isResearch = !!(fp && fp.ADM_lookup);
+            const name = isResearch
+                ? normalizeCountryKey(firstValue(fp.Location, fp.location, fp['Name.1'], fp.RegionName, fp.Name))
+                : normalizeCountryKey(fp && fp.Name);
             return name && targets.has(name);
         });
         if (!matchingFeatures.length) return;
@@ -3988,13 +3994,13 @@
                     Data: null,
                     Dataset_name: null
                 };
-                showInfo(mergedSummaryProps, false, undefined, 0);
+                showInfo(mergedSummaryProps, false, undefined, 0, undefined, undefined, true);
                 showTab('toc');
                 zoomTo(feature, 0);
                 map.setMinZoom(2);
                 return;
             }
-            showInfo(summaryProperties, false, undefined, preferredDatasetIndex);
+            showInfo(summaryProperties, false, undefined, preferredDatasetIndex, undefined, undefined, true);
             showTab('toc'); 
             zoomTo(feature, 0);
             map.setMinZoom(2); 
@@ -4203,14 +4209,14 @@
                         const properties = researchFeature.properties || {};
                         if (selectedCountryFeature && regionsData && Array.isArray(regionsData.features)) {
                             const matchedFeature = getRegionFeatureByIdOrProperties(properties.ResearchFeatureId, properties);
-                            if (matchedFeature) {
-                                focusRegionFeature(matchedFeature.id, matchedFeature.properties);
-                                zoomToResearchPoint(researchFeature, map);
-                                showInfo(matchedFeature.properties, false, undefined, getCountryDatasetIndexForFeature(matchedFeature));
-                                return;
-                            }
+                            // Open as country summary with the research dataset selected so Region dropdown is visible
+                            const _mainRegion = getCountrySummaryFeature();
+                            const _summaryProps = (_mainRegion && _mainRegion.properties) || selectedCountryFeature.properties;
+                            const _researchDatasetIndex = matchedFeature ? getCountryDatasetIndexForFeature(matchedFeature) : undefined;
+                            if (matchedFeature) focusRegionFeature(matchedFeature.id, matchedFeature.properties);
                             zoomToResearchPoint(researchFeature, map);
-                            showInfo(properties, false);
+                            showInfo(_summaryProps, false, undefined, _researchDatasetIndex);
+                            showTab('toc');
                             return;
                         }
                         zoomToResearchPoint(researchFeature, map);
@@ -4322,7 +4328,7 @@
                 mapRef.setPaintProperty('region-border', 'line-width', [
                     'case',
                     ['boolean', ['feature-state', 'selected'], false], 4,
-                    ['boolean', ['feature-state', 'datasetSelected'], false], 2,
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 3.5,
                     1
                 ]);
                 mapRef.setLayoutProperty('region-border', 'visibility', showBoundaries ? 'visible' : 'none');
@@ -4346,7 +4352,10 @@
                 mapRef.setLayoutProperty('region-point', 'visibility', showBoundaries ? 'visible' : 'none');
             }
         }
-    } 
+        // Keep research dots on top of all region layers
+        if (mapRef.getLayer('research-point')) mapRef.moveLayer('research-point');
+        if (mapRef.getLayer('research-point-hit')) mapRef.moveLayer('research-point-hit');
+    }
 
     function openOverviewDrilldownRegion(id, props) {
         const activeCountry = getActiveRegionCountryFeature();
@@ -4444,15 +4453,14 @@
 
     function zoomTo(feature, pitch) {
         const bbox = turf.bbox(feature);
-        requestAnimationFrame(() => {
+        setTimeout(() => {
             map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], {
-                padding: getMapFitPadding(20),
+                padding: getMapFitPadding(30),
                 duration: 1000,
                 pitch,
-                bearing: 0,
-                maxZoom: 8
+                bearing: 0
             });
-        });
+        }, 80);
     }
 
 function normalizeCountryKey(name) {
@@ -4662,7 +4670,7 @@ function navigateInfoBanner(step, p, regionMode) {
   showInfo(nextItem.properties, false);
 }
 
-function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride) { 
+function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride, forceNational) {
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -5109,7 +5117,11 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const featureRegionMap = Object.fromEntries(
       Array.from(countryDatasetFeatureMap.values()).map((entry) => [
         entry.name,
-        uniqueValues(entry.features.map((feature) => firstValue(feature && feature.properties && feature.properties.Name)))
+        uniqueValues(entry.features.map((feature) => {
+          const fp = feature && feature.properties;
+          if (fp && fp.ADM_lookup) return firstValue(fp.Location, fp.location, fp['Name.1'], fp.RegionName, fp.Name);
+          return firstValue(fp && fp.Name);
+        }))
       ])
     );
     const mergedRegionMap = { ...parsedRegionMap };
@@ -5162,13 +5174,13 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const requestedSeriesIndex = Number.isInteger(datasetIndex)
     ? datasetIndex
     : (priorityDatasetIndex !== -1 ? priorityDatasetIndex : (Number.isInteger(yearIndex) ? yearIndex : defaultSeriesIndex));
-  const activeDatasetIndex = hasDatasetSwitcher
+  let activeDatasetIndex = hasDatasetSwitcher
     ? Math.max(0, Math.min(requestedSeriesIndex, datasetOptions.length - 1))
     : 0;
-  const activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
-  const activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
-  const activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
-  const activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
+  let activeDatasetGroupIndex = datasetGroupEntries.findIndex((entry) => entry.rawIndices.includes(activeDatasetIndex));
+  let activeDatasetGroup = datasetGroupEntries[Math.max(0, activeDatasetGroupIndex)] || datasetGroupEntries[0] || null;
+  let activeDatasetName = datasetOptions[activeDatasetIndex] || datasetOptions[0] || '';
+  let activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
   const activeVersionEntries = activeDatasetGroup && activeDatasetGroup.versions.length > 1
     ? activeDatasetGroup.versions
     : [];
@@ -5744,6 +5756,107 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
          </select>
        </label>`
     : '';
+  // Build region→datasets map for the Dataset tab
+  // Research features are grouped under a single '__research_group__' key
+  const RESEARCH_REGION_KEY = '__research_group__';
+  const regionDatasetMap = new Map();
+  if (viewingCountrySummary) {
+    countryDatasetFeatureMap.forEach((entry, datasetKey) => {
+      entry.features.forEach((feature) => {
+        const fp = feature.properties || {};
+        const isResearch = !!fp.ADM_lookup;
+        if (isResearch) {
+          if (!regionDatasetMap.has(RESEARCH_REGION_KEY)) regionDatasetMap.set(RESEARCH_REGION_KEY, { name: 'Research', datasetKeys: [] });
+          if (!regionDatasetMap.get(RESEARCH_REGION_KEY).datasetKeys.includes(datasetKey)) regionDatasetMap.get(RESEARCH_REGION_KEY).datasetKeys.push(datasetKey);
+        } else {
+          const rName = String(fp.Name || '').trim();
+          if (!rName || normalizeCountryKey(rName) === normalizeCountryKey(countryName || '')) return;
+          const rKey = normalizeCountryKey(rName);
+          if (!regionDatasetMap.has(rKey)) regionDatasetMap.set(rKey, { name: rName, datasetKeys: [] });
+          if (!regionDatasetMap.get(rKey).datasetKeys.includes(datasetKey)) regionDatasetMap.get(rKey).datasetKeys.push(datasetKey);
+        }
+      });
+    });
+  }
+  const isCoverageOnlyStyle = (
+    (selectedCountryFeature && (selectedCountryFeature.properties.Coverage || '').toLowerCase() === 'regional') &&
+    countryDatasetFeatureMap.size > 0 &&
+    [...countryDatasetFeatureMap.values()].every((entry) =>
+      entry.features.some((f) => f && f.properties && f.properties.Dataset_name)
+    )
+  );
+  const showRegionDropdown = viewingCountrySummary && regionDatasetMap.size >= 1 && !isCoverageOnlyStyle;
+  const activeDatasetKey2 = normalizeDatasetOptionKey(activeDatasetName);
+  // '__national__' = national; '__research_group__' = research; regionKey = specific region
+  // A dataset is national if it exists in summaryDatasetOptions (country-level info)
+  const summaryDatasetKeySet = new Set(summaryDatasetOptions.map((n) => normalizeDatasetOptionKey(n)));
+  let activeRegionKey = showRegionDropdown ? '__national__' : null;
+  if (showRegionDropdown) {
+    const ame2 = countryDatasetFeatureMap.get(activeDatasetKey2);
+    if (ame2 && ame2.features.length) {
+      const fp0 = ame2.features[0].properties || {};
+      if (fp0.ADM_lookup) {
+        // Research always takes priority, even if name is also in summaryDatasetOptions
+        activeRegionKey = RESEARCH_REGION_KEY;
+      } else if (!summaryDatasetKeySet.has(activeDatasetKey2)) {
+        const rk = normalizeCountryKey(String(fp0.Name || '').trim());
+        if (rk && regionDatasetMap.has(rk)) activeRegionKey = rk;
+      }
+    }
+  }
+  // All dataset keys that belong to a specific region or research (not national)
+  // Exclude any key that also appears in summaryDatasetOptions (those are national)
+  const allRegionalDatasetKeys = new Set(
+    [...regionDatasetMap.entries()].flatMap(([key, e]) =>
+      key === RESEARCH_REGION_KEY
+        ? e.datasetKeys  // research keys always excluded from National, regardless of summaryDatasetOptions
+        : e.datasetKeys.filter((k) => !summaryDatasetKeySet.has(k))
+    )
+  );
+  // On initial country click, always open the national view
+  if (forceNational && showRegionDropdown && activeRegionKey !== '__national__') {
+    activeRegionKey = '__national__';
+    // Reset to the first national dataset
+    const firstNationalGroup = datasetGroupEntries.find((entry) =>
+      entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+    );
+    if (firstNationalGroup) {
+      const firstNationalRawIndex = firstNationalGroup.rawIndices.find(
+        (i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || ''))
+      );
+      if (firstNationalRawIndex !== undefined) {
+        activeDatasetIndex = firstNationalRawIndex;
+        activeDatasetGroupIndex = datasetGroupEntries.indexOf(firstNationalGroup);
+        activeDatasetGroup = firstNationalGroup;
+        activeDatasetName = datasetOptions[activeDatasetIndex] || '';
+        activeDatasetRegionNames = resolveDatasetRegionNames(activeDatasetName, activeDatasetGroup);
+      }
+    }
+  }
+  // Filter dataset entries based on selected region
+  const filteredDatasetGroupEntries = showRegionDropdown
+    ? (activeRegionKey === '__national__'
+      ? datasetGroupEntries.filter((entry) =>
+          entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+        )
+      : datasetGroupEntries.filter((entry) =>
+          entry.rawIndices.some((i) =>
+            (regionDatasetMap.get(activeRegionKey) || { datasetKeys: [] }).datasetKeys.includes(normalizeDatasetOptionKey(datasetOptions[i] || ''))
+          )
+        )
+      )
+    : datasetGroupEntries;
+  const filteredDatasetControlHtml = filteredDatasetGroupEntries.length > 1
+    ? `<label class="info-select-wrap" aria-label="Select dataset"><select class="info-select" data-info-dataset-select="true">${
+        filteredDatasetGroupEntries.map((entry) => {
+          const origIdx = datasetGroupEntries.indexOf(entry);
+          return `<option value="${origIdx}"${origIdx === activeDatasetGroupIndex ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`;
+        }).join('')
+      }</select></label>`
+    : filteredDatasetGroupEntries.length === 1
+      ? escapeHtml(filteredDatasetGroupEntries[0].label)
+      : '';
+  const showDatasetTab = viewingCountrySummary && (showRegionDropdown || datasetGroupEntries.length > 1);
   const generalInfoText = viewingCountrySummary
     ? String((p && p.Info) || '').trim()
     : buildDatasetSpecificInfo(p && p.Info, datasetOptions, activeDatasetName);
@@ -5762,7 +5875,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const rp = isResearchDatasetContext
     ? ((activeDatasetFeatureEntry.features.find((f) => f && f.properties && f.properties.ADM_lookup) || {}).properties || null)
     : null;
-  const displayTitle = rp
+  // When in country summary, always show the country name — not the research location
+  const displayTitle = (!viewingCountrySummary && rp)
     ? String(rp['Name.1'] || rp.location || rp.Location || rp.place || rp['Dataset_name'] || rp.Name || objectName).trim()
     : objectName;
   // Titel altijd tonen 
@@ -5779,9 +5893,9 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     : `<img class="info-banner-flag" src="assets/images/banner-placeholder.svg" width="320" height="170" alt="Flag not available">`;
   const _scf = selectedCountryFeature;
   const _scfProps = _scf && _scf.properties;
-  const isRegionView = !!_scfProps && (
+  const isRegionView = !!_scfProps && !viewingCountrySummary && (
     isResearchFeatureContext ||
-    (!viewingCountrySummary && normalizeCountryKey(objectName) !== normalizeCountryKey(String(_scfProps.Name || '')))
+    normalizeCountryKey(objectName) !== normalizeCountryKey(String(_scfProps.Name || ''))
   );
   const parentCountryName = isRegionView
     ? escapeHtml(String(p.ParentCountry || p.main_country || p.country || _scfProps.Name || '').trim())
@@ -5856,9 +5970,10 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const tabsHtml = `
       <div class="info-tabs" role="tablist" aria-label="Information sections">
         <button class="info-tab-btn${effectiveTab === 'general' ? ' is-active' : ''}" type="button" data-info-tab="general" aria-pressed="${effectiveTab === 'general' ? 'true' : 'false'}">General information</button>
-        <button class="info-tab-btn${effectiveTab === 'specs' ? ' is-active' : ''}" type="button" data-info-tab="specs" aria-pressed="${effectiveTab === 'specs' ? 'true' : 'false'}">Specifications</button>
+        <button class="info-tab-btn${effectiveTab === 'specs' ? ' is-active' : ''}" type="button" data-info-tab="specs" aria-pressed="${effectiveTab === 'specs' ? 'true' : 'false'}">Dataset</button>
         <button class="info-tab-btn${effectiveTab === 'classes' ? ' is-active' : ''}" type="button" data-info-tab="classes" aria-pressed="${effectiveTab === 'classes' ? 'true' : 'false'}">Classifications</button>
       </div>`;
+    const datasetTabHtml = '';
     const classHtml = `
       <section class="info-panel-section${effectiveTab === 'classes' ? ' is-active' : ''}" data-info-panel="classes">
         <div class="info-card">
@@ -5884,8 +5999,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     const dataHtml = `
       <section class="info-panel-section${effectiveTab === 'specs' ? ' is-active' : ''}" data-info-panel="specs">
       <div class="info-card">
-        <h4>Dataset name</h4>
-        <div class="info-row info-row-dataset"><span>Data name</span><strong>${datasetControlHtml}</strong></div>
+        ${showRegionDropdown ? `<div class="info-row"><span>Region of interest</span><strong><label class="info-select-wrap" aria-label="Select region of interest"><select class="info-select" data-info-region-select="true"><option value="__national__"${activeRegionKey === '__national__' ? ' selected' : ''}>National</option>${[...regionDatasetMap.entries()].sort(([ka], [kb]) => { if (ka === RESEARCH_REGION_KEY) return -1; if (kb === RESEARCH_REGION_KEY) return 1; return 0; }).map(([key, entry]) => `<option value="${escapeHtml(key)}"${key === activeRegionKey ? ' selected' : ''}>${escapeHtml(entry.name)}</option>`).join('')}</select></label></strong></div>` : ''}
+        ${filteredDatasetControlHtml ? `<div class="info-row info-row-dataset"><span>Dataset</span><strong>${filteredDatasetControlHtml}</strong></div>` : ''}
       </div>
       <div class="info-sections">
         <section class="info-card">
@@ -5921,7 +6036,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       </div>
       </section>`; 
 
-    infoBox.innerHTML = bannerHtml + tabsHtml + generalRows + dataHtml + classHtml; 
+    infoBox.innerHTML = bannerHtml + tabsHtml + generalRows + datasetTabHtml + dataHtml + classHtml;
   } 
   if (infoBox && infoBox.dataset) {
     infoBox.dataset.activeTab = effectiveTab;
@@ -5952,47 +6067,43 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       const nextDatasetIndex = nextGroup && nextGroup.rawIndices.length ? nextGroup.rawIndices[0] : 0;
       const nextDatasetName = datasetOptions[nextDatasetIndex] || '';
       const nextDatasetKey = normalizeDatasetOptionKey(nextDatasetName);
-
-      // When in the country summary, navigate to sub-feature if it has own data, else merge its specs.
-      if (viewingCountrySummary && nextDatasetKey) {
-        const mappedEntry = countryDatasetFeatureMap.get(nextDatasetKey);
-        if (mappedEntry && mappedEntry.features && mappedEntry.features.length) {
-          const targetFeature = mappedEntry.features[0];
-          if (targetFeature && targetFeature.id !== undefined) {
-            if (hasCountrySummaryInfo(targetFeature.properties)) {
-              selectRegion(targetFeature.id, targetFeature.properties);
-              return;
-            }
-            // Coverage-only region: stay at country level but use its specs for the selected dataset
-            const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
-            // Find the best representative region for this specific dataset
-            const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === nextDatasetName) || targetFeature;
-            const mergedProps = {
-              ...repForDataset.properties,
-              Name: countryName2,
-              ADM: 0,
-              main_country: countryName2,
-              ParentCountry: null,
-              Data: null,
-              Dataset_name: null
-            };
-            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
-            const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
-            focusDatasetSelection(nextDatasetRegionNames);
-            return;
-          }
-        }
-      }
-
       const nextSummaryDatasetIndex = summaryDatasetOptions.findIndex(
         (name) => normalizeDatasetOptionKey(name) === nextDatasetKey
       );
       const nextYearIndex = hasLinkedDatasetSeries && nextSummaryDatasetIndex !== -1
         ? nextSummaryDatasetIndex
         : activeYearIndex;
+
+      // When in the country summary, always stay at country level — never navigate into a region.
+      if (viewingCountrySummary && nextDatasetKey) {
+        const mappedEntry = countryDatasetFeatureMap.get(nextDatasetKey);
+        if (mappedEntry && mappedEntry.features && mappedEntry.features.length) {
+          const targetFeature = mappedEntry.features[0];
+          if (targetFeature && targetFeature.id !== undefined) {
+            const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
+            const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === nextDatasetName) || targetFeature;
+            const mergedProps = {
+              ...repForDataset.properties,
+              Name: countryName2,
+              ADM: p.ADM !== undefined ? p.ADM : 0,
+              main_country: countryName2,
+              ParentCountry: null,
+              Data: repForDataset.properties.Data || null,
+              Dataset_name: null,
+              ADM_lookup: undefined
+            };
+            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+            const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
+            focusDatasetSelection(nextDatasetRegionNames);
+            if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
+            return;
+          }
+        }
+      }
       showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
       const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
       focusDatasetSelection(nextDatasetRegionNames);
+      if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
       });
     });
   }
@@ -6016,6 +6127,64 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         const nextDatasetGroup = datasetGroupEntries.find((entry) => entry.rawIndices.includes(nextDatasetIndex)) || null;
         const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextDatasetGroup);
         focusDatasetSelection(nextDatasetRegionNames);
+      });
+    });
+  }
+  const infoRegionSelects = Array.from(infoBox.querySelectorAll('[data-info-region-select]'));
+  if (infoRegionSelects.length) {
+    infoRegionSelects.forEach((infoRegionSelect) => {
+      infoRegionSelect.addEventListener('change', (e) => {
+        const nextRegionKey = e.target.value;
+        // Find the first dataset key for the selected region (or first national dataset)
+        let firstDatasetKey = null;
+        if (nextRegionKey === '__national__') {
+          // Pick first dataset not belonging to any region
+          const firstNationalGroup = datasetGroupEntries.find((entry) =>
+            entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+          );
+          if (firstNationalGroup) {
+            const ni = firstNationalGroup.rawIndices.find((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')));
+            firstDatasetKey = normalizeDatasetOptionKey(datasetOptions[ni] || '');
+          }
+        } else {
+          const regionEntry = regionDatasetMap.get(nextRegionKey);
+          if (regionEntry && regionEntry.datasetKeys.length) firstDatasetKey = regionEntry.datasetKeys[0];
+        }
+        if (!firstDatasetKey) return;
+        const firstGroupIndex = datasetGroupEntries.findIndex((entry) =>
+          entry.rawIndices.some((rawIndex) => normalizeDatasetOptionKey(datasetOptions[rawIndex] || '') === firstDatasetKey)
+        );
+        if (firstGroupIndex === -1) return;
+        const firstGroup = datasetGroupEntries[firstGroupIndex];
+        const firstDatasetIndex = firstGroup.rawIndices[0];
+        const firstDatasetName = datasetOptions[firstDatasetIndex] || '';
+        const summIdx = summaryDatasetOptions.findIndex((n) => normalizeDatasetOptionKey(n) === normalizeDatasetOptionKey(firstDatasetName));
+        const nextYearIdx = hasLinkedDatasetSeries && summIdx !== -1 ? summIdx : activeYearIndex;
+        const mappedEntry = countryDatasetFeatureMap.get(firstDatasetKey);
+        if (viewingCountrySummary && mappedEntry && mappedEntry.features.length) {
+          const targetFeature = mappedEntry.features[0];
+          if (targetFeature && targetFeature.id !== undefined) {
+            const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
+            const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === firstDatasetName) || targetFeature;
+            const mergedProps = {
+              ...repForDataset.properties,
+              Name: countryName2,
+              ADM: p.ADM !== undefined ? p.ADM : 0,
+              main_country: countryName2,
+              ParentCountry: null,
+              Data: repForDataset.properties.Data || null,
+              Dataset_name: null,
+              ADM_lookup: undefined
+            };
+            showInfo(mergedProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+            focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
+            if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
+            return;
+          }
+        }
+        showInfo(p, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+        focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
+        if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
       });
     });
   }
@@ -6044,6 +6213,46 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   }
   if (!viewingCountrySummary) {
     clearDatasetRegionSelection();
+  } else if (activeDatasetRegionNames && activeDatasetRegionNames.length) {
+    focusDatasetSelection(activeDatasetRegionNames);
+  }
+
+  // Highlight the selected research point, or restore full display
+  const _mapR = getMapInstance();
+  if (_mapR && _mapR.getLayer('research-point')) {
+    const _isResearchActive = viewingCountrySummary && activeRegionKey === '__research_group__';
+    if (_isResearchActive) {
+      // Derive DisplayName using same field priority as getResearchDatasetName
+      const _rfe2 = activeDatasetFeatureEntry && activeDatasetFeatureEntry.features && activeDatasetFeatureEntry.features[0];
+      const _rfp = (_rfe2 && _rfe2.properties) || {};
+      const _displayName = String(
+        _rfp['Name.1'] || _rfp.RegionName || _rfp.location || _rfp.Location ||
+        _rfp.Dataset_name || _rfp.dataset_name || _rfp['Data Name'] || _rfp['Dataset Name'] || _rfp.Name || activeDatasetName
+      ).trim();
+      _mapR.setFilter('research-point', ['==', ['get', 'DisplayName'], _displayName]);
+      if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', ['==', ['get', 'DisplayName'], _displayName]);
+      _mapR.setPaintProperty('research-point', 'circle-color', '#111111');
+      _mapR.setPaintProperty('research-point', 'circle-radius', 14);
+      _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
+      _mapR.setPaintProperty('research-point', 'circle-stroke-width', 3);
+      // Zoom to the research point location
+      const _rfe = activeDatasetFeatureEntry && activeDatasetFeatureEntry.features && activeDatasetFeatureEntry.features[0];
+      if (_rfe) {
+        const _coords = getMarkerCoordinatesForFeature(_rfe, selectedCountryFeature, 0);
+        if (_coords) {
+          setTimeout(() => {
+            _mapR.flyTo({ center: [_coords[0], _coords[1]], zoom: 13, duration: 1000, padding: getMapFitPadding(30) });
+          }, 80);
+        }
+      }
+    } else {
+      _mapR.setFilter('research-point', null);
+      if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
+      _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+      _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
+      _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
+      _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
+    }
   }
 
   sidebar.style.display = 'block';
