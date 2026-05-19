@@ -740,7 +740,7 @@
                 'line-color': buildRegionBorderColorExpression(activeCountryName),
                 'line-width': [
                     'case',
-                    ['boolean', ['feature-state', 'datasetSelected'], false], 3,
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 2,
                     ['==', ['get', 'Name'], activeCountryName], 4,
                     2
                 ],
@@ -798,8 +798,8 @@
         if (mapRef.getLayer('country-fill')) mapRef.setFilter('country-fill', null);
         if (mapRef.getLayer('country-border')) {
             mapRef.setFilter('country-border', null);
-            mapRef.setPaintProperty('country-border', 'line-color', '#222222');
-            mapRef.setPaintProperty('country-border', 'line-width', 2);
+            mapRef.setPaintProperty('country-border', 'line-color', '#444444');
+            mapRef.setPaintProperty('country-border', 'line-width', ['case', ['==', ['get', 'OverviewScope'], 'regional'], 0.5, 1.5]);
         }
         applyCategoryFilterToMap();
         if (!selectedCountryFeature) renderResearchMarkers();
@@ -2476,14 +2476,22 @@
                 .filter((feature) => !feature.properties.ADM_lookup)
                 .flatMap((feature) => getFeatureAvailableCategories(feature.properties));
             setFeatureCategorySupport(country.properties, childCategories);
-            if (normalizeCat(country.properties.Data) === 'Region' && regionalFeatures.length) {
+            const isCoverageOnly = (country.properties.Coverage || '').toLowerCase() === 'regional' &&
+                childFeatures.length > 0 && childFeatures.every((f) => !!(f.properties && f.properties.Dataset_name));
+            if ((normalizeCat(country.properties.Data) === 'Region' || isCoverageOnly) && regionalFeatures.length) {
                 merged.push(...regionalFeatures);
+                if (isCoverageOnly) {
+                    country.properties.OverviewScope = 'national';
+                    country.properties.CoverageOnlyCountry = true;
+                    merged.push(country);
+                }
             } else {
                 country.properties.OverviewScope = 'national';
                 merged.push(country);
             }
         });
         overviewMapData = { type: 'FeatureCollection', features: merged };
+        renderDataCache.clear();
         return Promise.resolve();
     }
 
@@ -3492,6 +3500,7 @@
         return [
             'case',
             ['boolean', ['feature-state', 'selected'], false], getSelectedBorderColor(),
+            ['boolean', ['feature-state', 'datasetSelected'], false], '#000000',
             ...(activeCountryName ? [[ '==', ['get', 'Name'], activeCountryName ], getCatColor('Region')] : []),
             '#222222'
         ];
@@ -3501,16 +3510,21 @@
         const selectedCats = getActiveCategorySelection();
         const focusedCategory = selectedCats.length === 1 ? selectedCats[0] : null;
         const focusedProperty = focusedCategory ? categorySupportProperty(focusedCategory) : null;
-        return [
-            'case',
-            ['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'),
-            ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
-            ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
-            ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
-            ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
-            ['==', ['get', 'Data'], 'No Info'], getCatColor('No Info'),
-            getCatColor('No Info')
-        ];
+        const activeDataCategories = mapFilterState && mapFilterState.dataCategories instanceof Set
+            ? mapFilterState.dataCategories : null;
+        const catActive = (cat) => !activeDataCategories || activeDataCategories.has(cat);
+        const parts = [];
+        parts.push(['boolean', ['feature-state', 'highlightAllGreen'], false], getCatColor('Region'));
+        if (focusedCategory) {
+            parts.push(['boolean', ['get', focusedProperty], false], getCatColor(focusedCategory));
+        } else {
+            // Show color of highest-priority active category the feature supports
+            if (catActive('Pointcloud')) parts.push(['boolean', ['get', 'SupportsPointcloud'], false], getCatColor('Pointcloud'));
+            if (catActive('DEM')) parts.push(['boolean', ['get', 'SupportsDEM'], false], getCatColor('DEM'));
+            if (catActive('Region')) parts.push(['boolean', ['get', 'SupportsRegion'], false], getCatColor('Region'));
+        }
+        parts.push(getCatColor('No Info'));
+        return ['case', ...parts];
     }
 
     function hasCountrySummaryInfo(properties) {
@@ -3533,15 +3547,19 @@
         const selectedCats = getActiveCategorySelection();
         const focusedCategory = selectedCats.length === 1 ? selectedCats[0] : null;
         const focusedProperty = focusedCategory ? categorySupportProperty(focusedCategory) : null;
-        return [
-            'case',
-            ...(focusedCategory ? [[ 'boolean', ['get', focusedProperty], false ], getCatColor(focusedCategory)] : []),
-            ['==', ['get', 'Data'], 'Region'], getCatColor('Region'),
-            ['==', ['get', 'Data'], 'Pointcloud'], getCatColor('Pointcloud'),
-            ['==', ['get', 'Data'], 'DEM'], getCatColor('DEM'),
-            ['==', ['get', 'Data'], 'No Info'], getCatColor('No Info'),
-            getCatColor('No Info')
-        ];
+        const activeDataCategories = mapFilterState && mapFilterState.dataCategories instanceof Set
+            ? mapFilterState.dataCategories : null;
+        const catActive = (cat) => !activeDataCategories || activeDataCategories.has(cat);
+        const parts = [];
+        if (focusedCategory) {
+            parts.push(['boolean', ['get', focusedProperty], false], getCatColor(focusedCategory));
+        } else {
+            if (catActive('Pointcloud')) parts.push(['boolean', ['get', 'SupportsPointcloud'], false], getCatColor('Pointcloud'));
+            if (catActive('DEM')) parts.push(['boolean', ['get', 'SupportsDEM'], false], getCatColor('DEM'));
+            if (catActive('Region')) parts.push(['boolean', ['get', 'SupportsRegion'], false], getCatColor('Region'));
+        }
+        parts.push(getCatColor('No Info'));
+        return ['case', ...parts];
     }
 
     function buildSelectedDataCategoryFilterExpression() {
@@ -3927,19 +3945,52 @@
             renderResearchMarkers();
             showRegionTOC();
             renderRegionList();
-            const requestedRegionKey = normalizeCountryKey(initialRegionName);
-            const requestedRegion = requestedRegionKey
-                ? regionalChildren.find((f) => getFeatureLocationLookupKeys(f).includes(requestedRegionKey))
-                : null;
-            if (requestedRegion) {
-                showTab('toc');
-                selectRegion(requestedRegion.id, requestedRegion.properties);
-                map.setMinZoom(2);
-                return;
+            const allChildrenAreDatasetCoverage = (feature.properties.Coverage || '').toLowerCase() === 'regional' &&
+                regionalChildren.length > 0 &&
+                regionalChildren.every((c) => !!(c.properties && c.properties.Dataset_name));
+            if (!allChildrenAreDatasetCoverage) {
+                const requestedRegionKey = normalizeCountryKey(initialRegionName);
+                const requestedRegion = requestedRegionKey
+                    ? regionalChildren.find((f) => getFeatureLocationLookupKeys(f).includes(requestedRegionKey))
+                    : null;
+                if (requestedRegion) {
+                    showTab('toc');
+                    selectRegion(requestedRegion.id, requestedRegion.properties);
+                    map.setMinZoom(2);
+                    return;
+                }
             }
-            if (!hasCountrySummaryInfo(feature.properties) && regionalChildren.length) {
+            if (!hasCountrySummaryInfo(summaryProperties) && regionalChildren.length && !allChildrenAreDatasetCoverage) {
+                const navigableChild = regionalChildren.find((c) => hasCountrySummaryInfo(c.properties));
+                if (navigableChild) {
+                    showTab('toc');
+                    selectRegion(navigableChild.id, navigableChild.properties);
+                    map.setMinZoom(2);
+                    return;
+                }
+            }
+            if ((!hasCountrySummaryInfo(summaryProperties) || allChildrenAreDatasetCoverage) && regionalChildren.length && allChildrenAreDatasetCoverage) {
+                // All children are coverage-only: show country summary using first dataset's rep region specs
+                const coverageDatasetGroups = new Map();
+                regionalChildren.forEach((c) => {
+                    const dsName = (c.properties && c.properties.Dataset_name) || null;
+                    if (dsName && !coverageDatasetGroups.has(dsName)) coverageDatasetGroups.set(dsName, c);
+                });
+                const firstRepChild = coverageDatasetGroups.size > 0
+                    ? coverageDatasetGroups.values().next().value
+                    : regionalChildren[0];
+                const mergedSummaryProps = {
+                    ...firstRepChild.properties,
+                    Name: summaryProperties.Name,
+                    ADM: 0,
+                    main_country: summaryProperties.main_country || summaryProperties.Name,
+                    ParentCountry: null,
+                    Data: null,
+                    Dataset_name: null
+                };
+                showInfo(mergedSummaryProps, false, undefined, 0);
                 showTab('toc');
-                selectRegion(regionalChildren[0].id, regionalChildren[0].properties);
+                zoomTo(feature, 0);
                 map.setMinZoom(2);
                 return;
             }
@@ -4071,18 +4122,18 @@
                 type: 'fill', 
                 source: 'countries', 
                 paint: { 
-                    'fill-color': buildCountryFillExpression(), 
-                    'fill-opacity': 0.6 
+                    'fill-color': buildCountryFillExpression(),
+                    'fill-opacity': ['case', ['to-boolean', ['get', 'CoverageOnlyCountry']], 0, 0.6]
                 } 
             }); 
-            map.addLayer({ 
-                id: 'country-border', 
-                type: 'line', 
-                source: 'countries', 
-                paint: { 
-                    'line-color': '#222222', 
-                    'line-width': 2 
-                } 
+            map.addLayer({
+                id: 'country-border',
+                type: 'line',
+                source: 'countries',
+                paint: {
+                    'line-color': '#444444',
+                    'line-width': ['case', ['==', ['get', 'OverviewScope'], 'regional'], 0.5, 1.5]
+                }
             }); 
             // Filter-regions layer: shows individual sub-regions when spatial/accuracy filter is active
             const filterRegionRender = getFilterRegionRenderDataForZoom(map.getZoom());
@@ -4100,7 +4151,7 @@
                 type: 'line',
                 source: 'filter-regions',
                 layout: { visibility: 'none' },
-                paint: { 'line-color': '#222222', 'line-width': 2, 'line-opacity': 0.85 }
+                paint: { 'line-color': '#444444', 'line-width': 0.8, 'line-opacity': 0.7 }
             });
             map.addSource('research-points', {
                 type: 'geojson',
@@ -4271,7 +4322,8 @@
                 mapRef.setPaintProperty('region-border', 'line-width', [
                     'case',
                     ['boolean', ['feature-state', 'selected'], false], 4,
-                    2
+                    ['boolean', ['feature-state', 'datasetSelected'], false], 2,
+                    1
                 ]);
                 mapRef.setLayoutProperty('region-border', 'visibility', showBoundaries ? 'visible' : 'none');
             }
@@ -4314,15 +4366,10 @@
     function getMapFitPadding(base = 20) {
         const sidebarEl = document.getElementById('sidebar');
         const isMobile = isMobileMapViewport();
-        const rightPadding = !isMobile && sidebarEl && sidebarEl.style.display !== 'none'
-            ? Math.max(
-                base,
-                Math.min(
-                    Math.round(window.innerWidth * 0.24),
-                    Math.round(sidebarEl.getBoundingClientRect().width * 0.45)
-                )
-            )
-            : base;
+        const sidebarWidth = !isMobile && sidebarEl && sidebarEl.style.display !== 'none'
+            ? sidebarEl.getBoundingClientRect().width
+            : 0;
+        const rightPadding = sidebarWidth > 0 ? Math.round(sidebarWidth + base) : base;
         return { top: base, right: rightPadding, bottom: base, left: base };
     }
 
@@ -4364,7 +4411,7 @@
         clearSelectedRegionHighlight();
         selectedRegionFeatureId = id; 
         map.setFeatureState({ source: 'regions', id }, { selected: true }); 
-        try { 
+        try {
             if (feature && feature.geometry && feature.geometry.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
                 map.easeTo({
                     center: feature.geometry.coordinates,
@@ -4374,17 +4421,9 @@
                     pitch: 45,
                     bearing: 0
                 });
-            } else {
-                const bbox = turf.bbox(feature); 
-                map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
-                    padding: getMapFitPadding(20),
-                    duration: 1000,
-                    pitch: 45,
-                    bearing: 0
-                }); 
             }
-        } catch (e) { 
-            console.warn('Kan bounding box niet bepalen:', e); 
+        } catch (e) {
+            console.warn('Kan bounding box niet bepalen:', e);
         } 
         showInfo(feature.properties || props, true); 
     } 
@@ -4405,12 +4444,14 @@
 
     function zoomTo(feature, pitch) {
         const bbox = turf.bbox(feature);
-        map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], {
-            padding: getMapFitPadding(20),
-            duration: 1000,
-            pitch,
-            bearing: 0,
-            maxZoom: 8
+        requestAnimationFrame(() => {
+            map.fitBounds([ [bbox[0], bbox[1]], [bbox[2], bbox[3]] ], {
+                padding: getMapFitPadding(20),
+                duration: 1000,
+                pitch,
+                bearing: 0,
+                maxZoom: 8
+            });
         });
     }
 
@@ -4942,7 +4983,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     if (fromProperties.length) return fromProperties;
     if (viewingCountrySummary) {
       const countryFallbackName = String((p && p.Name) || '').trim();
-      const hasOwnData = !!(p && (p.Data || p.Main_data || p.Info || p.Link));
+      const hasOwnData = !!(p && p.Data && p.Data !== 'No Info' && p.Data !== 'null');
       if (countryFallbackName && hasOwnData) return [countryFallbackName];
       return extractDatasetNamesFromInfo(p && p.Info);
     }
@@ -5347,6 +5388,12 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const selectedDtmValue = valueForActiveDatasetSeries(p && p.DTM, 'dtm');
   const selectedDsmValue = valueForActiveDatasetSeries(p && p.DSM, 'dsm');
   let availableDatasetTypes = getAvailableDatasetTypes(selectedDataTypeValue, selectedDtmValue, selectedDsmValue);
+  if (
+    !availableDatasetTypes.some((type) => type.key === 'point-cloud') &&
+    (p && (p.link_point_cloud || p['link_point cloud'] || p['Link point cloud']))
+  ) {
+    availableDatasetTypes.unshift({ key: 'point-cloud', label: 'Point cloud' });
+  }
   if (/dem|digital elevation|elevation model/i.test(String(selectedDataTypeValue || ''))) {
     if (groupHasTruthySeriesValue(p && p.DTM) && !availableDatasetTypes.some((type) => type.key === 'dtm')) {
       availableDatasetTypes.push({ key: 'dtm', label: 'DTM' });
@@ -5446,37 +5493,12 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
       .join('');
   };
-  const focusDatasetRegionsByNames = (regionNames) => {
-    if (!viewingCountrySummary || !window.map || !regionsData || !Array.isArray(regionsData.features)) return;
-    const targets = new Set((regionNames || []).map((name) => normalizeCountryKey(name)).filter(Boolean));
-    if (!targets.size) return;
-    const matchingFeatures = regionsData.features.filter((feature) => {
-      const featureName = normalizeCountryKey(feature && feature.properties && feature.properties.Name);
-      return featureName && targets.has(featureName);
-    });
-    if (!matchingFeatures.length) return;
-    try {
-      const featureCollection = { type: 'FeatureCollection', features: matchingFeatures };
-      const bbox = turf.bbox(featureCollection);
-      if (!Array.isArray(bbox) || bbox.length !== 4) return;
-      map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], {
-        padding: getMapFitPadding(20),
-        duration: 800,
-        pitch: 45,
-        bearing: 0
-      });
-    } catch (e) {
-      console.warn('Unable to focus dataset regions:', e);
-    }
-  };
   const focusDatasetSelection = (regionNames) => {
     clearSelectedRegionHighlight();
     if (Array.isArray(regionNames) && regionNames.length) {
-      focusDatasetRegionsByNames(regionNames);
-      return;
-    }
-    if (selectedCountryFeature) {
-      zoomTo(selectedCountryFeature, 0);
+      setDatasetRegionSelectionByNames(regionNames);
+    } else {
+      clearDatasetRegionSelection();
     }
   };
   const buildDatasetSpecificInfo = (infoText, names, activeName) => {
@@ -5712,9 +5734,9 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
            ${datasetGroupEntries.map((entry, index) => `<option value="${index}"${index === activeDatasetGroupIndex ? ' selected' : ''}>${escapeHtml(entry.label)}</option>`).join('')}
          </select>
        </label>`
-    : (activeDatasetName
-        ? escapeHtml((activeDatasetGroup && activeDatasetGroup.label) || activeDatasetName)
-        : '<em>No name was found</em>');
+    : datasetGroupEntries.length === 1
+      ? escapeHtml(datasetGroupEntries[0].label)
+      : '<em>No name was found</em>';
   const versionControlHtml = activeVersionEntries.length > 1
     ? `<label class="info-select-wrap info-select-wrap-version" aria-label="Select version">
          <select class="info-select" data-info-dataset-version-select="true">
@@ -5931,13 +5953,32 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       const nextDatasetName = datasetOptions[nextDatasetIndex] || '';
       const nextDatasetKey = normalizeDatasetOptionKey(nextDatasetName);
 
-      // When in the country summary, navigate directly to the sub-feature if one is mapped.
+      // When in the country summary, navigate to sub-feature if it has own data, else merge its specs.
       if (viewingCountrySummary && nextDatasetKey) {
         const mappedEntry = countryDatasetFeatureMap.get(nextDatasetKey);
         if (mappedEntry && mappedEntry.features && mappedEntry.features.length) {
           const targetFeature = mappedEntry.features[0];
           if (targetFeature && targetFeature.id !== undefined) {
-            selectRegion(targetFeature.id, targetFeature.properties);
+            if (hasCountrySummaryInfo(targetFeature.properties)) {
+              selectRegion(targetFeature.id, targetFeature.properties);
+              return;
+            }
+            // Coverage-only region: stay at country level but use its specs for the selected dataset
+            const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
+            // Find the best representative region for this specific dataset
+            const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === nextDatasetName) || targetFeature;
+            const mergedProps = {
+              ...repForDataset.properties,
+              Name: countryName2,
+              ADM: 0,
+              main_country: countryName2,
+              ParentCountry: null,
+              Data: null,
+              Dataset_name: null
+            };
+            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+            const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
+            focusDatasetSelection(nextDatasetRegionNames);
             return;
           }
         }
@@ -6001,7 +6042,9 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       });
     });
   }
-  clearDatasetRegionSelection();
+  if (!viewingCountrySummary) {
+    clearDatasetRegionSelection();
+  }
 
   sidebar.style.display = 'block';
 
@@ -6233,6 +6276,7 @@ function applyCategoryFilterToMap() {
   const showCity      = (inCountryView && !applyDatasetTypeFilter) || !mapFilterState.datasetTypes || mapFilterState.datasetTypes.has('city');
 
   mapRef.setPaintProperty('country-fill', 'fill-color', buildCountryFillExpression());
+  mapRef.setPaintProperty('country-fill', 'fill-opacity', ['case', ['to-boolean', ['get', 'CoverageOnlyCountry']], 0, 0.6]);
   if (mapRef.getLayer('region-fill')) {
     mapRef.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
   }
@@ -6266,6 +6310,9 @@ function applyCategoryFilterToMap() {
 
   // --- Country layer (national) ---
   const countryFilterParts = [['!', ['has', 'RegionName']]];
+  if (inCountryView && selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) {
+    countryFilterParts.push(['!=', ['get', 'Name'], selectedCountryFeature.properties.Name]);
+  }
 
   if (!showNational && !showRegional) {
     // Hide boundaries when only Special / research is active.
@@ -6310,11 +6357,12 @@ function applyCategoryFilterToMap() {
   }
 
   mapRef.setFilter('country-fill', ['all', ...countryFilterParts]);
-  mapRef.setFilter('country-border', ['all', ...countryFilterParts]);
-  const hasNationalRegionalOverlap = showNational && showRegional;
-  if (mapRef.getLayer('country-border')) {
-    mapRef.setPaintProperty('country-border', 'line-color', hasNationalRegionalOverlap ? '#000000' : '#222222');
-    mapRef.setPaintProperty('country-border', 'line-width', hasNationalRegionalOverlap ? 2.5 : 2);
+  if (!inCountryView) {
+    mapRef.setFilter('country-border', ['all', ...countryFilterParts]);
+    if (mapRef.getLayer('country-border')) {
+      mapRef.setPaintProperty('country-border', 'line-color', '#444444');
+      mapRef.setPaintProperty('country-border', 'line-width', ['case', ['==', ['get', 'OverviewScope'], 'regional'], 0.5, 1.5]);
+    }
   }
 
   // --- Regional overlay layer (filter-region-fill) ---
