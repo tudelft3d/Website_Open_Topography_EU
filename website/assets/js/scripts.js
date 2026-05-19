@@ -6408,6 +6408,9 @@ function applyCategoryFilterToMap() {
       mapRef.setFilter('filter-region-border', regionFilter);
       mapRef.setLayoutProperty('filter-region-fill', 'visibility', 'visible');
       mapRef.setLayoutProperty('filter-region-border', 'visibility', 'visible');
+      // When both national and regional are visible, the regional fill overlaps
+      // the national fill creating a darker color — suppress the fill in that case.
+      mapRef.setPaintProperty('filter-region-fill', 'fill-opacity', showNational ? 0 : 0.75);
     } else {
       mapRef.setLayoutProperty('filter-region-fill', 'visibility', 'none');
       mapRef.setLayoutProperty('filter-region-border', 'visibility', 'none');
