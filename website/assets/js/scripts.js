@@ -3619,7 +3619,7 @@
             const fp = feature && feature.properties;
             const isResearch = !!(fp && fp.ADM_lookup);
             const name = isResearch
-                ? normalizeCountryKey(firstValue(fp.Location, fp.location, fp['Name.1'], fp.RegionName, fp.Name))
+                ? normalizeCountryKey(fp.Location || fp.location || fp['Name.1'] || fp.RegionName || fp.Name || '')
                 : normalizeCountryKey(fp && fp.Name);
             return name && targets.has(name);
         });
@@ -4209,10 +4209,13 @@
                         const properties = researchFeature.properties || {};
                         if (selectedCountryFeature && regionsData && Array.isArray(regionsData.features)) {
                             const matchedFeature = getRegionFeatureByIdOrProperties(properties.ResearchFeatureId, properties);
-                            // Open as country summary with the research dataset selected so Region dropdown is visible
-                            const _mainRegion = getCountrySummaryFeature();
-                            const _summaryProps = (_mainRegion && _mainRegion.properties) || selectedCountryFeature.properties;
                             const _researchDatasetIndex = matchedFeature ? getCountryDatasetIndexForFeature(matchedFeature) : undefined;
+                            // Always use the country feature props so viewingCountrySummary stays true
+                            const _summaryProps = {
+                                ...selectedCountryFeature.properties,
+                                ADM_lookup: undefined,
+                                ParentCountry: null
+                            };
                             if (matchedFeature) focusRegionFeature(matchedFeature.id, matchedFeature.properties);
                             zoomToResearchPoint(researchFeature, map);
                             showInfo(_summaryProps, false, undefined, _researchDatasetIndex);
@@ -5900,10 +5903,16 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const parentCountryName = isRegionView
     ? escapeHtml(String(p.ParentCountry || p.main_country || p.country || _scfProps.Name || '').trim())
     : null;
+  const _researchSubtitle = (viewingCountrySummary && activeRegionKey === '__research_group__') ? activeDatasetName : null;
   const titleColHtml = isRegionView
     ? `<div class="info-banner-title-col info-banner-title-col--region">
         <button class="info-banner-country-link" type="button">${parentCountryName || escapeHtml(String((_scfProps && _scfProps.Name) || ''))}</button>
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
+      </div>`
+    : _researchSubtitle
+    ? `<div class="info-banner-title-col info-banner-title-col--region">
+        <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
+        <span class="info-banner-title" style="font-size:0.75em;opacity:0.75;font-weight:normal;">${escapeHtml(_researchSubtitle)}</span>
       </div>`
     : `<div class="info-banner-title-col">
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
@@ -6079,7 +6088,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         const mappedEntry = countryDatasetFeatureMap.get(nextDatasetKey);
         if (mappedEntry && mappedEntry.features && mappedEntry.features.length) {
           const targetFeature = mappedEntry.features[0];
-          if (targetFeature && targetFeature.id !== undefined) {
+          if (targetFeature) {
             const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
             const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === nextDatasetName) || targetFeature;
             const mergedProps = {
@@ -6163,7 +6172,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         const mappedEntry = countryDatasetFeatureMap.get(firstDatasetKey);
         if (viewingCountrySummary && mappedEntry && mappedEntry.features.length) {
           const targetFeature = mappedEntry.features[0];
-          if (targetFeature && targetFeature.id !== undefined) {
+          if (targetFeature) {
             const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
             const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === firstDatasetName) || targetFeature;
             const mergedProps = {
@@ -6222,29 +6231,32 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   if (_mapR && _mapR.getLayer('research-point')) {
     const _isResearchActive = viewingCountrySummary && activeRegionKey === '__research_group__';
     if (_isResearchActive) {
-      // Derive DisplayName using same field priority as getResearchDatasetName
-      const _rfe2 = activeDatasetFeatureEntry && activeDatasetFeatureEntry.features && activeDatasetFeatureEntry.features[0];
-      const _rfp = (_rfe2 && _rfe2.properties) || {};
-      const _displayName = String(
-        _rfp['Name.1'] || _rfp.RegionName || _rfp.location || _rfp.Location ||
-        _rfp.Dataset_name || _rfp.dataset_name || _rfp['Data Name'] || _rfp['Dataset Name'] || _rfp.Name || activeDatasetName
-      ).trim();
-      _mapR.setFilter('research-point', ['==', ['get', 'DisplayName'], _displayName]);
-      if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', ['==', ['get', 'DisplayName'], _displayName]);
-      _mapR.setPaintProperty('research-point', 'circle-color', '#111111');
-      _mapR.setPaintProperty('research-point', 'circle-radius', 14);
-      _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
-      _mapR.setPaintProperty('research-point', 'circle-stroke-width', 3);
-      // Zoom to the research point location
       const _rfe = activeDatasetFeatureEntry && activeDatasetFeatureEntry.features && activeDatasetFeatureEntry.features[0];
-      if (_rfe) {
-        const _coords = getMarkerCoordinatesForFeature(_rfe, selectedCountryFeature, 0);
-        if (_coords) {
-          setTimeout(() => {
-            _mapR.flyTo({ center: [_coords[0], _coords[1]], zoom: 13, duration: 1000, padding: getMapFitPadding(30) });
-          }, 80);
-        }
+      // Mirror exact field priority from getResearchDatasetName (inaccessible here) for DisplayName match
+      const _rfp2 = (_rfe && _rfe.properties) || {};
+      const _displayName = String(
+        _rfp2.location || _rfp2.Location || _rfp2['Name.1'] || _rfp2.RegionName ||
+        _rfp2.Dataset_name || _rfp2.dataset_name || _rfp2['Data Name'] || _rfp2['Dataset Name'] ||
+        _rfp2.Name || activeDatasetName || ''
+      ).trim();
+      _mapR.setFilter('research-point', null);
+      if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
+      if (_displayName) {
+        _mapR.setPaintProperty('research-point', 'circle-color',
+          ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', getCatColor('Pointcloud')]
+        );
+        _mapR.setPaintProperty('research-point', 'circle-radius',
+          ['case', ['==', ['get', 'DisplayName'], _displayName], 18, ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]]
+        );
+        _mapR.setPaintProperty('research-point', 'circle-stroke-width',
+          ['case', ['==', ['get', 'DisplayName'], _displayName], 3, 2]
+        );
+      } else {
+        _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+        _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
+        _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
       }
+      _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
     } else {
       _mapR.setFilter('research-point', null);
       if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
