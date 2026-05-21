@@ -4415,14 +4415,13 @@
         return null;
     }
 
-    function selectRegion(id, props) { 
-        console.log('selectRegion', id, props.Name); 
+    function selectRegion(id, props) {
         const feature = getRegionFeatureByIdOrProperties(id, props);
-        if (!feature) return; 
+        if (!feature) return;
         clearDatasetRegionSelection();
         clearSelectedRegionHighlight();
-        selectedRegionFeatureId = id; 
-        map.setFeatureState({ source: 'regions', id }, { selected: true }); 
+        selectedRegionFeatureId = id;
+        map.setFeatureState({ source: 'regions', id }, { selected: true });
         try {
             if (feature && feature.geometry && feature.geometry.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
                 map.easeTo({
@@ -4436,9 +4435,21 @@
             }
         } catch (e) {
             console.warn('Kan bounding box niet bepalen:', e);
-        } 
-        showInfo(feature.properties || props, true); 
-    } 
+        }
+        // Open as country summary with the clicked region's dataset pre-selected
+        if (selectedCountryFeature) {
+            const _datasetIndex = getCountryDatasetIndexForFeature(feature);
+            const _regionKey = normalizeCountryKey(String((feature.properties || {}).Name || '').trim());
+            const _summaryProps = {
+                ...selectedCountryFeature.properties,
+                ADM_lookup: undefined,
+                ParentCountry: null
+            };
+            showInfo(_summaryProps, false, undefined, _datasetIndex, undefined, undefined, false, _regionKey || undefined);
+        } else {
+            showInfo(feature.properties || props, true);
+        }
+    }
 
     function resetToCountries() { 
         selectedCountryFeature = null; 
@@ -4673,7 +4684,7 @@ function navigateInfoBanner(step, p, regionMode) {
   showInfo(nextItem.properties, false);
 }
 
-function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride, forceNational) {
+function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride, forceNational, preferredRegionKey) {
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -5795,15 +5806,19 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const summaryDatasetKeySet = new Set(summaryDatasetOptions.map((n) => normalizeDatasetOptionKey(n)));
   let activeRegionKey = showRegionDropdown ? '__national__' : null;
   if (showRegionDropdown) {
-    const ame2 = countryDatasetFeatureMap.get(activeDatasetKey2);
-    if (ame2 && ame2.features.length) {
-      const fp0 = ame2.features[0].properties || {};
-      if (fp0.ADM_lookup) {
-        // Research always takes priority, even if name is also in summaryDatasetOptions
-        activeRegionKey = RESEARCH_REGION_KEY;
-      } else if (!summaryDatasetKeySet.has(activeDatasetKey2)) {
-        const rk = normalizeCountryKey(String(fp0.Name || '').trim());
-        if (rk && regionDatasetMap.has(rk)) activeRegionKey = rk;
+    // If caller explicitly requests a region key (e.g. dataset dropdown preserving current region), honour it
+    if (preferredRegionKey && (preferredRegionKey === '__national__' || preferredRegionKey === RESEARCH_REGION_KEY || regionDatasetMap.has(preferredRegionKey))) {
+      activeRegionKey = preferredRegionKey;
+    } else {
+      const ame2 = countryDatasetFeatureMap.get(activeDatasetKey2);
+      if (ame2 && ame2.features.length) {
+        const fp0 = ame2.features[0].properties || {};
+        if (fp0.ADM_lookup) {
+          activeRegionKey = RESEARCH_REGION_KEY;
+        } else if (!summaryDatasetKeySet.has(activeDatasetKey2)) {
+          const rk = normalizeCountryKey(String(fp0.Name || '').trim());
+          if (rk && regionDatasetMap.has(rk)) activeRegionKey = rk;
+        }
       }
     }
   }
@@ -5903,16 +5918,20 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const parentCountryName = isRegionView
     ? escapeHtml(String(p.ParentCountry || p.main_country || p.country || _scfProps.Name || '').trim())
     : null;
-  const _researchSubtitle = (viewingCountrySummary && activeRegionKey === '__research_group__') ? activeDatasetName : null;
+  const _regionSubtitle = viewingCountrySummary && activeRegionKey && activeRegionKey !== '__national__'
+    ? (activeRegionKey === '__research_group__'
+        ? activeDatasetName
+        : (regionDatasetMap.get(activeRegionKey) || {}).name || null)
+    : null;
   const titleColHtml = isRegionView
     ? `<div class="info-banner-title-col info-banner-title-col--region">
         <button class="info-banner-country-link" type="button">${parentCountryName || escapeHtml(String((_scfProps && _scfProps.Name) || ''))}</button>
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
       </div>`
-    : _researchSubtitle
+    : _regionSubtitle
     ? `<div class="info-banner-title-col info-banner-title-col--region">
-        <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
-        <span class="info-banner-title" style="font-size:0.75em;opacity:0.75;font-weight:normal;">${escapeHtml(_researchSubtitle)}</span>
+        <button class="info-banner-country-link" type="button">${escapeHtml(displayTitle)}</button>
+        <span class="info-banner-title">${escapeHtml(_regionSubtitle)}</span>
       </div>`
     : `<div class="info-banner-title-col">
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
@@ -6101,7 +6120,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
               Dataset_name: null,
               ADM_lookup: undefined
             };
-            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+            const currentRegionKey = infoBox.querySelector('[data-info-region-select]') ? infoBox.querySelector('[data-info-region-select]').value : null;
+            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType, false, currentRegionKey);
             const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
             focusDatasetSelection(nextDatasetRegionNames);
             if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
@@ -6109,7 +6129,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           }
         }
       }
-      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+      const _fallbackRegionKey = infoBox.querySelector('[data-info-region-select]') ? infoBox.querySelector('[data-info-region-select]').value : null;
+      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType, false, _fallbackRegionKey);
       const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
       focusDatasetSelection(nextDatasetRegionNames);
       if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
@@ -6246,7 +6267,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', getCatColor('Pointcloud')]
         );
         _mapR.setPaintProperty('research-point', 'circle-radius',
-          ['case', ['==', ['get', 'DisplayName'], _displayName], 18, ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]]
+          ['case', ['==', ['get', 'DisplayName'], _displayName], 18, 8]
         );
         _mapR.setPaintProperty('research-point', 'circle-stroke-width',
           ['case', ['==', ['get', 'DisplayName'], _displayName], 3, 2]
