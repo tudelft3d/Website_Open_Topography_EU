@@ -4461,8 +4461,23 @@
         if (selectedCountryFeature) {
             const _datasetIndex = getCountryDatasetIndexForFeature(feature);
             const _regionKey = normalizeCountryKey(String((feature.properties || {}).Name || '').trim());
-            const _summaryProps = {
-                ...selectedCountryFeature.properties,
+            const _countryName = (selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '';
+            const _fp = feature.properties || {};
+            const _sp = selectedCountryFeature.properties || {};
+            // Merge sub-region specs into national props when the national feature lacks its own specs.
+            // This handles countries like the UK where each nation has independent GeoJSON features.
+            const _natHasSpecs = Boolean(_sp.Year || _sp.year_begin || _sp.Planimetric || _sp.Altimetric || _sp.National);
+            const _subHasSpecs = Boolean(_fp.Year || _fp.year_begin || _fp.Planimetric || _fp.Altimetric || _fp.National);
+            const _summaryProps = (_subHasSpecs && !_natHasSpecs) ? {
+                ..._fp,
+                Name: _countryName,
+                ADM: _sp.ADM !== undefined ? _sp.ADM : 0,
+                main_country: _countryName,
+                ParentCountry: null,
+                Dataset_name: null,
+                ADM_lookup: undefined
+            } : {
+                ..._sp,
                 ADM_lookup: undefined,
                 ParentCountry: null
             };
