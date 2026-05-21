@@ -1290,12 +1290,14 @@
                 ].join('::');
                 if (seenMarkerKeys.has(markerKey)) return;
                 seenMarkerKeys.add(markerKey);
+                const _fcat = normalizeCat((feature.properties || {}).DataDisplay || (feature.properties || {}).RawDataTypes || (feature.properties || {}).Data || 'Pointcloud');
                 markerFeatures.push({
                     type: 'Feature',
                     properties: {
                         ...(feature.properties || {}),
                         DisplayName: datasetName,
-                        ResearchFeatureId: sourceIndex
+                        ResearchFeatureId: sourceIndex,
+                        DataColor: getCatColor(_fcat)
                     },
                     geometry: {
                         type: 'Point',
@@ -3460,7 +3462,7 @@
         if (tokens.includes('region')) return 'Region';
         // When a dataset offers both point clouds and DEMs, favor point clouds in overview styling.
         if (tokens.includes('pointcloud') || tokens.includes('point cloud')) return 'Pointcloud';
-        if (tokens.includes('dem') || tokens.includes('digital elevation model')) return 'DEM';
+        if (tokens.includes('dem') || tokens.includes('dtm') || tokens.includes('dsm') || tokens.includes('digital elevation model')) return 'DEM';
         if (tokens.includes('no info') || tokens.includes('noinfo') || tokens.includes('geen info')) return 'No Info';
         return raw;
     }
@@ -3960,8 +3962,15 @@
                     ? regionalChildren.find((f) => getFeatureLocationLookupKeys(f).includes(requestedRegionKey))
                     : null;
                 if (requestedRegion) {
+                    const _reqDatasetIndex = getCountryDatasetIndexForFeature(requestedRegion);
+                    const _reqRegionKey = normalizeCountryKey(String((requestedRegion.properties || {}).Name || '').trim());
+                    const _reqProps = { ...summaryProperties, ADM_lookup: undefined, ParentCountry: null };
+                    clearSelectedRegionHighlight();
+                    selectedRegionFeatureId = requestedRegion.id;
+                    try { map.setFeatureState({ source: 'regions', id: requestedRegion.id }, { selected: true }); } catch (e) {}
                     showTab('toc');
-                    selectRegion(requestedRegion.id, requestedRegion.properties);
+                    showInfo(_reqProps, false, undefined, _reqDatasetIndex, undefined, undefined, false, _reqRegionKey || undefined);
+                    zoomTo(feature, 0);
                     map.setMinZoom(2);
                     return;
                 }
@@ -3969,8 +3978,14 @@
             if (!hasCountrySummaryInfo(summaryProperties) && regionalChildren.length && !allChildrenAreDatasetCoverage) {
                 const navigableChild = regionalChildren.find((c) => hasCountrySummaryInfo(c.properties));
                 if (navigableChild) {
+                    const _childDatasetIndex = getCountryDatasetIndexForFeature(navigableChild);
+                    const _childProps = { ...summaryProperties, ADM_lookup: undefined, ParentCountry: null };
+                    clearSelectedRegionHighlight();
+                    selectedRegionFeatureId = navigableChild.id;
+                    try { map.setFeatureState({ source: 'regions', id: navigableChild.id }, { selected: true }); } catch (e) {}
                     showTab('toc');
-                    selectRegion(navigableChild.id, navigableChild.properties);
+                    showInfo(_childProps, false, undefined, _childDatasetIndex, undefined, undefined, true);
+                    zoomTo(feature, 0);
                     map.setMinZoom(2);
                     return;
                 }
@@ -4306,9 +4321,14 @@
                     .map((f) => String((f.properties || {}).Name || ''));
                 rangeNameFilter = ['in', ['get', 'Name'], ['literal', passingNames]];
             }
+            // Check if there are any polygon sub-regions (not the country itself)
+            const hasPolygonSubRegions = rd && Array.isArray(rd.features) && rd.features.some((f) => {
+                if (!f || !f.geometry || f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') return false;
+                return String((f.properties || {}).Name || '').toLowerCase() !== selectedName.toLowerCase();
+            });
             const regionFillParts = [
                 ['==', ['geometry-type'], 'Polygon'],
-                ['!=', ['get', 'Name'], selectedName],
+                ...(hasPolygonSubRegions ? [['!=', ['get', 'Name'], selectedName]] : []),
                 dataCategoryFilter,
                 ...(rangeNameFilter ? [rangeNameFilter] : [])
             ];
@@ -4388,28 +4408,29 @@
     function getRegionFeatureByIdOrProperties(id, props) {
         if (!regionsData || !Array.isArray(regionsData.features)) return null;
 
-        // Prefer ID-based lookup first — MapLibre generateId:true assigns sequential
-        // indices so regionsData.features[id] is the feature at that position.
-        const idFeature = (id !== undefined && id !== null) ? regionsData.features[id] : null;
-        if (idFeature) return idFeature;
-
-        // Fall back to name/key matching when the ID is out of range.
+        // Prefer name/key matching when props.Name is available — avoids ID mismatch when
+        // MapLibre generateId assigns IDs that don't align with regionsData feature order.
         const lookupKeys = getFeatureLocationLookupKeys(props);
         if (lookupKeys.length) {
-            const matchedFeature = regionsData.features.find((feature) => {
+            const nameMatch = regionsData.features.find((feature) => {
                 const featureKeys = getFeatureLocationLookupKeys(feature);
                 return featureKeys.some((key) => lookupKeys.includes(key));
             });
-            if (matchedFeature) return matchedFeature;
+            if (nameMatch) return nameMatch;
         }
 
-        // Last resort: plain Name match.
+        // Plain Name match.
         const propsName = normalizeCountryKey((props && props.Name) || '');
         if (propsName) {
-            const nameMatch = regionsData.features.find(
+            const plainMatch = regionsData.features.find(
                 (f) => f.properties && normalizeCountryKey(f.properties.Name || '') === propsName
             );
-            if (nameMatch) return nameMatch;
+            if (plainMatch) return plainMatch;
+        }
+
+        // Fall back to ID match only when name lookup fails.
+        if (id !== undefined && id !== null) {
+            return regionsData.features.find((f) => f.id === id) || null;
         }
 
         return null;
@@ -6288,9 +6309,11 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       ).trim();
       _mapR.setFilter('research-point', null);
       if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
+      const _rfCat = normalizeCat(_rfp2.DataDisplay || _rfp2.RawDataTypes || _rfp2.Data || 'Pointcloud');
+      const _rfColor = getCatColor(_rfCat);
       if (_displayName) {
         _mapR.setPaintProperty('research-point', 'circle-color',
-          ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', getCatColor('Pointcloud')]
+          ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', ['get', 'DataColor']]
         );
         _mapR.setPaintProperty('research-point', 'circle-radius',
           ['case', ['==', ['get', 'DisplayName'], _displayName], 18, 8]
@@ -6299,7 +6322,7 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           ['case', ['==', ['get', 'DisplayName'], _displayName], 3, 2]
         );
       } else {
-        _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+        _mapR.setPaintProperty('research-point', 'circle-color', ['get', 'DataColor']);
         _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
         _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
       }
@@ -6307,10 +6330,31 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     } else {
       _mapR.setFilter('research-point', null);
       if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
-      _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+      _mapR.setPaintProperty('research-point', 'circle-color', ['get', 'DataColor']);
       _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
       _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
       _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
+    }
+  }
+
+  // In national mode with no polygon sub-regions, override fill to match an explicitly selected data type
+  if (_mapR && _mapR.getLayer('region-fill') && viewingCountrySummary && activeRegionKey === '__national__') {
+    const _hasSubRegions = regionsData && Array.isArray(regionsData.features) && regionsData.features.some((f) => {
+      if (!f || !f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return false;
+      return normalizeCountryKey(String((f.properties || {}).Name || '')) !== normalizeCountryKey(String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || ''));
+    });
+    if (!_hasSubRegions) {
+      if (activeDataType) {
+        const _typeToFillCat = (t) => {
+          const l = String(t || '').toLowerCase();
+          if (l === 'pointcloud' || l === 'point cloud') return 'Pointcloud';
+          if (l === 'dtm' || l === 'dsm' || l === 'dem') return 'DEM';
+          return 'Pointcloud';
+        };
+        _mapR.setPaintProperty('region-fill', 'fill-color', getCatColor(_typeToFillCat(activeDataType)));
+      } else {
+        _mapR.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+      }
     }
   }
 
