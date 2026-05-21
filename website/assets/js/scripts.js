@@ -5852,11 +5852,24 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     }
   }
   // Filter dataset entries based on selected region
+  const _researchOnlyKeys = new Set(
+    (regionDatasetMap.get(RESEARCH_REGION_KEY) || { datasetKeys: [] }).datasetKeys.filter((k) =>
+      ![...regionDatasetMap.entries()].some(([rk, re]) => rk !== RESEARCH_REGION_KEY && re.datasetKeys.includes(k))
+    )
+  );
   const filteredDatasetGroupEntries = showRegionDropdown
     ? (activeRegionKey === '__national__'
-      ? datasetGroupEntries.filter((entry) =>
-          entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
-        )
+      ? (() => {
+          const national = datasetGroupEntries.filter((entry) =>
+            entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+          );
+          // Fallback: if no strictly-national datasets found, show everything that isn't research-only
+          return national.length > 0
+            ? national
+            : datasetGroupEntries.filter((entry) =>
+                entry.rawIndices.some((i) => !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+              );
+        })()
       : datasetGroupEntries.filter((entry) =>
           entry.rawIndices.some((i) =>
             (regionDatasetMap.get(activeRegionKey) || { datasetKeys: [] }).datasetKeys.includes(normalizeDatasetOptionKey(datasetOptions[i] || ''))
@@ -6168,12 +6181,20 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         // Find the first dataset key for the selected region (or first national dataset)
         let firstDatasetKey = null;
         if (nextRegionKey === '__national__') {
-          // Pick first dataset not belonging to any region
-          const firstNationalGroup = datasetGroupEntries.find((entry) =>
+          let firstNationalGroup = datasetGroupEntries.find((entry) =>
             entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
           );
+          // Fallback: if no strictly-national datasets, pick first non-research-only dataset
+          if (!firstNationalGroup) {
+            firstNationalGroup = datasetGroupEntries.find((entry) =>
+              entry.rawIndices.some((i) => !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+            );
+          }
           if (firstNationalGroup) {
-            const ni = firstNationalGroup.rawIndices.find((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')));
+            const ni = firstNationalGroup.rawIndices.find((i) =>
+              !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')) ||
+              !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || ''))
+            );
             firstDatasetKey = normalizeDatasetOptionKey(datasetOptions[ni] || '');
           }
         } else {
@@ -6196,23 +6217,28 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           if (targetFeature) {
             const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
             const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === firstDatasetName) || targetFeature;
+            const _baseProps = selectedCountryFeature ? selectedCountryFeature.properties : repForDataset.properties;
             const mergedProps = {
-              ...repForDataset.properties,
+              ..._baseProps,
               Name: countryName2,
               ADM: p.ADM !== undefined ? p.ADM : 0,
               main_country: countryName2,
               ParentCountry: null,
-              Data: repForDataset.properties.Data || null,
+              Data: _baseProps.Data || repForDataset.properties.Data || null,
               Dataset_name: null,
               ADM_lookup: undefined
             };
-            showInfo(mergedProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+            showInfo(mergedProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType, false, nextRegionKey);
             focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
             if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
             return;
           }
         }
-        showInfo(p, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+        // Use clean country props so summaryDatasetOptions isn't poisoned by research feature's Dataset_name
+        const _countryProps = selectedCountryFeature
+          ? { ...selectedCountryFeature.properties, ADM_lookup: undefined, ParentCountry: null }
+          : { ...p, Dataset_name: null, ADM_lookup: undefined, ParentCountry: null };
+        showInfo(_countryProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType, false, nextRegionKey);
         focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
         if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
       });
