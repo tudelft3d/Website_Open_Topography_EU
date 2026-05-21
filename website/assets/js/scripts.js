@@ -6253,14 +6253,13 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           if (targetFeature) {
             const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
             const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === firstDatasetName) || targetFeature;
-            const _baseProps = selectedCountryFeature ? selectedCountryFeature.properties : repForDataset.properties;
             const mergedProps = {
-              ..._baseProps,
+              ...repForDataset.properties,
               Name: countryName2,
               ADM: p.ADM !== undefined ? p.ADM : 0,
               main_country: countryName2,
               ParentCountry: null,
-              Data: _baseProps.Data || repForDataset.properties.Data || null,
+              Data: repForDataset.properties.Data || null,
               Dataset_name: null,
               ADM_lookup: undefined
             };
