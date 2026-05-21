@@ -1290,12 +1290,14 @@
                 ].join('::');
                 if (seenMarkerKeys.has(markerKey)) return;
                 seenMarkerKeys.add(markerKey);
+                const _fcat = normalizeCat((feature.properties || {}).DataDisplay || (feature.properties || {}).RawDataTypes || (feature.properties || {}).Data || 'Pointcloud');
                 markerFeatures.push({
                     type: 'Feature',
                     properties: {
                         ...(feature.properties || {}),
                         DisplayName: datasetName,
-                        ResearchFeatureId: sourceIndex
+                        ResearchFeatureId: sourceIndex,
+                        DataColor: getCatColor(_fcat)
                     },
                     geometry: {
                         type: 'Point',
@@ -3460,7 +3462,7 @@
         if (tokens.includes('region')) return 'Region';
         // When a dataset offers both point clouds and DEMs, favor point clouds in overview styling.
         if (tokens.includes('pointcloud') || tokens.includes('point cloud')) return 'Pointcloud';
-        if (tokens.includes('dem') || tokens.includes('digital elevation model')) return 'DEM';
+        if (tokens.includes('dem') || tokens.includes('dtm') || tokens.includes('dsm') || tokens.includes('digital elevation model')) return 'DEM';
         if (tokens.includes('no info') || tokens.includes('noinfo') || tokens.includes('geen info')) return 'No Info';
         return raw;
     }
@@ -3960,8 +3962,15 @@
                     ? regionalChildren.find((f) => getFeatureLocationLookupKeys(f).includes(requestedRegionKey))
                     : null;
                 if (requestedRegion) {
+                    const _reqDatasetIndex = getCountryDatasetIndexForFeature(requestedRegion);
+                    const _reqRegionKey = normalizeCountryKey(String((requestedRegion.properties || {}).Name || '').trim());
+                    const _reqProps = { ...summaryProperties, ADM_lookup: undefined, ParentCountry: null };
+                    clearSelectedRegionHighlight();
+                    selectedRegionFeatureId = requestedRegion.id;
+                    try { map.setFeatureState({ source: 'regions', id: requestedRegion.id }, { selected: true }); } catch (e) {}
                     showTab('toc');
-                    selectRegion(requestedRegion.id, requestedRegion.properties);
+                    showInfo(_reqProps, false, undefined, _reqDatasetIndex, undefined, undefined, false, _reqRegionKey || undefined);
+                    zoomTo(feature, 0);
                     map.setMinZoom(2);
                     return;
                 }
@@ -3969,8 +3978,14 @@
             if (!hasCountrySummaryInfo(summaryProperties) && regionalChildren.length && !allChildrenAreDatasetCoverage) {
                 const navigableChild = regionalChildren.find((c) => hasCountrySummaryInfo(c.properties));
                 if (navigableChild) {
+                    const _childDatasetIndex = getCountryDatasetIndexForFeature(navigableChild);
+                    const _childProps = { ...summaryProperties, ADM_lookup: undefined, ParentCountry: null };
+                    clearSelectedRegionHighlight();
+                    selectedRegionFeatureId = navigableChild.id;
+                    try { map.setFeatureState({ source: 'regions', id: navigableChild.id }, { selected: true }); } catch (e) {}
                     showTab('toc');
-                    selectRegion(navigableChild.id, navigableChild.properties);
+                    showInfo(_childProps, false, undefined, _childDatasetIndex, undefined, undefined, true);
+                    zoomTo(feature, 0);
                     map.setMinZoom(2);
                     return;
                 }
@@ -4306,9 +4321,14 @@
                     .map((f) => String((f.properties || {}).Name || ''));
                 rangeNameFilter = ['in', ['get', 'Name'], ['literal', passingNames]];
             }
+            // Check if there are any polygon sub-regions (not the country itself)
+            const hasPolygonSubRegions = rd && Array.isArray(rd.features) && rd.features.some((f) => {
+                if (!f || !f.geometry || f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') return false;
+                return String((f.properties || {}).Name || '').toLowerCase() !== selectedName.toLowerCase();
+            });
             const regionFillParts = [
                 ['==', ['geometry-type'], 'Polygon'],
-                ['!=', ['get', 'Name'], selectedName],
+                ...(hasPolygonSubRegions ? [['!=', ['get', 'Name'], selectedName]] : []),
                 dataCategoryFilter,
                 ...(rangeNameFilter ? [rangeNameFilter] : [])
             ];
@@ -4388,41 +4408,41 @@
     function getRegionFeatureByIdOrProperties(id, props) {
         if (!regionsData || !Array.isArray(regionsData.features)) return null;
 
-        // Prefer ID-based lookup first — MapLibre generateId:true assigns sequential
-        // indices so regionsData.features[id] is the feature at that position.
-        const idFeature = (id !== undefined && id !== null) ? regionsData.features[id] : null;
-        if (idFeature) return idFeature;
-
-        // Fall back to name/key matching when the ID is out of range.
+        // Prefer name/key matching when props.Name is available — avoids ID mismatch when
+        // MapLibre generateId assigns IDs that don't align with regionsData feature order.
         const lookupKeys = getFeatureLocationLookupKeys(props);
         if (lookupKeys.length) {
-            const matchedFeature = regionsData.features.find((feature) => {
+            const nameMatch = regionsData.features.find((feature) => {
                 const featureKeys = getFeatureLocationLookupKeys(feature);
                 return featureKeys.some((key) => lookupKeys.includes(key));
             });
-            if (matchedFeature) return matchedFeature;
+            if (nameMatch) return nameMatch;
         }
 
-        // Last resort: plain Name match.
+        // Plain Name match.
         const propsName = normalizeCountryKey((props && props.Name) || '');
         if (propsName) {
-            const nameMatch = regionsData.features.find(
+            const plainMatch = regionsData.features.find(
                 (f) => f.properties && normalizeCountryKey(f.properties.Name || '') === propsName
             );
-            if (nameMatch) return nameMatch;
+            if (plainMatch) return plainMatch;
+        }
+
+        // Fall back to ID match only when name lookup fails.
+        if (id !== undefined && id !== null) {
+            return regionsData.features.find((f) => f.id === id) || null;
         }
 
         return null;
     }
 
-    function selectRegion(id, props) { 
-        console.log('selectRegion', id, props.Name); 
+    function selectRegion(id, props) {
         const feature = getRegionFeatureByIdOrProperties(id, props);
-        if (!feature) return; 
+        if (!feature) return;
         clearDatasetRegionSelection();
         clearSelectedRegionHighlight();
-        selectedRegionFeatureId = id; 
-        map.setFeatureState({ source: 'regions', id }, { selected: true }); 
+        selectedRegionFeatureId = id;
+        map.setFeatureState({ source: 'regions', id }, { selected: true });
         try {
             if (feature && feature.geometry && feature.geometry.type === 'Point' && Array.isArray(feature.geometry.coordinates)) {
                 map.easeTo({
@@ -4436,9 +4456,36 @@
             }
         } catch (e) {
             console.warn('Kan bounding box niet bepalen:', e);
-        } 
-        showInfo(feature.properties || props, true); 
-    } 
+        }
+        // Open as country summary with the clicked region's dataset pre-selected
+        if (selectedCountryFeature) {
+            const _datasetIndex = getCountryDatasetIndexForFeature(feature);
+            const _regionKey = normalizeCountryKey(String((feature.properties || {}).Name || '').trim());
+            const _countryName = (selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || '';
+            const _fp = feature.properties || {};
+            const _sp = selectedCountryFeature.properties || {};
+            // Merge sub-region specs into national props when the national feature lacks its own specs.
+            // This handles countries like the UK where each nation has independent GeoJSON features.
+            const _natHasSpecs = Boolean(_sp.Year || _sp.year_begin || _sp.Planimetric || _sp.Altimetric || _sp.National);
+            const _subHasSpecs = Boolean(_fp.Year || _fp.year_begin || _fp.Planimetric || _fp.Altimetric || _fp.National);
+            const _summaryProps = (_subHasSpecs && !_natHasSpecs) ? {
+                ..._fp,
+                Name: _countryName,
+                ADM: _sp.ADM !== undefined ? _sp.ADM : 0,
+                main_country: _countryName,
+                ParentCountry: null,
+                Dataset_name: null,
+                ADM_lookup: undefined
+            } : {
+                ..._sp,
+                ADM_lookup: undefined,
+                ParentCountry: null
+            };
+            showInfo(_summaryProps, false, undefined, _datasetIndex, undefined, undefined, false, _regionKey || undefined);
+        } else {
+            showInfo(feature.properties || props, true);
+        }
+    }
 
     function resetToCountries() { 
         selectedCountryFeature = null; 
@@ -4673,7 +4720,7 @@ function navigateInfoBanner(step, p, regionMode) {
   showInfo(nextItem.properties, false);
 }
 
-function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride, forceNational) {
+function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, activeDataTypeOverride, forceNational, preferredRegionKey) {
   function escapeHtml(text) {
     return String(text)
       .replace(/&/g, '&amp;')
@@ -5795,15 +5842,19 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const summaryDatasetKeySet = new Set(summaryDatasetOptions.map((n) => normalizeDatasetOptionKey(n)));
   let activeRegionKey = showRegionDropdown ? '__national__' : null;
   if (showRegionDropdown) {
-    const ame2 = countryDatasetFeatureMap.get(activeDatasetKey2);
-    if (ame2 && ame2.features.length) {
-      const fp0 = ame2.features[0].properties || {};
-      if (fp0.ADM_lookup) {
-        // Research always takes priority, even if name is also in summaryDatasetOptions
-        activeRegionKey = RESEARCH_REGION_KEY;
-      } else if (!summaryDatasetKeySet.has(activeDatasetKey2)) {
-        const rk = normalizeCountryKey(String(fp0.Name || '').trim());
-        if (rk && regionDatasetMap.has(rk)) activeRegionKey = rk;
+    // If caller explicitly requests a region key (e.g. dataset dropdown preserving current region), honour it
+    if (preferredRegionKey && (preferredRegionKey === '__national__' || preferredRegionKey === RESEARCH_REGION_KEY || regionDatasetMap.has(preferredRegionKey))) {
+      activeRegionKey = preferredRegionKey;
+    } else {
+      const ame2 = countryDatasetFeatureMap.get(activeDatasetKey2);
+      if (ame2 && ame2.features.length) {
+        const fp0 = ame2.features[0].properties || {};
+        if (fp0.ADM_lookup) {
+          activeRegionKey = RESEARCH_REGION_KEY;
+        } else if (!summaryDatasetKeySet.has(activeDatasetKey2)) {
+          const rk = normalizeCountryKey(String(fp0.Name || '').trim());
+          if (rk && regionDatasetMap.has(rk)) activeRegionKey = rk;
+        }
       }
     }
   }
@@ -5837,11 +5888,24 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     }
   }
   // Filter dataset entries based on selected region
+  const _researchOnlyKeys = new Set(
+    (regionDatasetMap.get(RESEARCH_REGION_KEY) || { datasetKeys: [] }).datasetKeys.filter((k) =>
+      ![...regionDatasetMap.entries()].some(([rk, re]) => rk !== RESEARCH_REGION_KEY && re.datasetKeys.includes(k))
+    )
+  );
   const filteredDatasetGroupEntries = showRegionDropdown
     ? (activeRegionKey === '__national__'
-      ? datasetGroupEntries.filter((entry) =>
-          entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
-        )
+      ? (() => {
+          const national = datasetGroupEntries.filter((entry) =>
+            entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+          );
+          // Fallback: if no strictly-national datasets found, show everything that isn't research-only
+          return national.length > 0
+            ? national
+            : datasetGroupEntries.filter((entry) =>
+                entry.rawIndices.some((i) => !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+              );
+        })()
       : datasetGroupEntries.filter((entry) =>
           entry.rawIndices.some((i) =>
             (regionDatasetMap.get(activeRegionKey) || { datasetKeys: [] }).datasetKeys.includes(normalizeDatasetOptionKey(datasetOptions[i] || ''))
@@ -5903,16 +5967,20 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
   const parentCountryName = isRegionView
     ? escapeHtml(String(p.ParentCountry || p.main_country || p.country || _scfProps.Name || '').trim())
     : null;
-  const _researchSubtitle = (viewingCountrySummary && activeRegionKey === '__research_group__') ? activeDatasetName : null;
+  const _regionSubtitle = viewingCountrySummary && activeRegionKey && activeRegionKey !== '__national__'
+    ? (activeRegionKey === '__research_group__'
+        ? activeDatasetName
+        : (regionDatasetMap.get(activeRegionKey) || {}).name || null)
+    : null;
   const titleColHtml = isRegionView
     ? `<div class="info-banner-title-col info-banner-title-col--region">
         <button class="info-banner-country-link" type="button">${parentCountryName || escapeHtml(String((_scfProps && _scfProps.Name) || ''))}</button>
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
       </div>`
-    : _researchSubtitle
+    : _regionSubtitle
     ? `<div class="info-banner-title-col info-banner-title-col--region">
-        <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
-        <span class="info-banner-title" style="font-size:0.75em;opacity:0.75;font-weight:normal;">${escapeHtml(_researchSubtitle)}</span>
+        <button class="info-banner-country-link" type="button">${escapeHtml(displayTitle)}</button>
+        <span class="info-banner-title">${escapeHtml(_regionSubtitle)}</span>
       </div>`
     : `<div class="info-banner-title-col">
         <span class="info-banner-title">${escapeHtml(displayTitle)}</span>
@@ -6101,7 +6169,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
               Dataset_name: null,
               ADM_lookup: undefined
             };
-            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+            const currentRegionKey = infoBox.querySelector('[data-info-region-select]') ? infoBox.querySelector('[data-info-region-select]').value : null;
+            showInfo(mergedProps, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType, false, currentRegionKey);
             const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
             focusDatasetSelection(nextDatasetRegionNames);
             if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
@@ -6109,7 +6178,8 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           }
         }
       }
-      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType);
+      const _fallbackRegionKey = infoBox.querySelector('[data-info-region-select]') ? infoBox.querySelector('[data-info-region-select]').value : null;
+      showInfo(p, regionMode, nextYearIndex, nextDatasetIndex, effectiveTab, activeDataType, false, _fallbackRegionKey);
       const nextDatasetRegionNames = resolveDatasetRegionNames(nextDatasetName, nextGroup);
       focusDatasetSelection(nextDatasetRegionNames);
       if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
@@ -6147,12 +6217,20 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
         // Find the first dataset key for the selected region (or first national dataset)
         let firstDatasetKey = null;
         if (nextRegionKey === '__national__') {
-          // Pick first dataset not belonging to any region
-          const firstNationalGroup = datasetGroupEntries.find((entry) =>
+          let firstNationalGroup = datasetGroupEntries.find((entry) =>
             entry.rawIndices.some((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
           );
+          // Fallback: if no strictly-national datasets, pick first non-research-only dataset
+          if (!firstNationalGroup) {
+            firstNationalGroup = datasetGroupEntries.find((entry) =>
+              entry.rawIndices.some((i) => !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')))
+            );
+          }
           if (firstNationalGroup) {
-            const ni = firstNationalGroup.rawIndices.find((i) => !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')));
+            const ni = firstNationalGroup.rawIndices.find((i) =>
+              !allRegionalDatasetKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || '')) ||
+              !_researchOnlyKeys.has(normalizeDatasetOptionKey(datasetOptions[i] || ''))
+            );
             firstDatasetKey = normalizeDatasetOptionKey(datasetOptions[ni] || '');
           }
         } else {
@@ -6175,23 +6253,28 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
           if (targetFeature) {
             const countryName2 = (selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || p.Name || '';
             const repForDataset = mappedEntry.features.find((f) => f.properties && f.properties.Dataset_name === firstDatasetName) || targetFeature;
+            const _baseProps = selectedCountryFeature ? selectedCountryFeature.properties : repForDataset.properties;
             const mergedProps = {
-              ...repForDataset.properties,
+              ..._baseProps,
               Name: countryName2,
               ADM: p.ADM !== undefined ? p.ADM : 0,
               main_country: countryName2,
               ParentCountry: null,
-              Data: repForDataset.properties.Data || null,
+              Data: _baseProps.Data || repForDataset.properties.Data || null,
               Dataset_name: null,
               ADM_lookup: undefined
             };
-            showInfo(mergedProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+            showInfo(mergedProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType, false, nextRegionKey);
             focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
             if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
             return;
           }
         }
-        showInfo(p, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType);
+        // Use clean country props so summaryDatasetOptions isn't poisoned by research feature's Dataset_name
+        const _countryProps = selectedCountryFeature
+          ? { ...selectedCountryFeature.properties, ADM_lookup: undefined, ParentCountry: null }
+          : { ...p, Dataset_name: null, ADM_lookup: undefined, ParentCountry: null };
+        showInfo(_countryProps, regionMode, nextYearIdx, firstDatasetIndex, 'specs', activeDataType, false, nextRegionKey);
         focusDatasetSelection(resolveDatasetRegionNames(firstDatasetName, firstGroup));
         if (selectedCountryFeature) zoomTo(selectedCountryFeature, 0);
       });
@@ -6241,18 +6324,20 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
       ).trim();
       _mapR.setFilter('research-point', null);
       if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
+      const _rfCat = normalizeCat(_rfp2.DataDisplay || _rfp2.RawDataTypes || _rfp2.Data || 'Pointcloud');
+      const _rfColor = getCatColor(_rfCat);
       if (_displayName) {
         _mapR.setPaintProperty('research-point', 'circle-color',
-          ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', getCatColor('Pointcloud')]
+          ['case', ['==', ['get', 'DisplayName'], _displayName], '#e63946', ['get', 'DataColor']]
         );
         _mapR.setPaintProperty('research-point', 'circle-radius',
-          ['case', ['==', ['get', 'DisplayName'], _displayName], 18, ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]]
+          ['case', ['==', ['get', 'DisplayName'], _displayName], 18, 8]
         );
         _mapR.setPaintProperty('research-point', 'circle-stroke-width',
           ['case', ['==', ['get', 'DisplayName'], _displayName], 3, 2]
         );
       } else {
-        _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+        _mapR.setPaintProperty('research-point', 'circle-color', ['get', 'DataColor']);
         _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
         _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
       }
@@ -6260,10 +6345,31 @@ function showInfo(p, regionMode, yearIndex, datasetIndex, activeTabOverride, act
     } else {
       _mapR.setFilter('research-point', null);
       if (_mapR.getLayer('research-point-hit')) _mapR.setFilter('research-point-hit', null);
-      _mapR.setPaintProperty('research-point', 'circle-color', getCatColor('Pointcloud'));
+      _mapR.setPaintProperty('research-point', 'circle-color', ['get', 'DataColor']);
       _mapR.setPaintProperty('research-point', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 3, 5, 8, 8, 12, 11]);
       _mapR.setPaintProperty('research-point', 'circle-stroke-color', '#ffffff');
       _mapR.setPaintProperty('research-point', 'circle-stroke-width', 2);
+    }
+  }
+
+  // In national mode with no polygon sub-regions, override fill to match an explicitly selected data type
+  if (_mapR && _mapR.getLayer('region-fill') && viewingCountrySummary && activeRegionKey === '__national__') {
+    const _hasSubRegions = regionsData && Array.isArray(regionsData.features) && regionsData.features.some((f) => {
+      if (!f || !f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return false;
+      return normalizeCountryKey(String((f.properties || {}).Name || '')) !== normalizeCountryKey(String((selectedCountryFeature && selectedCountryFeature.properties && selectedCountryFeature.properties.Name) || ''));
+    });
+    if (!_hasSubRegions) {
+      if (activeDataType) {
+        const _typeToFillCat = (t) => {
+          const l = String(t || '').toLowerCase();
+          if (l === 'pointcloud' || l === 'point cloud') return 'Pointcloud';
+          if (l === 'dtm' || l === 'dsm' || l === 'dem') return 'DEM';
+          return 'Pointcloud';
+        };
+        _mapR.setPaintProperty('region-fill', 'fill-color', getCatColor(_typeToFillCat(activeDataType)));
+      } else {
+        _mapR.setPaintProperty('region-fill', 'fill-color', buildRegionFillExpression());
+      }
     }
   }
 
