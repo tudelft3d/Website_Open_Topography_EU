@@ -1,0 +1,15 @@
+name: website update
+
+on: 
+  push:
+    branches: 
+      - main
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: trigger update
+        run: curl -L ${{ secrets.UPDATE_URL }}
