@@ -6,13 +6,14 @@ Copyright © 2025-2026 3D geoinformation group, TU Delft and Daan van den Heide.
 """
 
 import json
+import logging
 import os
 import re
-import pandas as pd
-import geopandas as gpd
-import fiona
+
 import click
-import logging
+import fiona
+import geopandas as gpd
+import pandas as pd
 from shapely.geometry import Point
 
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
