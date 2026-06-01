@@ -5,6 +5,7 @@ Created on Thu Apr  3 11:45:59 2025
 Copyright © 2025-2026 3D geoinformation group, TU Delft and Daan van den Heide. All rights reserved.
 """
 
+import json
 import os
 import re
 import pandas as pd
@@ -20,6 +21,13 @@ logger.setLevel(logging.INFO)
 MERGED_VALUE_SEPARATOR = " || "
 ADM_COLUMN_CANDIDATES = ('ADM', 'AMD', 'adm', 'amd', 'ADM_LEVEL', 'admin_level', 'Admin Level')
 MAIN_COUNTRY_COLUMN_CANDIDATES = ('main_country', 'Main Country', 'country', 'Country')
+REGION_NAME_COLUMN_CANDIDATES = ('Name', 'name', 'region', 'Region', 'region_name', 'Region Name')
+ADM_NAME_COLUMN = {
+    0: 'COUNTRY',
+    1: 'NAME_1',
+    2: 'NAME_2',
+    3: 'NAME_3',
+}
 CANONICAL_COLUMN_ALIASES = {
     'Name': ('Name', 'name', 'region', 'Region'),
     'main_country': ('main_country', 'Main Country', 'country', 'Country'),
@@ -55,11 +63,16 @@ def prepare_unified_export_gdf(result_gdf):
     """
     Prepare the website's unified export dataset.
     """
-    unified_gdf = result_gdf.copy()
-    if 'country' in unified_gdf.columns:
-        unified_gdf = unified_gdf[unified_gdf['country'].astype(str).str.lower() != 'global'].copy()
-    unified_gdf['geometry'] = unified_gdf['geometry'].simplify(tolerance=0.001)
-    return unified_gdf
+    if 'country' in result_gdf.columns:
+        result_gdf = result_gdf[result_gdf['country'].astype(str).str.lower() != 'global']
+    total = len(result_gdf)
+    geom_col = result_gdf.geometry.name
+    for i, idx in enumerate(result_gdf.index, start=1):
+        result_gdf.at[idx, geom_col] = result_gdf.geometry[idx].simplify(0.001)
+        if i % max(1, total // 10) == 0 or i == total:
+            logger.info(f"Simplifying geometries: {i}/{total} ({100 * i // total}%)")
+
+    return result_gdf
 
 
 def load_input_table(input_file):
@@ -82,6 +95,24 @@ def load_input_table(input_file):
 
 
 def ensure_canonical_column(df, canonical_name, candidates):
+    """
+    Ensure a canonical column exists in the DataFrame by aliasing the first
+    matching candidate column.
+
+    If one of the candidate column names is present in ``df`` and the canonical
+    name is not already a column, the candidate's values are copied to a new
+    column named ``canonical_name``. If the canonical column already exists,
+    or no candidate is found, the DataFrame is left unchanged.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The input DataFrame to inspect and potentially modify in-place.
+    canonical_name : str
+        The target column name to create if absent.
+    candidates : iterable of str
+        Ordered list of alternative column names to search for.
+    """
     for candidate in candidates:
         if candidate in df.columns:
             if candidate != canonical_name and canonical_name not in df.columns:
@@ -90,6 +121,26 @@ def ensure_canonical_column(df, canonical_name, candidates):
 
 
 def combine_year_columns(row):
+    """
+    Combine ``year_begin`` and ``year_end`` fields into a single human-readable
+    year string for a given row.
+
+    Rules applied:
+    - If both are missing, fall back to the existing ``Year`` field.
+    - If both are present and equal, return that single value.
+    - If both are present and different, return ``"<start> - <end>"``.
+    - If only one is present, return that value.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        A single row from the dataset DataFrame.
+
+    Returns
+    -------
+    str or None
+        The combined year string, or the fallback ``Year`` value.
+    """
     start = row.get('year_begin')
     end = row.get('year_end')
     if pd.isna(start) and pd.isna(end):
@@ -102,6 +153,30 @@ def combine_year_columns(row):
 
 
 def normalize_input_columns(df):
+    """
+    Apply all column normalizations to the input DataFrame.
+
+    This function:
+    1. Iterates over ``CANONICAL_COLUMN_ALIASES`` and calls
+       :func:`ensure_canonical_column` for each entry so that every expected
+       column exists under its canonical name regardless of the source header
+       used in the spreadsheet.
+    2. Creates convenience aliases (``Data Provider``, ``Data Name``,
+       ``Documentation link``, ``Dataroom``, ``Link``,
+       ``Classification available``) expected by the website frontend.
+    3. Calls :func:`combine_year_columns` row-wise to populate a unified
+       ``Year`` column when ``year_begin`` / ``year_end`` are present.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Raw DataFrame loaded from the input spreadsheet.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The same DataFrame with normalised and aliased columns added in-place.
+    """
     for canonical_name, candidates in CANONICAL_COLUMN_ALIASES.items():
         ensure_canonical_column(df, canonical_name, candidates)
 
@@ -127,39 +202,62 @@ def normalize_input_columns(df):
 
     return df
 
-
-def resolve_adm_column(df):
+def resolve_column(df: pd.DataFrame, candidates: tuple) -> str:
     """
-    Resolve the administrative-level column from common header variants.
+    Resolve a column from a list of candidate names.
+    Raises ValueError if none of the candidates are found.
     """
-    for candidate in ADM_COLUMN_CANDIDATES:
-        if candidate in df.columns:
-            return candidate
-
-    raise click.BadParameter(
-        "Input file is missing an ADM level column. "
-        f"Tried: {', '.join(ADM_COLUMN_CANDIDATES)}. "
-        f"Available columns: {', '.join(map(str, df.columns))}"
-    )
-
-
-def resolve_main_country_column(df):
-    """
-    Resolve the parent-country column if present.
-    """
-    for candidate in MAIN_COUNTRY_COLUMN_CANDIDATES:
-        if candidate in df.columns:
-            return candidate
-    return None
+    match = next((c for c in candidates if c in df.columns), None)
+    if match is None:
+        raise ValueError(
+            f"Input file is missing a required column. "
+            f"Expected one of: {', '.join(candidates)}. "
+            f"Available columns: {', '.join(map(str, df.columns))}"
+        )
+    return match
 
 
 def normalize_name(value):
+    """
+    Normalize a place name for case-insensitive comparison.
+
+    Strips surrounding whitespace and converts to upper-case. Returns an empty
+    string for ``None`` or ``NaN`` values.
+
+    Parameters
+    ----------
+    value : str or None
+        The raw name value from the spreadsheet or GeoPackage attribute.
+
+    Returns
+    -------
+    str
+        Upper-cased, whitespace-stripped version of ``value``, or ``''``.
+    """
     if value is None or pd.isna(value):
         return ''
     return str(value).strip().upper()
 
 
 def normalize_special_lookup(value):
+    """
+    Normalize a special-boundary lookup key for filename matching.
+
+    Converts to lower-case, strips a trailing ``.gpkg`` extension if present,
+    then replaces any run of non-alphanumeric characters with ``_`` and strips
+    leading/trailing underscores. Used to compare the ADM field value from the
+    spreadsheet against GeoPackage filenames in the special directory.
+
+    Parameters
+    ----------
+    value : str or None
+        The raw ADM field value (e.g. ``"research"`` or ``"My Region.gpkg"``).
+
+    Returns
+    -------
+    str
+        Normalised, filesystem-friendly key string, or ``''`` for empty input.
+    """
     if value is None or pd.isna(value):
         return ''
     text = str(value).strip().lower()
@@ -168,22 +266,19 @@ def normalize_special_lookup(value):
     return text.strip('_')
 
 
-def resolve_adm_value(raw_value):
+def resolve_adm_value(raw_value: str) -> int | str | None:
     """
-    Return a numeric ADM level when possible, otherwise keep the original string
-    as a special-boundary lookup key.
+    Return an int ADM level, a str special-boundary lookup key, or None for
+    missing/empty input. The return type indicates which case applies:
+    - int  → numeric ADM level
+    - str  → special-boundary lookup key
+    - None → missing or empty value
     """
     if raw_value is None or pd.isna(raw_value):
-        return None, ''
-
+        return None
     text = str(raw_value).strip()
-    if not text:
-        return None, ''
-
-    try:
-        return int(float(text)), ''
-    except (TypeError, ValueError):
-        return None, text
+    numeric = pd.to_numeric(text, errors='coerce')
+    return int(numeric) if pd.notna(numeric) else (text or None)
 
 
 def find_special_gpkg(special_dir, lookup_value):
@@ -244,31 +339,6 @@ def load_special_features(gpkg_path, target_crs=None):
     return special_gdf
 
 
-def layer_match_mask(layer_gdf, name, country_name=None):
-    """
-    Match a region name against several possible GADM name fields, optionally
-    constrained to a parent country.
-    """
-    name = normalize_name(name)
-    if not name:
-        return pd.Series(False, index=layer_gdf.index)
-
-    candidate_columns = [col for col in ['COUNTRY', 'NAME_1', 'NAME_2', 'NAME_3', 'VARNAME_1', 'VARNAME_2', 'VARNAME_3'] if col in layer_gdf.columns]
-    if not candidate_columns:
-        return pd.Series(False, index=layer_gdf.index)
-
-    mask = pd.Series(False, index=layer_gdf.index)
-    for column in candidate_columns:
-        values = layer_gdf[column].fillna('').astype(str).str.upper()
-        mask = mask | values.eq(name) | values.str.contains(rf'(?:^|[|,;])\s*{re.escape(name)}\s*(?:$|[|,;])', regex=True)
-
-    country_col = next((c for c in ('COUNTRY', 'NAME_0') if c in layer_gdf.columns), None)
-    if country_name and country_col:
-        mask = mask & layer_gdf[country_col].fillna('').astype(str).str.upper().eq(normalize_name(country_name))
-
-    return mask
-
-
 def special_match_mask(layer_gdf, name):
     """
     Match a special-boundary feature against the dataset name, using fields such
@@ -313,80 +383,24 @@ def resolve_special_feature_name(row):
                 return value
     return row.get('match_name')
 
-
-def merge_duplicate_rows(result_gdf):
-    """
-    Merge duplicate dataset rows for the same country/name/ADM combination while
-    preserving row order inside each field.
-    """
-    if result_gdf.empty:
-        return result_gdf
-
-    grouped_rows = []
-    group_cols = [col for col in ['ADM', 'country', 'main_country', 'Name'] if col in result_gdf.columns]
-    geometry_col = result_gdf.geometry.name if hasattr(result_gdf, 'geometry') else 'geometry'
-
-    def is_missing(value):
-        return value is None or pd.isna(value) or (isinstance(value, str) and not value.strip())
-
-    def get_research_merge_key(row):
-        if not row.get('ADM_lookup'):
-            return ''
-        key_parts = []
-        for col in ['location', 'Location', 'Name.1', 'Dataset_name', 'Data Name', 'dataset_name', 'Year_start', 'Year_end']:
-            value = row.get(col)
-            if not is_missing(value):
-                key_parts.append(str(value).strip())
-        if key_parts:
-            return ' | '.join(key_parts)
-        geom = row.get(geometry_col)
-        if geom is not None:
-            try:
-                return geom.wkt
-            except Exception:
-                return str(geom)
-        return ''
-
-    merge_key_col = '_merge_key'
-    work_gdf = result_gdf.copy()
-    work_gdf[merge_key_col] = work_gdf.apply(get_research_merge_key, axis=1)
-    group_cols = group_cols + [merge_key_col]
-
-    for _, group in work_gdf.groupby(group_cols, sort=False, dropna=False):
-        merged = {}
-        for col in group.columns:
-            if col == merge_key_col:
-                continue
-            if col == geometry_col:
-                merged[col] = group.iloc[0][col]
-                continue
-
-            values = [value for value in group[col].tolist() if not is_missing(value)]
-            if not values:
-                merged[col] = None
-                continue
-
-            if col in group_cols:
-                merged[col] = values[0]
-                continue
-
-            unique_values = []
-            seen = set()
-            for value in values:
-                key = str(value).strip()
-                if key in seen:
-                    continue
-                seen.add(key)
-                unique_values.append(value)
-
-            merged[col] = unique_values[0] if len(unique_values) == 1 else MERGED_VALUE_SEPARATOR.join(str(v) for v in unique_values)
-
-        grouped_rows.append(merged)
-
-    return gpd.GeoDataFrame(grouped_rows, geometry=geometry_col, crs=result_gdf.crs)
-
-
 def parse_coordinate_value(value):
+    """
+    Extract a decimal coordinate (latitude or longitude) from a raw cell value.
+
+    Handles values stored as numbers, strings with units, or strings that use a
+    comma as the decimal separator. Returns ``None`` when no valid numeric
+    pattern is found.
+
+    Parameters
+    ----------
+    value : str, int, float or None
+        Raw coordinate cell value from the spreadsheet.
+
+    Returns
+    -------
+    float or None
+        Parsed coordinate as a float, or ``None`` if parsing fails.
+    """
     if value is None or pd.isna(value):
         return None
     match = re.search(r'-?\d+(?:[,.]\d+)?', str(value).strip())
@@ -399,6 +413,29 @@ def parse_coordinate_value(value):
 
 
 def get_explicit_research_point(row, target_crs=None):
+    """
+    Build a Point geometry from explicit latitude/longitude columns in a row.
+
+    Searches a prioritised list of candidate column names for longitude and
+    latitude values, parses them with :func:`parse_coordinate_value`, and
+    validates the coordinate range. When ``target_crs`` is supplied the point
+    is reprojected from ``EPSG:4326``.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        A single row from the dataset DataFrame that may contain coordinate
+        columns.
+    target_crs : str or pyproj.CRS or None
+        Target coordinate reference system for the returned geometry. When
+        ``None`` the geometry is returned in ``EPSG:4326``.
+
+    Returns
+    -------
+    shapely.geometry.Point or None
+        A point geometry in the requested CRS, or ``None`` if no valid
+        coordinates are found.
+    """
     lon_candidates = ('longitude', 'Longitude', 'LONGITUDE', 'lng', 'Lng', 'LNG', 'lon', 'Lon', 'LON')
     lat_candidates = ('latitude', 'Latitude', 'LATITUDE', 'lat', 'Lat', 'LAT')
 
@@ -432,7 +469,7 @@ def AMD_reader(matched_rows, adm_match, row, special_dir, special_lookup=None, t
     Process a match from ADM layers or search in special directory if no match is found.
     """
     if adm_match.empty:
-        logger.info(f'No ADM match found for {row}, searching in special directory...')
+        logger.info(f'No ADM match found for {row["match_name"]}, searching in special directory...')
         lookup_name = special_lookup or row['match_name']
         normalized_lookup = normalize_special_lookup(lookup_name)
         gadm_gpkg = find_special_gpkg(special_dir, lookup_name)
@@ -508,39 +545,124 @@ def AMD_reader(matched_rows, adm_match, row, special_dir, special_lookup=None, t
         matched_rows.append(matched_row)
         return matched_rows
 
+def _escape_sql_string(s):
+    """Escape single quotes in an SQL string literal."""
+    return s.replace("'", "''")
+
+
+def _names_to_sql_in(names):
+    """Return the interior of a SQL IN(...) expression for a set of uppercase names."""
+    return ', '.join(f"'{_escape_sql_string(n)}'" for n in sorted(names))
+
+def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None):
+    """
+    Load a single GADM layer from the GeoPackage, optionally restricted by a
+    WHERE clause so that only the needed features are brought into memory.
+    """
+    kwargs = {'layer': layer_name}
+    if where_clause:
+        kwargs['where'] = where_clause
+    return gpd.read_file(gadm_gpkg, **kwargs)
+
+
+
+def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
+    """Extract a list of unique, non-empty region names for a specific ADM level from the DataFrame."""
+    if 'match_name' not in df.columns or 'ADM' not in df.columns:
+        return []
+    adm_numeric = pd.to_numeric(df['ADM'].astype(str).str.strip(), errors='coerce')
+    names = (
+        df.loc[adm_numeric == level, 'match_name']
+        .dropna().astype(str).str.strip().str.upper()
+    )
+    return list(names[names != ''].unique())
+
 
 def match_names_and_export(
     gadm_gpkg,
     input_file,
-    name_column,
     output_dir,
     special_dir
 ):
-    # Load specific layers
-    adm0 = gpd.read_file(gadm_gpkg, layer='ADM_0')
-    adm1 = gpd.read_file(gadm_gpkg, layer='ADM_1')
-    adm2 = gpd.read_file(gadm_gpkg, layer='ADM_2')
-    adm3 = gpd.read_file(gadm_gpkg, layer='ADM_3')
+    """
+    Orchestrate the full pipeline: load inputs, match every row to a geometry,
+    deduplicate, and export the unified GeoJSON.
 
-    adm0['name'] = adm0['COUNTRY'].str.upper()
-    adm1['name'] = adm1['NAME_1'].str.upper()
-    adm2['name'] = adm2['NAME_1'].str.upper()
-    adm3['name'] = adm3['VARNAME_3'].str.upper()
+    Steps performed:
+    1. Load GADM administrative boundary layers (ADM_0 through ADM_3) from
+       ``gadm_gpkg``.
+    2. Load and normalise the input spreadsheet via :func:`load_input_table`.
+    3. For each dataset row:
+       - Resolve the ADM level or special-boundary lookup key.
+       - Match the region name against the appropriate GADM layer (or delegate
+         to :func:`AMD_reader` for special/research boundaries).
+       - Collect matched rows with attached geometry.
+    4. Assemble a ``GeoDataFrame`` and write the output with
+       :func:`export_geojson_outputs`.
 
+    Parameters
+    ----------
+    gadm_gpkg : str
+        Path to the GADM GeoPackage containing administrative boundary layers.
+    input_file : str
+        Path to the Excel (.xlsx/.xls) or CSV file with dataset metadata.
+    output_dir : str
+        Directory where the output GeoJSON file will be written.
+    special_dir : str or None
+        Directory containing custom GeoPackage files for non-standard
+        boundaries (may be ``None`` if not needed).
+    """
     df = load_input_table(input_file)
-    adm_column = resolve_adm_column(df)
-    main_country_column = resolve_main_country_column(df)
-    if adm_column != 'ADM':
-        df['ADM'] = df[adm_column]
-    if main_country_column and main_country_column != 'main_country':
-        df['main_country'] = df[main_country_column]
-    df['match_name'] = df[name_column].str.upper()
+
+    main_country_col = resolve_column(df, MAIN_COUNTRY_COLUMN_CANDIDATES) 
+    adm_col = resolve_column(df, ADM_COLUMN_CANDIDATES)
+    name_col = resolve_column(df, REGION_NAME_COLUMN_CANDIDATES) 
+
+    logger.info(f"Using '{main_country_col}' as main country column")
+    logger.info(f"Using '{adm_col}' as ADM column")
+    logger.info(f"Using '{name_col}' as region name column")
+
+
+    if adm_col != 'ADM':
+        df['ADM'] = df[adm_col]
+    if main_country_col and main_country_col != 'main_country':
+        df['main_country'] = df[main_country_col]
+    df['match_name'] = df[name_col].str.upper()
+
+    adm_layers = {}
+
+    for level in range(4):
+        logging.info(f"Processing ADM_{level} layer...")
+        adm_regions = get_region_list_per_level(df, level=level)
+        logger.info(f"Loading {ADM_NAME_COLUMN[level]} layer: {adm_regions}")
+
+        if adm_regions:
+            adm_where = f'UPPER("{ADM_NAME_COLUMN[level]}") IN ({_names_to_sql_in(adm_regions)})'
+            adm = _load_gadm_layer_filtered(gadm_gpkg, f'ADM_{level}', where_clause=adm_where)
+        else:
+            logger.warning(f"No valid {ADM_NAME_COLUMN[level]} region names found in the input data. Cannot proceed without region information for filtering ADM_{level} layer.")   
+            continue
+        adm_layers[level]=adm 
+        logger.info(f"Loaded ADM_{level} layer with {len(adm_regions)} features after filtering by region.")
+
 
     matched_rows = []
+    adm0=adm_layers[0] if 0 in adm_layers else None
+    adm1=adm_layers[1] if 1 in adm_layers else None
+    adm2=adm_layers[2] if 2 in adm_layers else None
+    adm3=adm_layers[3] if 3 in adm_layers else None
+    if adm0 is not None:
+        adm0['name'] = adm0['COUNTRY'].str.upper()
+    if adm1 is not None:
+        adm1['name'] = adm1['NAME_1'].str.upper()
+    if adm2 is not None:
+        adm2['name'] = adm2['NAME_2'].str.upper()
+    if adm3 is not None:
+        adm3['name'] = adm3['NAME_3'].str.upper()
 
     for _, row in df.iterrows():
         row = row.copy()
-        AMD_val, special_lookup = resolve_adm_value(row['ADM'])
+        adm_level_value = resolve_adm_value(row['ADM'])
         name = row['match_name']
         main_country = row['main_country'] if 'main_country' in row.index else None
 
@@ -548,45 +670,37 @@ def match_names_and_export(
             logger.warning(f'Skipping empty name for row: {row}')
             continue
 
-        if special_lookup:
-            logger.info(f'Processing {name} via special boundary lookup "{special_lookup}"...')
-            row['ADM_lookup'] = special_lookup
+        if isinstance(adm_level_value, str):
+            logger.info(f'Processing {name} with special lookup "{adm_level_value}"...')
+            row['ADM_lookup'] = adm_level_value
             row['ADM'] = '1'
             matched_rows = AMD_reader(
                 matched_rows,
                 adm0.iloc[0:0],
                 row,
                 special_dir,
-                special_lookup=special_lookup,
+                special_lookup=adm_level_value,
                 target_crs=adm0.crs,
                 country_boundaries=adm0
             )
             continue
 
-        logger.info(f'Processing {name} at ADM level {AMD_val}...')
+        elif isinstance(adm_level_value, int):
+            logger.info(f'Processing {name} with ADM level {adm_level_value}...')
 
-        if AMD_val == 0:
-            adm_match = adm0[adm0['name'] == name]
-            matched_rows = AMD_reader(matched_rows, adm_match, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
-        elif AMD_val == 1:
-            regional_matches = []
-            for layer_gdf in (adm1, adm2, adm3):
-                mask = layer_match_mask(layer_gdf, name, main_country)
-                if mask.any():
-                    regional_matches.append(layer_gdf[mask])
-            if regional_matches:
-                adm_match = pd.concat(regional_matches, ignore_index=False)
-            else:
-                adm_match = adm1.iloc[0:0]
-            matched_rows = AMD_reader(matched_rows, adm_match, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
-        elif AMD_val == 2:
-            adm_match = adm2[adm2['name'] == name]
-            matched_rows = AMD_reader(matched_rows, adm_match, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
-        elif AMD_val == 3:
-            adm_match = adm3[adm3['name'] == name]
-            matched_rows = AMD_reader(matched_rows, adm_match, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
-        else:
-            logger.error(f'No ADM level found for {name}!')
+            if adm0 is not None and adm_level_value == 0:
+                adm_match0 = adm0[adm0['name'] == normalize_name(name)]
+                matched_rows = AMD_reader(matched_rows, adm_match0, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
+
+            if adm1 is not None and adm_level_value == 1:
+                adm_match1 = adm1[adm1['name'] == normalize_name(name)]
+                matched_rows = AMD_reader(matched_rows, adm_match1, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
+            if adm2 is not None and adm_level_value == 2:
+                adm_match2 = adm2[adm2['name'] == normalize_name(name)]
+                matched_rows = AMD_reader(matched_rows, adm_match2, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
+            if adm3 is not None and adm_level_value == 3:
+                adm_match3 = adm3[adm3['name'] == normalize_name(name)]
+                matched_rows = AMD_reader(matched_rows, adm_match3, row, special_dir, target_crs=adm0.crs, country_boundaries=adm0)
 
     # ---- OUTPUT ----
     if matched_rows:
@@ -604,13 +718,11 @@ def match_names_and_export(
               help='Path to the GADM database file with administrative boundaries for all countries')
 @click.option('--excel-file', 'input_file', required=True, type=click.Path(exists=True),
               help='Path to the Excel or CSV file with dataset information')
-@click.option('--name-column', default='Name', 
-              help='Column name in Excel file containing region names (default: Name)')
 @click.option('--output-dir', type=click.Path(), 
               help='Output directory for GeoJSON files')
 @click.option('--special-dir', type=click.Path(exists=True),
               help='Directory containing special/custom GPKG files for edge cases')
-def main(gadm_gpkg, input_file, name_column, output_dir, special_dir):
+def main(gadm_gpkg, input_file, output_dir, special_dir):
     """
     Process geographic data and create map files for the European Point Clouds website.
     """
@@ -633,7 +745,6 @@ def main(gadm_gpkg, input_file, name_column, output_dir, special_dir):
     match_names_and_export(
         gadm_gpkg=gadm_gpkg,
         input_file=input_file,
-        name_column=name_column,
         output_dir=output_dir,
         special_dir=special_dir
     )
