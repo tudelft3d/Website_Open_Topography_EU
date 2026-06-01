@@ -8,7 +8,6 @@ Copyright © 2025-2026 3D geoinformation group, TU Delft and Daan van den Heide.
 import logging
 import os
 import re
-import unicodedata
 
 import click
 import fiona
@@ -262,9 +261,7 @@ def normalize_name(value):
     """
     if value is None or pd.isna(value):
         return ""
-    text = unicodedata.normalize("NFKD", str(value).strip())
-    text = text.encode("ascii", errors="ignore").decode("ascii")
-    return text.upper()
+    return str(value).strip().upper()
 
 
 def normalize_special_lookup(value):
@@ -401,7 +398,7 @@ def special_match_mask(layer_gdf, name):
 
     mask = pd.Series(False, index=layer_gdf.index)
     for column in candidate_columns:
-        values = layer_gdf[column].fillna("").astype(str).apply(normalize_name)
+        values = layer_gdf[column].fillna("").astype(str).str.upper()
         mask = (
             mask
             | values.eq(name)
@@ -665,6 +662,19 @@ def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None):
     return gpd.read_file(gadm_gpkg, **kwargs)
 
 
+def get_country_list(df: pd.DataFrame) -> list:
+    """Extract a list of unique, non-empty country names for ADM_0 from the DataFrame."""
+    if "main_country" not in df.columns:
+        return []
+    names = (
+        df["main_country"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .str.upper()
+    )
+    return list(names[names != ""].unique())
+
 def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
     """Extract a list of unique, non-empty region names for a specific ADM level from the DataFrame."""
     if "match_name" not in df.columns or "ADM" not in df.columns:
@@ -675,6 +685,7 @@ def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
         .dropna()
         .astype(str)
         .str.strip()
+        .str.upper()
     )
     return list(names[names != ""].unique())
 
@@ -714,37 +725,48 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     adm_col = resolve_column(df, ADM_COLUMN_CANDIDATES)
     name_col = resolve_column(df, REGION_NAME_COLUMN_CANDIDATES)
 
-    logger.info(f"Using '{main_country_col}' as main country column")
-    logger.info(f"Using '{adm_col}' as ADM column")
-    logger.info(f"Using '{name_col}' as region name column")
-
     if adm_col != "ADM":
         df["ADM"] = df[adm_col]
     if main_country_col and main_country_col != "main_country":
         df["main_country"] = df[main_country_col]
-    df["match_name"] = df[name_col].apply(normalize_name)
+    df["match_name"] = df[name_col]
 
     adm_layers = {}
 
-    for level in range(4):
-        logging.info(f"Processing ADM_{level} layer...")
-        adm_regions = get_region_list_per_level(df, level=level)
-        logger.info(f"Loading {ADM_NAME_COLUMN[level]} layer: {adm_regions}")
+    countries = get_country_list(df)
+    if not countries:
+        raise ValueError(
+            f"No valid country names found in the input data. Cannot proceed without country information for filtering ADM_0 layer."
+        )
 
-        if adm_regions:
-            adm_where = f'UPPER("{ADM_NAME_COLUMN[level]}") IN ({_names_to_sql_in(adm_regions)})'
-            adm = _load_gadm_layer_filtered(
-                gadm_gpkg, f"ADM_{level}", where_clause=adm_where
-            )
-            logger.info(f"Loaded: {adm[ADM_NAME_COLUMN[level]]}")
-        else:
+    for level in range(4):
+        logger.info(f"Loading layer ADM_{level} from GADM GeoPackage...")
+        adm_regions = get_region_list_per_level(df, level=level)
+
+        if not adm_regions:
             logger.warning(
                 f"No valid {ADM_NAME_COLUMN[level]} region names found in the input data. Cannot proceed without region information for filtering ADM_{level} layer."
             )
+            logger.info("")
             continue
+
+        adm_where = f'UPPER("COUNTRY") IN ({_names_to_sql_in(countries)})'
+        adm = _load_gadm_layer_filtered(
+            gadm_gpkg, f"ADM_{level}", where_clause=adm_where
+        )
+
+        found_names = set(
+            adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.upper()
+        )
+        missing_regions = [r for r in adm_regions if r not in found_names]
+        if missing_regions:
+            logger.warning(
+                f"ADM_{level}: {len(missing_regions)} region(s) from input not found in GADM: "
+                + ", ".join(missing_regions)
+            )
         adm_layers[level] = adm
         logger.info(
-            f"Loaded ADM_{level} layer with {len(adm_regions)} features after filtering by region."
+            f"Loaded ADM_{level} layer with {len(adm)} regions out of {len(adm_regions)}.\n"
         )
 
     matched_rows = []
@@ -879,10 +901,10 @@ def main(gadm_gpkg, input_file, output_dir, special_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info(f"Processing data...")
+    logger.info(f"Extracting geometries fromc GADM GeoPackage: {gadm_gpkg} \n")
 
     if special_dir:
-        logger.info(f"Special dir: {special_dir}")
+        logger.info(f"Special dir: {special_dir} \n")
 
     match_names_and_export(
         gadm_gpkg=gadm_gpkg,
