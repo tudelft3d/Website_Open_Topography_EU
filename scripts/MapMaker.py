@@ -8,6 +8,7 @@ Copyright © 2025-2026 3D geoinformation group, TU Delft and Daan van den Heide.
 import logging
 import os
 import re
+import unicodedata
 
 import click
 import fiona
@@ -261,7 +262,9 @@ def normalize_name(value):
     """
     if value is None or pd.isna(value):
         return ""
-    return str(value).strip().upper()
+    text = unicodedata.normalize("NFKD", str(value).strip())
+    text = text.encode("ascii", errors="ignore").decode("ascii")
+    return text.upper()
 
 
 def normalize_special_lookup(value):
@@ -398,7 +401,7 @@ def special_match_mask(layer_gdf, name):
 
     mask = pd.Series(False, index=layer_gdf.index)
     for column in candidate_columns:
-        values = layer_gdf[column].fillna("").astype(str).str.upper()
+        values = layer_gdf[column].fillna("").astype(str).apply(normalize_name)
         mask = (
             mask
             | values.eq(name)
@@ -603,7 +606,7 @@ def AMD_reader(
                     country_boundaries["COUNTRY"]
                     .fillna("")
                     .astype(str)
-                    .str.upper()
+                    .apply(normalize_name)
                     .eq(normalize_name(country_name))
                 )
                 country_match = country_boundaries[country_mask]
@@ -672,7 +675,6 @@ def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
         .dropna()
         .astype(str)
         .str.strip()
-        .str.upper()
     )
     return list(names[names != ""].unique())
 
@@ -720,7 +722,7 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         df["ADM"] = df[adm_col]
     if main_country_col and main_country_col != "main_country":
         df["main_country"] = df[main_country_col]
-    df["match_name"] = df[name_col].str.upper()
+    df["match_name"] = df[name_col].apply(normalize_name)
 
     adm_layers = {}
 
@@ -734,6 +736,7 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             adm = _load_gadm_layer_filtered(
                 gadm_gpkg, f"ADM_{level}", where_clause=adm_where
             )
+            logger.info(f"Loaded: {adm[ADM_NAME_COLUMN[level]]}")
         else:
             logger.warning(
                 f"No valid {ADM_NAME_COLUMN[level]} region names found in the input data. Cannot proceed without region information for filtering ADM_{level} layer."
@@ -750,13 +753,13 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     adm2 = adm_layers[2] if 2 in adm_layers else None
     adm3 = adm_layers[3] if 3 in adm_layers else None
     if adm0 is not None:
-        adm0["name"] = adm0["COUNTRY"].str.upper()
+        adm0["name"] = adm0["COUNTRY"].apply(normalize_name)
     if adm1 is not None:
-        adm1["name"] = adm1["NAME_1"].str.upper()
+        adm1["name"] = adm1["NAME_1"].apply(normalize_name)
     if adm2 is not None:
-        adm2["name"] = adm2["NAME_2"].str.upper()
+        adm2["name"] = adm2["NAME_2"].apply(normalize_name)
     if adm3 is not None:
-        adm3["name"] = adm3["NAME_3"].str.upper()
+        adm3["name"] = adm3["NAME_3"].apply(normalize_name)
 
     for _, row in df.iterrows():
         row = row.copy()
