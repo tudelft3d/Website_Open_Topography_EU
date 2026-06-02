@@ -88,14 +88,11 @@ def prepare_unified_export_gdf(result_gdf):
     if "country" in result_gdf.columns:
         result_gdf = result_gdf[
             result_gdf["country"].astype(str).str.lower() != "global"
-        ]
-    total = len(result_gdf)
+        ].copy()
     geom_col = result_gdf.geometry.name
-    for i, idx in enumerate(result_gdf.index, start=1):
-        result_gdf.at[idx, geom_col] = result_gdf.geometry[idx].simplify(0.001)
-        if i % max(1, total // 10) == 0 or i == total:
-            logger.info(f"Simplifying geometries: {i}/{total} ({100 * i // total}%)")
-
+    logger.info(f"Simplifying {len(result_gdf)} geometries...")
+    result_gdf[geom_col] = result_gdf.geometry.simplify(0.001)
+    logger.info("Simplification complete.")
     return result_gdf
 
 
@@ -357,10 +354,10 @@ def load_special_features(gpkg_path, target_crs=None):
     if not loaded_layers:
         return gpd.GeoDataFrame(geometry=[], crs=None)
 
+    source_crs = loaded_layers[0].crs
     special_gdf = pd.concat(loaded_layers, ignore_index=True)
-    special_gdf = gpd.GeoDataFrame(
-        special_gdf, geometry="geometry", crs=loaded_layers[0].crs
-    )
+    loaded_layers.clear()
+    special_gdf = gpd.GeoDataFrame(special_gdf, geometry="geometry", crs=source_crs)
     if target_crs and special_gdf.crs and str(special_gdf.crs) != str(target_crs):
         special_gdf = special_gdf.to_crs(target_crs)
     return special_gdf
@@ -851,8 +848,11 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 )
 
     # ---- OUTPUT ----
+    result_crs = adm0.crs if adm0 is not None else None
+    del df, adm_layers, adm0, adm1, adm2, adm3
     if matched_rows:
-        result_gdf = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=adm0.crs)
+        result_gdf = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=result_crs)
+        matched_rows.clear()
         result_gdf["ADM"] = pd.to_numeric(result_gdf["ADM"], errors="coerce").fillna(1)
 
         unified_path = export_geojson_outputs(result_gdf, output_dir)
