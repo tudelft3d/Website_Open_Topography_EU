@@ -804,7 +804,8 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=result_crs)
         matched_rows.clear()
         result_gdf["ADM"] = pd.to_numeric(result_gdf["ADM"], errors="coerce").fillna(1)
-        _ = export_geojson_outputs(result_gdf, output_dir)
+        output_file = export_geojson_outputs(result_gdf, output_dir)
+        logger.info(f"  Data saved in: {output_file}")
     else:
         logger.warning("No matches found, nothing to export.")
 
@@ -859,7 +860,6 @@ def main(gadm_gpkg, input_file, output_dir, special_dir):
     )
 
     logger.info("Processing complete!")
-    logger.info(f"  Data saved in: {output_dir}")
 
 
 if __name__ == "__main__":
