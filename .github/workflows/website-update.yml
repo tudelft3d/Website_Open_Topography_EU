@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: trigger update
         run: |
-          curl --fail -L --no-buffer ${{ secrets.UPDATE_URL }} | tee /tmp/update_response.txt
+          curl --fail -s -L --no-buffer ${{ secrets.UPDATE_URL }} | tee /tmp/update_response.txt
           if grep -qi "killed" /tmp/update_response.txt; then
             echo "Error: response contains 'killed' — process was likely terminated"
             exit 1

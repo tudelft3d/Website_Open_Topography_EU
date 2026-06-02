@@ -71,7 +71,7 @@ CANONICAL_COLUMN_ALIASES = {
 }
 
 
-def export_geojson_outputs(result_gdf, output_dir):
+def export_geojson_outputs(result_gdf, output_dir) -> str:
     """
     Export the single unified GeoJSON used by the website.
     """
@@ -81,7 +81,7 @@ def export_geojson_outputs(result_gdf, output_dir):
     return unified_output_file
 
 
-def prepare_unified_export_gdf(result_gdf):
+def prepare_unified_export_gdf(result_gdf) -> gpd.GeoDataFrame:
     """
     Prepare the website's unified export dataset.
     """
@@ -713,11 +713,9 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         df["main_country"] = df[main_country_col]
     df["match_name"] = df[name_col]
 
-    adm_layers = {}
-
-
+    matched_rows = []
     for level in range(4):
-        logger.info(f"Loading layer ADM_{level} from GADM GeoPackage...")
+        logger.info(f"\nLoading layer ADM_{level} from GADM GeoPackage...")
         adm_regions = get_region_list_per_level(df, level=level)
 
         if not adm_regions:
@@ -734,42 +732,58 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         found_names = set(
             adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.lower()
         )
-        logger.info(f"Found {list(found_names)}.")
         missing_regions = [r for r in adm_regions if r not in found_names]
         if missing_regions:
             logger.warning(
                 f"ADM_{level}: {len(missing_regions)} region(s) from input not found in GADM: "
                 + ", ".join(missing_regions)
             )
-        adm_layers[level] = adm
         logger.info(
             f"Loaded ADM_{level} layer with {len(adm)} regions out of {len(adm_regions)}.\n"
         )
+        if adm is None:
+            logger.warning(f"ADM_{level} layer could not be loaded. No matches will be found for this level.\n")
+            del adm
+            continue
+        if level==0: 
+            adm0 = adm
+        adm["name"] = adm[ADM_NAME_COLUMN[level]].apply(normalize_name)
+            
 
-    matched_rows = []
-    adm0 = adm_layers[0] if 0 in adm_layers else None
-    adm1 = adm_layers[1] if 1 in adm_layers else None
-    adm2 = adm_layers[2] if 2 in adm_layers else None
-    adm3 = adm_layers[3] if 3 in adm_layers else None
-    if adm0 is not None:
-        adm0["name"] = adm0["COUNTRY"].apply(normalize_name)
-    if adm1 is not None:
-        adm1["name"] = adm1["NAME_1"].apply(normalize_name)
-    if adm2 is not None:
-        adm2["name"] = adm2["NAME_2"].apply(normalize_name)
-    if adm3 is not None:
-        adm3["name"] = adm3["NAME_3"].apply(normalize_name)
 
+        for _, row in df.iterrows():
+            row = row.copy()
+            adm_level_value = resolve_adm_value(row["ADM"])
+            name = row["match_name"]
+
+            if name is None or pd.isna(name):
+                logger.warning(f"Skipping empty name for row: {row}")
+                continue
+
+
+            if isinstance(adm_level_value, int) and 0 <= adm_level_value == level:
+                logger.info(f"Processing {name} with ADM level {adm_level_value}...")
+                adm_match = adm[adm["name"] == normalize_name(name)]
+                matched_rows = AMD_reader(
+                    matched_rows,
+                    adm_match,
+                    row,
+                    special_dir,
+                    target_crs=adm0.crs,
+                    country_boundaries=adm0,
+                )
+
+        del adm
+
+    logger.info(f"Finished processing ADM_{level} layer. Total matched rows so far: {len(matched_rows)}\n\n")
     for _, row in df.iterrows():
         row = row.copy()
         adm_level_value = resolve_adm_value(row["ADM"])
         name = row["match_name"]
-        main_country = row["main_country"] if "main_country" in row.index else None
 
         if name is None or pd.isna(name):
             logger.warning(f"Skipping empty name for row: {row}")
             continue
-
         if isinstance(adm_level_value, str):
             logger.info(f'Processing {name} with special lookup "{adm_level_value}"...')
             row["ADM_lookup"] = adm_level_value
@@ -780,65 +794,17 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 row,
                 special_dir,
                 special_lookup=adm_level_value,
-                target_crs=adm0.crs,
-                country_boundaries=adm0,
-            )
-            continue
-
-        elif isinstance(adm_level_value, int):
-            logger.info(f"Processing {name} with ADM level {adm_level_value}...")
-
-            if adm0 is not None and adm_level_value == 0:
-                adm_match0 = adm0[adm0["name"] == normalize_name(name)]
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm_match0,
-                    row,
-                    special_dir,
                     target_crs=adm0.crs,
                     country_boundaries=adm0,
                 )
-
-            if adm1 is not None and adm_level_value == 1:
-                adm_match1 = adm1[adm1["name"] == normalize_name(name)]
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm_match1,
-                    row,
-                    special_dir,
-                    target_crs=adm0.crs,
-                    country_boundaries=adm0,
-                )
-            if adm2 is not None and adm_level_value == 2:
-                adm_match2 = adm2[adm2["name"] == normalize_name(name)]
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm_match2,
-                    row,
-                    special_dir,
-                    target_crs=adm0.crs,
-                    country_boundaries=adm0,
-                )
-            if adm3 is not None and adm_level_value == 3:
-                adm_match3 = adm3[adm3["name"] == normalize_name(name)]
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm_match3,
-                    row,
-                    special_dir,
-                    target_crs=adm0.crs,
-                    country_boundaries=adm0,
-                )
-
     # ---- OUTPUT ----
     result_crs = adm0.crs if adm0 is not None else None
-    del df, adm_layers, adm0, adm1, adm2, adm3
+    del df, adm0
     if matched_rows:
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=result_crs)
         matched_rows.clear()
         result_gdf["ADM"] = pd.to_numeric(result_gdf["ADM"], errors="coerce").fillna(1)
-
-        unified_path = export_geojson_outputs(result_gdf, output_dir)
+        _ = export_geojson_outputs(result_gdf, output_dir)
     else:
         logger.warning("No matches found, nothing to export.")
 
