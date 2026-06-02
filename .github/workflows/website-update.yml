@@ -12,4 +12,10 @@ jobs:
 
     steps:
       - name: trigger update
-        run: curl --fail -L ${{ secrets.UPDATE_URL }}
+        run: |
+          response=$(curl --fail -L ${{ secrets.UPDATE_URL }})
+          echo "$response"
+          if echo "$response" | grep -qi "killed"; then
+            echo "Error: response contains 'killed' — process was likely terminated"
+            exit 1
+          fi
