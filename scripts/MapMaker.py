@@ -528,9 +528,6 @@ def AMD_reader(
     Process a match from ADM layers or search in special directory if no match is found.
     """
     if adm_match.empty:
-        logger.info(
-            f'No ADM match found for {row["match_name"]}, searching in special directory...'
-        )
         lookup_name = special_lookup or row["match_name"]
         normalized_lookup = normalize_special_lookup(lookup_name)
         gadm_gpkg = find_special_gpkg(special_dir, lookup_name)
@@ -745,9 +742,8 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
 
         if not adm_regions:
             logger.warning(
-                f"No valid {ADM_NAME_COLUMN[level]} region names found in the input data. Cannot proceed without region information for filtering ADM_{level} layer."
+                f"No valid {ADM_NAME_COLUMN[level]} region names found in the input data. Cannot proceed without region information for filtering ADM_{level} layer.\n"
             )
-            logger.info("")
             continue
 
         adm_where = f'UPPER("COUNTRY") IN ({_names_to_sql_in(countries)})'
@@ -758,6 +754,7 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         found_names = set(
             adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.upper()
         )
+        logger.info(f"Found {list(found_names)}.")
         missing_regions = [r for r in adm_regions if r not in found_names]
         if missing_regions:
             logger.warning(
@@ -859,7 +856,6 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
         result_gdf["ADM"] = pd.to_numeric(result_gdf["ADM"], errors="coerce").fillna(1)
 
         unified_path = export_geojson_outputs(result_gdf, output_dir)
-        logger.info(f"Unified GeoJSON saved to: {unified_path}")
     else:
         logger.warning("No matches found, nothing to export.")
 
