@@ -12,4 +12,4 @@ jobs:
 
     steps:
       - name: trigger update
-        run: curl -L ${{ secrets.UPDATE_URL }}
+        run: curl --fail -L ${{ secrets.UPDATE_URL }}
