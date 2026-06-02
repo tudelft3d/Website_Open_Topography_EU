@@ -243,7 +243,7 @@ def normalize_name(value):
     """
     Normalize a place name for case-insensitive comparison.
 
-    Strips surrounding whitespace and converts to upper-case. Returns an empty
+    Strips surrounding whitespace and converts to lower-case. Returns an empty
     string for ``None`` or ``NaN`` values.
 
     Parameters
@@ -254,11 +254,11 @@ def normalize_name(value):
     Returns
     -------
     str
-        Upper-cased, whitespace-stripped version of ``value``, or ``''``.
+        Lower-cased, whitespace-stripped version of ``value``, or ``''``.
     """
     if value is None or pd.isna(value):
         return ""
-    return str(value).strip().upper()
+    return str(value).strip().lower()
 
 
 def normalize_special_lookup(value):
@@ -395,7 +395,7 @@ def special_match_mask(layer_gdf, name):
 
     mask = pd.Series(False, index=layer_gdf.index)
     for column in candidate_columns:
-        values = layer_gdf[column].fillna("").astype(str).str.upper()
+        values = layer_gdf[column].fillna("").astype(str).str.lower()
         mask = (
             mask
             | values.eq(name)
@@ -641,7 +641,7 @@ def _escape_sql_string(s):
 
 
 def _names_to_sql_in(names):
-    """Return the interior of a SQL IN(...) expression for a set of uppercase names."""
+    """Return the interior of a SQL IN(...) expression for a list of names."""
     return ", ".join(f"'{_escape_sql_string(n)}'" for n in sorted(names))
 
 
@@ -656,18 +656,6 @@ def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None):
     return gpd.read_file(gadm_gpkg, **kwargs)
 
 
-def get_country_list(df: pd.DataFrame) -> list:
-    """Extract a list of unique, non-empty country names for ADM_0 from the DataFrame."""
-    if "main_country" not in df.columns:
-        return []
-    names = (
-        df["main_country"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .str.upper()
-    )
-    return list(names[names != ""].unique())
 
 def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
     """Extract a list of unique, non-empty region names for a specific ADM level from the DataFrame."""
@@ -679,7 +667,7 @@ def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
         .dropna()
         .astype(str)
         .str.strip()
-        .str.upper()
+        .str.lower()
     )
     return list(names[names != ""].unique())
 
@@ -727,11 +715,6 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
 
     adm_layers = {}
 
-    countries = get_country_list(df)
-    if not countries:
-        raise ValueError(
-            f"No valid country names found in the input data. Cannot proceed without country information for filtering ADM_0 layer."
-        )
 
     for level in range(4):
         logger.info(f"Loading layer ADM_{level} from GADM GeoPackage...")
@@ -743,13 +726,13 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             )
             continue
 
-        adm_where = f'UPPER("COUNTRY") IN ({_names_to_sql_in(countries)})'
+        adm_where = f'LOWER("{ADM_NAME_COLUMN[level]}") IN ({_names_to_sql_in(adm_regions)})'
         adm = _load_gadm_layer_filtered(
             gadm_gpkg, f"ADM_{level}", where_clause=adm_where
         )
 
         found_names = set(
-            adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.upper()
+            adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.lower()
         )
         logger.info(f"Found {list(found_names)}.")
         missing_regions = [r for r in adm_regions if r not in found_names]
