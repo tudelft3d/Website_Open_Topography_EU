@@ -89,10 +89,6 @@ def prepare_unified_export_gdf(result_gdf) -> gpd.GeoDataFrame:
         result_gdf = result_gdf[
             result_gdf["country"].astype(str).str.lower() != "global"
         ].copy()
-    geom_col = result_gdf.geometry.name
-    logger.info(f"Simplifying {len(result_gdf)} geometries...")
-    result_gdf[geom_col] = result_gdf.geometry.simplify(0.001)
-    logger.info("Simplification complete.")
     return result_gdf
 
 
@@ -360,6 +356,7 @@ def load_special_features(gpkg_path, target_crs=None):
     special_gdf = gpd.GeoDataFrame(special_gdf, geometry="geometry", crs=source_crs)
     if target_crs and special_gdf.crs and str(special_gdf.crs) != str(target_crs):
         special_gdf = special_gdf.to_crs(target_crs)
+    special_gdf[special_gdf.geometry.name] = special_gdf.geometry.simplify(0.001)
     return special_gdf
 
 
@@ -645,7 +642,7 @@ def _names_to_sql_in(names):
     return ", ".join(f"'{_escape_sql_string(n)}'" for n in sorted(names))
 
 
-def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None):
+def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None) -> gpd.GeoDataFrame:
     """
     Load a single GADM layer from the GeoPackage, optionally restricted by a
     WHERE clause so that only the needed features are brought into memory.
@@ -655,6 +652,58 @@ def _load_gadm_layer_filtered(gadm_gpkg, layer_name, where_clause=None):
         kwargs["where"] = where_clause
     return gpd.read_file(gadm_gpkg, **kwargs)
 
+
+CACHE_DIR_NAME = ".gadm_cache"
+
+
+def _get_cache_dir(gadm_gpkg):
+    return os.path.join(os.path.dirname(gadm_gpkg), CACHE_DIR_NAME)
+
+
+def _get_cache_path(cache_dir, level):
+    return os.path.join(cache_dir, f"adm_level_{level}.parquet")
+
+
+def _load_cached_layer(cache_dir, level, needed_regions):
+    """
+    Load cached geometries for a given ADM level, filtered to needed regions.
+    Returns a GeoDataFrame (possibly empty) with all original GADM columns + ``region_name``.
+    """
+    cache_path = _get_cache_path(cache_dir, level)
+    if not os.path.exists(cache_path):
+        return gpd.GeoDataFrame()
+    try:
+        cache_gdf = gpd.read_parquet(cache_path)
+        if cache_gdf.empty or "region_name" not in cache_gdf.columns:
+            return gpd.GeoDataFrame()
+        mask = cache_gdf["region_name"].isin(needed_regions)
+        return cache_gdf[mask].copy()
+
+    except Exception:
+        logger.warning(f"Failed to read cache for ADM_{level}, proceeding without it.")
+        return gpd.GeoDataFrame()
+
+
+def _append_to_cache(cache_dir, level, new_entries):
+    """
+    Append new entries to the cache for a given ADM level.
+    ``new_entries`` must have a ``region_name`` column (normalized, lower-case).
+    Duplicates (same ``region_name``) are overwritten.
+    """
+    logger.info(f"Appending to cache in directory: {cache_dir}")
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_path = _get_cache_path(cache_dir, level)
+    if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
+        try:
+            existing = gpd.read_parquet(cache_path)
+            combined = pd.concat([existing, new_entries], ignore_index=True)
+            combined = combined.drop_duplicates(subset=["region_name"]).reset_index(drop=True)
+            combined = gpd.GeoDataFrame(combined, geometry="geometry", crs=new_entries.crs)
+            combined.to_parquet(cache_path)
+            return
+        except Exception as e:
+            logger.warning(f"Failed to update cache for ADM_{level}: {e}, rewriting.")
+    new_entries.to_parquet(cache_path)
 
 
 def get_region_list_per_level(df: pd.DataFrame, level: int) -> list:
@@ -703,6 +752,7 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     """
     df = load_input_table(input_file)
 
+    # Verify column names and prepare for matching
     main_country_col = resolve_column(df, MAIN_COUNTRY_COLUMN_CANDIDATES)
     adm_col = resolve_column(df, ADM_COLUMN_CANDIDATES)
     name_col = resolve_column(df, REGION_NAME_COLUMN_CANDIDATES)
@@ -714,8 +764,10 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     df["match_name"] = df[name_col]
 
     matched_rows = []
+    cache_dir = _get_cache_dir(gadm_gpkg)
+
     for level in range(4):
-        logger.info(f"\nLoading layer ADM_{level} from GADM GeoPackage...")
+        logger.info(f"\nLoading layer ADM_{level}...")
         adm_regions = get_region_list_per_level(df, level=level)
 
         if not adm_regions:
@@ -724,32 +776,47 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             )
             continue
 
-        adm_where = f'LOWER("{ADM_NAME_COLUMN[level]}") IN ({_names_to_sql_in(adm_regions)})'
-        adm = _load_gadm_layer_filtered(
-            gadm_gpkg, f"ADM_{level}", where_clause=adm_where
-        )
+        name_col = ADM_NAME_COLUMN[level]
 
-        found_names = set(
-            adm[ADM_NAME_COLUMN[level]].fillna("").astype(str).str.lower()
-        )
-        missing_regions = [r for r in adm_regions if r not in found_names]
+        logger.info(f"Using cache directory: {cache_dir}")
+
+        cached_gdf = _load_cached_layer(cache_dir, level, adm_regions)
+        cached_region_names = set(cached_gdf["region_name"].unique()) if not cached_gdf.empty else set()
+        missing_regions = [r for r in adm_regions if r not in cached_region_names]
+
         if missing_regions:
+            logger.info(f"Loading {len(missing_regions)} uncached region(s) from GADM ADM_{level}...")
+            adm_where = f'LOWER("{name_col}") IN ({_names_to_sql_in(missing_regions)})'
+            adm_new = _load_gadm_layer_filtered(
+                gadm_gpkg, f"ADM_{level}", where_clause=adm_where
+            )
+            if adm_new is not None and not adm_new.empty:
+                adm_new[adm_new.geometry.name] = adm_new.geometry.simplify(0.001)
+                adm_new["region_name"] = adm_new[name_col].fillna("").astype(str).str.strip().str.lower()
+                _append_to_cache(cache_dir, level, adm_new)
+        else:
+            adm_new = gpd.GeoDataFrame()
+
+        parts = [p for p in [cached_gdf, adm_new] if not p.empty]
+        if not parts:
+            logger.warning(f"ADM_{level} layer could not be loaded. No matches will be found for this level.\n")
+            continue
+
+        adm = pd.concat(parts, ignore_index=True)
+        adm = gpd.GeoDataFrame(adm, geometry="geometry", crs=parts[0].crs)
+
+        found_names = set(adm["region_name"].unique())
+        still_missing = [r for r in adm_regions if r not in found_names]
+        if still_missing:
             logger.warning(
-                f"ADM_{level}: {len(missing_regions)} region(s) from input not found in GADM: "
-                + ", ".join(missing_regions)
+                f"ADM_{level}: {len(still_missing)} region(s) from input not found in GADM: "
+                + ", ".join(still_missing)
             )
         logger.info(
             f"Loaded ADM_{level} layer with {len(adm)} regions out of {len(adm_regions)}.\n"
         )
-        if adm is None:
-            logger.warning(f"ADM_{level} layer could not be loaded. No matches will be found for this level.\n")
-            del adm
-            continue
-        if level==0: 
-            adm0 = adm
-        adm["name"] = adm[ADM_NAME_COLUMN[level]].apply(normalize_name)
-            
 
+        adm["name"] = adm["region_name"]
 
         for _, row in df.iterrows():
             row = row.copy()
@@ -769,37 +836,30 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                     adm_match,
                     row,
                     special_dir,
-                    target_crs=adm0.crs,
-                    country_boundaries=adm0,
+                    target_crs=adm.crs,
+                    country_boundaries=adm,
                 )
 
+            if isinstance(adm_level_value, str) and normalize_name(name) not in {normalize_name(m.get("country", "")) for m in matched_rows}:
+                logger.info(f'Processing {name} with special lookup "{adm_level_value}"...')
+                row["ADM_lookup"] = adm_level_value
+                row["ADM"] = "1"
+                matched_rows = AMD_reader(
+                    matched_rows,
+                    adm.iloc[0:0],
+                    row,
+                    special_dir,
+                    special_lookup=adm_level_value,
+                        target_crs=adm.crs,
+                        country_boundaries=adm,
+                    )
+        result_crs = adm.crs if adm is not None else None
         del adm
 
-    logger.info(f"Finished processing ADM_{level} layer. Total matched rows so far: {len(matched_rows)}\n\n")
-    for _, row in df.iterrows():
-        row = row.copy()
-        adm_level_value = resolve_adm_value(row["ADM"])
-        name = row["match_name"]
 
-        if name is None or pd.isna(name):
-            logger.warning(f"Skipping empty name for row: {row}")
-            continue
-        if isinstance(adm_level_value, str):
-            logger.info(f'Processing {name} with special lookup "{adm_level_value}"...')
-            row["ADM_lookup"] = adm_level_value
-            row["ADM"] = "1"
-            matched_rows = AMD_reader(
-                matched_rows,
-                adm0.iloc[0:0],
-                row,
-                special_dir,
-                special_lookup=adm_level_value,
-                    target_crs=adm0.crs,
-                    country_boundaries=adm0,
-                )
     # ---- OUTPUT ----
-    result_crs = adm0.crs if adm0 is not None else None
-    del df, adm0
+    
+    del df
     if matched_rows:
         result_gdf = gpd.GeoDataFrame(matched_rows, geometry="geometry", crs=result_crs)
         matched_rows.clear()
@@ -847,10 +907,6 @@ def main(gadm_gpkg, input_file, output_dir, special_dir):
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
-    logger.info(f"Extracting geometries fromc GADM GeoPackage: {gadm_gpkg} \n")
-
-    if special_dir:
-        logger.info(f"Special dir: {special_dir} \n")
 
     match_names_and_export(
         gadm_gpkg=gadm_gpkg,
