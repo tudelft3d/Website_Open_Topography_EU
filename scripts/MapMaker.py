@@ -796,10 +796,11 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     df["match_name"] = df[name_col]
 
     matched_rows = []
+    processed_names = set()
     cache_dir = _get_cache_dir(gadm_gpkg)
 
     numeric_rows_by_level = {0: [], 1: [], 2: [], 3: []}
-    string_rows_list = []
+    special_boudaries = []
     for _, row in df.iterrows():
         row = row.copy()
         adm_level_value = resolve_adm_value(row["ADM"])
@@ -813,8 +814,8 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             numeric_rows_by_level[adm_level_value].append(row)
         elif isinstance(adm_level_value, str):
             row["ADM_lookup"] = adm_level_value
-            row["ADM"] = "1"
-            string_rows_list.append(row)
+            row["ADM"] = None
+            special_boudaries.append(row)
 
     adm_0_gdf = None
     country_lookup = {}
@@ -825,8 +826,9 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
 
         adm_regions = list({normalize_name(r["match_name"]) for r in level_rows})
 
-        if level == 0 and string_rows_list:
-            for r in string_rows_list:
+        # TODO: GINA: Consider whether special boundaries should be included in the ADM_0 layer for filtering purposes.
+        if level == 0 and special_boudaries:
+            for r in special_boudaries:
                 country = normalize_name(r.get("main_country", "") or r.get("country", ""))
                 if country and country not in adm_regions:
                     adm_regions.append(country)
@@ -896,6 +898,7 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
 
         for row in level_rows:
             adm_match = adm[adm["name"] == normalize_name(row["match_name"])]
+            before_count = len(matched_rows)
             matched_rows = AMD_reader(
                 matched_rows,
                 adm_match,
@@ -905,11 +908,15 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 country_boundaries=adm,
                 country_lookup=country_lookup,
             )
+            if len(matched_rows) > before_count:
+                processed_names.add(normalize_name(row["match_name"]))
 
         del adm
 
-    if string_rows_list:
-        already_matched = {normalize_name(m.get("country", "")) for m in matched_rows}
+    if special_boudaries:
+        already_matched = processed_names | {
+            normalize_name(m.get("country", "")) for m in matched_rows
+        }
 
         if adm_0_gdf is not None and not adm_0_gdf.empty:
             empty_match = adm_0_gdf.iloc[0:0]
@@ -920,9 +927,16 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             string_crs = result_crs
             string_boundaries = None
 
-        for row in string_rows_list:
+        total_special = len(special_boudaries)
+        matched_before = len(matched_rows)
+        skipped = 0
+
+        for row in special_boudaries:
             if normalize_name(row["match_name"]) in already_matched:
+                #logger.info(f"Skipping already matched special row: {row['match_name']}")
+                skipped += 1
                 continue
+            logger.debug(f"Processing special row: {row['match_name']}")
             matched_rows = AMD_reader(
                 matched_rows,
                 empty_match,
@@ -933,6 +947,12 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 country_boundaries=string_boundaries,
                 country_lookup=country_lookup,
             )
+
+        matched_special = len(matched_rows) - matched_before
+        skipped_info = f" ({skipped} skipped)" if skipped else ""
+        logger.info(
+            f"Special boundaries: {matched_special}/{total_special} processed{skipped_info}"
+        )
 
 
     # ---- OUTPUT ----
