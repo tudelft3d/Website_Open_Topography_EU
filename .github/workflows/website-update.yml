@@ -13,8 +13,16 @@ jobs:
     steps:
       - name: trigger update
         run: |
-          curl --fail -s -L --no-buffer ${{ secrets.UPDATE_URL }} | tee /tmp/update_response.txt
-          if grep -qi "killed" /tmp/update_response.txt; then
-            echo "Error: response contains 'killed' — process was likely terminated"
+          HTTP_CODE=$(curl --max-time 600 -s -L --no-buffer \
+            -o /tmp/update_response.txt \
+            -w "%{http_code}" \
+            ${{ secrets.UPDATE_URL }})
+          cat /tmp/update_response.txt
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "Error: server returned HTTP ${HTTP_CODE}"
+            exit 1
+          fi
+          if grep -qi "killed\|timeout\|error\|traceback" /tmp/update_response.txt; then
+            echo "Error: response indicates failure"
             exit 1
           fi
