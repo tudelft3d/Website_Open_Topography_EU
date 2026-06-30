@@ -711,8 +711,8 @@ def _load_cached_layer(cache_dir, level, needed_regions):
         mask = cache_gdf["region_name"].isin(needed_regions)
         return cache_gdf[mask].copy()
 
-    except Exception:
-        logger.warning(f"Failed to read cache for ADM_{level}, proceeding without it.")
+    except Exception as e:
+        logger.warning(f"Failed to read cache for ADM_{level}, with error: {e}. \n Proceeding without it.")
         return gpd.GeoDataFrame()
 
 
