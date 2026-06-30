@@ -3,4 +3,4 @@ geopandas
 click
 fiona
 openpyxl
-pyarrow.parquet
+pyarrow
