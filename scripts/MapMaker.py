@@ -299,6 +299,27 @@ def resolve_adm_value(raw_value: str) -> int | str | None:
     return int(numeric) if pd.notna(numeric) else (text or None)
 
 
+_special_dir_cache = {}
+
+
+def _list_special_gpkgs(special_dir):
+    """List and normalise GeoPackage paths in ``special_dir``.  Results are cached."""
+    if special_dir in _special_dir_cache:
+        return _special_dir_cache[special_dir]
+
+    gpkg_files = [
+        os.path.join(special_dir, entry)
+        for entry in os.listdir(special_dir)
+        if entry.lower().endswith(".gpkg")
+    ]
+    normalised = {
+        path: normalize_special_lookup(os.path.splitext(os.path.basename(path))[0])
+        for path in gpkg_files
+    }
+    _special_dir_cache[special_dir] = normalised
+    return normalised
+
+
 def find_special_gpkg(special_dir, lookup_value):
     """
     Find a GeoPackage in the special directory by normalized stem.
@@ -310,15 +331,7 @@ def find_special_gpkg(special_dir, lookup_value):
     if not normalized_lookup:
         return None
 
-    gpkg_files = [
-        os.path.join(special_dir, entry)
-        for entry in os.listdir(special_dir)
-        if entry.lower().endswith(".gpkg")
-    ]
-    normalized_paths = {
-        path: normalize_special_lookup(os.path.splitext(os.path.basename(path))[0])
-        for path in gpkg_files
-    }
+    normalized_paths = _list_special_gpkgs(special_dir)
 
     for path, normalized_name in normalized_paths.items():
         if normalized_name == normalized_lookup:
@@ -517,6 +530,7 @@ def AMD_reader(
     special_lookup=None,
     target_crs=None,
     country_boundaries=None,
+    country_lookup=None,
 ):
     """
     Process a match from ADM layers or search in special directory if no match is found.
@@ -565,7 +579,7 @@ def AMD_reader(
                     matched_row["country"] = row.get("main_country", row["match_name"])
                     matched_rows.append(matched_row)
 
-                logger.info(
+                logger.debug(
                     f"Special match found in {gadm_gpkg} ({len(special_gdf)} features)"
                 )
                 return matched_rows
@@ -589,17 +603,10 @@ def AMD_reader(
             country_name = (
                 row.get("main_country") or row.get("country") or row.get("match_name")
             )
-            if country_boundaries is not None and country_name:
-                country_mask = (
-                    country_boundaries["COUNTRY"]
-                    .fillna("")
-                    .astype(str)
-                    .apply(normalize_name)
-                    .eq(normalize_name(country_name))
-                )
-                country_match = country_boundaries[country_mask]
-                if not country_match.empty:
-                    geometry = country_match.iloc[0].geometry
+            if country_name:
+                norm_name = normalize_name(country_name)
+                if country_lookup is not None and norm_name in country_lookup:
+                    geometry, country_label = country_lookup[norm_name]
                     point_geometry = (
                         geometry.representative_point()
                         if geometry is not None
@@ -608,12 +615,37 @@ def AMD_reader(
                     if point_geometry is not None:
                         matched_row = row.drop("match_name").to_dict()
                         matched_row["geometry"] = point_geometry
-                        matched_row["country"] = country_match.iloc[0]["COUNTRY"]
+                        matched_row["country"] = country_label
                         matched_rows.append(matched_row)
                         logger.info(
                             f'Created fallback research point for {row["match_name"]} in {country_name}'
                         )
                         return matched_rows
+                elif country_boundaries is not None:
+                    country_mask = (
+                        country_boundaries["COUNTRY"]
+                        .fillna("")
+                        .astype(str)
+                        .apply(normalize_name)
+                        .eq(norm_name)
+                    )
+                    country_match = country_boundaries[country_mask]
+                    if not country_match.empty:
+                        geometry = country_match.iloc[0].geometry
+                        point_geometry = (
+                            geometry.representative_point()
+                            if geometry is not None
+                            else None
+                        )
+                        if point_geometry is not None:
+                            matched_row = row.drop("match_name").to_dict()
+                            matched_row["geometry"] = point_geometry
+                            matched_row["country"] = country_match.iloc[0]["COUNTRY"]
+                            matched_rows.append(matched_row)
+                            logger.info(
+                                f'Created fallback research point for {row["match_name"]} in {country_name}'
+                            )
+                            return matched_rows
             logger.warning(f'Could not create research point for {row["match_name"]}')
             return matched_rows
         else:
@@ -766,9 +798,38 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
     matched_rows = []
     cache_dir = _get_cache_dir(gadm_gpkg)
 
+    numeric_rows_by_level = {0: [], 1: [], 2: [], 3: []}
+    string_rows_list = []
+    for _, row in df.iterrows():
+        row = row.copy()
+        adm_level_value = resolve_adm_value(row["ADM"])
+        name = row["match_name"]
+
+        if name is None or pd.isna(name):
+            logger.warning(f"Skipping empty name for row: {row}")
+            continue
+
+        if isinstance(adm_level_value, int) and 0 <= adm_level_value <= 3:
+            numeric_rows_by_level[adm_level_value].append(row)
+        elif isinstance(adm_level_value, str):
+            row["ADM_lookup"] = adm_level_value
+            row["ADM"] = "1"
+            string_rows_list.append(row)
+
+    adm_0_gdf = None
+    country_lookup = {}
+    result_crs = None
+
     for level in range(4):
-        logger.info(f"\nLoading layer ADM_{level}...")
-        adm_regions = get_region_list_per_level(df, level=level)
+        level_rows = numeric_rows_by_level.get(level, [])
+
+        adm_regions = list({normalize_name(r["match_name"]) for r in level_rows})
+
+        if level == 0 and string_rows_list:
+            for r in string_rows_list:
+                country = normalize_name(r.get("main_country", "") or r.get("country", ""))
+                if country and country not in adm_regions:
+                    adm_regions.append(country)
 
         if not adm_regions:
             logger.warning(
@@ -776,9 +837,11 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             )
             continue
 
+        logger.info(f"Loading layer ADM_{level}...")
+
         name_col = ADM_NAME_COLUMN[level]
 
-        logger.info(f"Using cache directory: {cache_dir}")
+        logger.debug(f"Using cache directory: {cache_dir}")
 
         cached_gdf = _load_cached_layer(cache_dir, level, adm_regions)
         cached_region_names = set(cached_gdf["region_name"].unique()) if not cached_gdf.empty else set()
@@ -799,11 +862,24 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
 
         parts = [p for p in [cached_gdf, adm_new] if not p.empty]
         if not parts:
-            logger.warning(f"ADM_{level} layer could not be loaded. No matches will be found for this level.\n")
+            logger.warning(
+                f"ADM_{level} layer could not be loaded — GADM returned nothing for these regions/countries: "
+                + ", ".join(missing_regions) + "\n"
+            )
             continue
 
         adm = pd.concat(parts, ignore_index=True)
         adm = gpd.GeoDataFrame(adm, geometry="geometry", crs=parts[0].crs)
+
+        if level == 0:
+            adm_0_gdf = adm.copy()
+            if not adm_0_gdf.empty:
+                country_lookup = {
+                    normalize_name(str(r["COUNTRY"])): (r.geometry, r["COUNTRY"])
+                    for _, r in adm_0_gdf.iterrows()
+                    if pd.notna(r.get("COUNTRY"))
+                }
+        result_crs = adm.crs
 
         found_names = set(adm["region_name"].unique())
         still_missing = [r for r in adm_regions if r not in found_names]
@@ -813,48 +889,50 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 + ", ".join(still_missing)
             )
         logger.info(
-            f"Loaded ADM_{level} layer with {len(adm)} regions out of {len(adm_regions)}.\n"
+            f"Loaded ADM_{level} layer with {len(found_names)} regions out of {len(adm_regions)}.\n"
         )
 
         adm["name"] = adm["region_name"]
 
-        for _, row in df.iterrows():
-            row = row.copy()
-            adm_level_value = resolve_adm_value(row["ADM"])
-            name = row["match_name"]
+        for row in level_rows:
+            adm_match = adm[adm["name"] == normalize_name(row["match_name"])]
+            matched_rows = AMD_reader(
+                matched_rows,
+                adm_match,
+                row,
+                special_dir,
+                target_crs=adm.crs,
+                country_boundaries=adm,
+                country_lookup=country_lookup,
+            )
 
-            if name is None or pd.isna(name):
-                logger.warning(f"Skipping empty name for row: {row}")
-                continue
-
-
-            if isinstance(adm_level_value, int) and 0 <= adm_level_value == level:
-                logger.info(f"Processing {name} with ADM level {adm_level_value}...")
-                adm_match = adm[adm["name"] == normalize_name(name)]
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm_match,
-                    row,
-                    special_dir,
-                    target_crs=adm.crs,
-                    country_boundaries=adm,
-                )
-
-            if isinstance(adm_level_value, str) and normalize_name(name) not in {normalize_name(m.get("country", "")) for m in matched_rows}:
-                logger.info(f'Processing {name} with special lookup "{adm_level_value}"...')
-                row["ADM_lookup"] = adm_level_value
-                row["ADM"] = "1"
-                matched_rows = AMD_reader(
-                    matched_rows,
-                    adm.iloc[0:0],
-                    row,
-                    special_dir,
-                    special_lookup=adm_level_value,
-                        target_crs=adm.crs,
-                        country_boundaries=adm,
-                    )
-        result_crs = adm.crs if adm is not None else None
         del adm
+
+    if string_rows_list:
+        already_matched = {normalize_name(m.get("country", "")) for m in matched_rows}
+
+        if adm_0_gdf is not None and not adm_0_gdf.empty:
+            empty_match = adm_0_gdf.iloc[0:0]
+            string_crs = adm_0_gdf.crs
+            string_boundaries = adm_0_gdf
+        else:
+            empty_match = gpd.GeoDataFrame()
+            string_crs = result_crs
+            string_boundaries = None
+
+        for row in string_rows_list:
+            if normalize_name(row["match_name"]) in already_matched:
+                continue
+            matched_rows = AMD_reader(
+                matched_rows,
+                empty_match,
+                row,
+                special_dir,
+                special_lookup=row.get("ADM_lookup"),
+                target_crs=string_crs,
+                country_boundaries=string_boundaries,
+                country_lookup=country_lookup,
+            )
 
 
     # ---- OUTPUT ----
