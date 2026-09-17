@@ -45,6 +45,7 @@ the [GADM](https://gadm.org/) boundary database, and exports a single unified
 | File | Description |
 |------|-------------|
 | `map_data_unified.geojson` | Single GeoJSON FeatureCollection with one feature per dataset row, carrying all metadata attributes and the matched boundary/point geometry. "Global" entries are excluded and all geometries are simplified (`tolerance=0.001`). |
+| `catalogue_data.json` | Geometry-free JSON array of the same feature properties, generated alongside the GeoJSON. Used by `catalogue.html` so the catalogue does not download/parse the full map geometry. |
 
 ---
 

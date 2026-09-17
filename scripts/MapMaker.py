@@ -73,12 +73,31 @@ CANONICAL_COLUMN_ALIASES = {
 
 def export_geojson_outputs(result_gdf, output_dir) -> str:
     """
-    Export the single unified GeoJSON used by the website.
+    Export the single unified GeoJSON used by the website, plus a
+    geometry-free catalogue file used by catalogue.html.
     """
     unified_gdf = prepare_unified_export_gdf(result_gdf)
     unified_output_file = os.path.join(output_dir, "map_data_unified.geojson")
     unified_gdf.to_file(unified_output_file, driver="GeoJSON")
+    export_catalogue_outputs(unified_gdf, output_dir)
     return unified_output_file
+
+
+def export_catalogue_outputs(unified_gdf, output_dir) -> str:
+    """
+    Write a geometry-free JSON catalogue file containing only the feature
+    properties (no geometry), used by catalogue.html to avoid downloading
+    and parsing the full map geometry.
+    """
+    catalogue_output_file = os.path.join(output_dir, "catalogue_data.json")
+    catalogue_gdf = unified_gdf.drop(columns="geometry", errors="ignore")
+    catalogue_gdf.to_json(
+        catalogue_output_file,
+        orient="records",
+        force_ascii=False,
+        date_format="iso",
+    )
+    return catalogue_output_file
 
 
 def prepare_unified_export_gdf(result_gdf) -> gpd.GeoDataFrame:

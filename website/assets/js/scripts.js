@@ -1,3 +1,54 @@
+(function () {
+    var UNIFIED_MAP_DATA_VERSION = '20260423c';
+    var UNIFIED_MAP_DATA_PATHS = [
+        '/data/map_data_unified.geojson?v=' + UNIFIED_MAP_DATA_VERSION,
+        '../data/map_data_unified.geojson?v=' + UNIFIED_MAP_DATA_VERSION,
+        'data/map_data_unified.geojson?v=' + UNIFIED_MAP_DATA_VERSION
+    ];
+    var CATALOGUE_DATA_PATHS = [
+        '/data/catalogue_data.json?v=' + UNIFIED_MAP_DATA_VERSION,
+        '../data/catalogue_data.json?v=' + UNIFIED_MAP_DATA_VERSION,
+        'data/catalogue_data.json?v=' + UNIFIED_MAP_DATA_VERSION
+    ];
+    var unifiedMapDataPromise = null;
+    var catalogueDataPromise = null;
+
+    function fetchFirstAvailableText(paths) {
+        var tryAt = function (index) {
+            if (!Array.isArray(paths) || index >= paths.length) {
+                return Promise.reject(new Error('No data file found'));
+            }
+            return fetch(paths[index]).then(function (response) {
+                if (!response.ok) return tryAt(index + 1);
+                return response.text();
+            });
+        };
+        return tryAt(0);
+    }
+
+    window.getUnifiedMapData = function getUnifiedMapData() {
+        if (!unifiedMapDataPromise) {
+            unifiedMapDataPromise = fetchFirstAvailableText(UNIFIED_MAP_DATA_PATHS)
+                .then(function (text) { return JSON.parse(text); });
+        }
+        return unifiedMapDataPromise;
+    };
+
+    window.getCatalogueData = function getCatalogueData() {
+        if (!catalogueDataPromise) {
+            catalogueDataPromise = fetchFirstAvailableText(CATALOGUE_DATA_PATHS)
+                .then(function (text) { return JSON.parse(text); })
+                .catch(function () {
+                    return window.getUnifiedMapData().then(function (collection) {
+                        return (Array.isArray(collection && collection.features) ? collection.features : [])
+                            .map(function (feature) { return (feature && feature.properties) || {}; });
+                    });
+                });
+        }
+        return catalogueDataPromise;
+    };
+})();
+
 (function() { 
     function debounce(fn, delay) { 
         let timer; 
@@ -155,12 +206,6 @@
         altimetric: { min: 0, max: 1, ready: false },
         year: { min: 2000, max: 2026, ready: false }
     };
-    const UNIFIED_MAP_DATA_VERSION = '20260423c';
-    const UNIFIED_MAP_DATA_PATHS = [
-        `../data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`,
-        `data/map_data_unified.geojson?v=${UNIFIED_MAP_DATA_VERSION}`
-    ];
-
     function getFeatureParentCountryName(feature) {
         const properties = (feature && feature.properties) || {};
         const candidates = [
@@ -473,21 +518,6 @@
             feature.id = index;
         });
     }
-    const REGION_DATA_VERSION = '20260402e';
-
-    function fetchFirstAvailableText(paths) {
-        const tryAt = (index) => {
-            if (!Array.isArray(paths) || index >= paths.length) {
-                return Promise.reject(new Error('No data file found'));
-            }
-            return fetch(paths[index]).then((response) => {
-                if (!response.ok) return tryAt(index + 1);
-                return response.text();
-            });
-        };
-        return tryAt(0);
-    }
-
     function getRenderLevel(levels, zoom) {
         const numericZoom = Number.isFinite(zoom) ? zoom : 0;
         return levels.find((level) => numericZoom <= level.maxZoom) || levels[levels.length - 1];
@@ -1419,14 +1449,14 @@
         return request;
     }
 
-    function buildSearchIndexFromGeoJSON() {
-        const source = unifiedMapData || countriesData;
-        if (!source || !Array.isArray(source.features)) return [];
+    function buildSearchIndexFromFeatures(features) {
+        if (!Array.isArray(features)) return [];
         const seen = new Set();
         const items = [];
-        source.features.forEach((f) => {
-            if (!f || !f.properties) return;
-            const props = f.properties;
+        features.forEach((f) => {
+            if (!f) return;
+            const props = f.properties || f;
+            if (!props) return;
             const name = String(props.Name || props.RegionName || '').trim();
             const parentCountry = String(props.ParentCountry || props.main_country || props.country || name).trim();
             if (!name || !parentCountry) return;
@@ -1443,18 +1473,30 @@
         return items.sort((a, b) => a.label.localeCompare(b.label));
     }
 
+    function buildSearchIndexFromGeoJSON() {
+        const source = unifiedMapData || countriesData;
+        if (!source || !Array.isArray(source.features)) return [];
+        return buildSearchIndexFromFeatures(source.features);
+    }
+
     function loadLocationSearchIndex() {
         if (locationSearchIndexPromise) return locationSearchIndexPromise;
-        // Build index from the already-loaded GeoJSON if available, otherwise fetch the GeoJSON.
+        // Build index from the already-loaded GeoJSON if available, otherwise fetch the data once.
         if (unifiedMapData && Array.isArray(unifiedMapData.features) && unifiedMapData.features.length) {
             locationSearchIndex = buildSearchIndexFromGeoJSON();
             locationSearchIndexPromise = Promise.resolve(locationSearchIndex);
             return locationSearchIndexPromise;
         }
-        locationSearchIndexPromise = fetchFirstAvailableText(UNIFIED_MAP_DATA_PATHS)
-            .then((text) => {
-                unifiedMapData = JSON.parse(text);
-                return buildSearchIndexFromGeoJSON();
+        const isMapPage = document.body.classList.contains('map-page');
+        locationSearchIndexPromise = (isMapPage ? window.getUnifiedMapData() : window.getCatalogueData())
+            .then((data) => {
+                if (isMapPage) {
+                    unifiedMapData = data;
+                    locationSearchIndex = buildSearchIndexFromGeoJSON();
+                } else {
+                    locationSearchIndex = buildSearchIndexFromFeatures(data);
+                }
+                return locationSearchIndex;
             })
             .catch(() => []);
         return locationSearchIndexPromise.then((items) => {
@@ -3379,6 +3421,19 @@
     updateMobileOverviewChrome();
     // document.getElementById('helpModalClose').addEventListener('click', () => showTab('toc')); 
 
+    function activateLazyImages(container) {
+        if (!container) return;
+        const targets = container.matches && container.matches('[data-src]')
+            ? [container]
+            : Array.from(container.querySelectorAll('[data-src]'));
+        targets.forEach((img) => {
+            const src = img.getAttribute('data-src');
+            if (src && !img.getAttribute('src')) {
+                img.setAttribute('src', src);
+            }
+        });
+    }
+
     function showTab(name) { 
         Object.keys(panels).forEach(key => { 
             const panel = panels[key];
@@ -3393,12 +3448,14 @@
         if (name === 'help') { 
             sidebar.style.display = 'none'; // Sidebar verbergen bij help 
         } 
+        if (name === 'info') { 
+            activateLazyImages(panels.info); 
+        } 
     } 
 
     // Load data 
     if (document.body.classList.contains('map-page')) {
-        fetchFirstAvailableText(UNIFIED_MAP_DATA_PATHS)
-        .then((text) => JSON.parse(text))
+        window.getUnifiedMapData()
         .then(cd => {
             initializeUnifiedMapData(cd);
             // Rebuild search index from GeoJSON now that it's loaded
@@ -6991,11 +7048,11 @@ function initHomePageEnhancements() {
     if (randomPointcloudBtn) {
         randomPointcloudBtn.addEventListener('click', (event) => {
             event.preventDefault();
-            fetchFirstAvailableJsonShared(SHARED_UNIFIED_MAP_DATA_PATHS)
-                .then((collection) => {
-                    const candidates = (Array.isArray(collection && collection.features) ? collection.features : [])
-                        .map((feature) => {
-                            const props = (feature && feature.properties) || {};
+            window.getCatalogueData()
+                .then((records) => {
+                    const candidates = (Array.isArray(records) ? records : [])
+                        .map((record) => {
+                            const props = (record && record.properties) || record || {};
                             const region = String(props.Name || props.RegionName || '').trim();
                             const country = String(props.ParentCountry || props.main_country || props.country || region).trim();
                             const dataType = String(props.RawDataTypes || props.DataDisplay || props['Data display'] || props.Data || '').trim();
@@ -7011,30 +7068,6 @@ function initHomePageEnhancements() {
                 });
         });
     }
-}
-
-const SHARED_UNIFIED_MAP_DATA_VERSION = '20260423c';
-const SHARED_UNIFIED_MAP_DATA_PATHS = [
-    `/data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
-    `../data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`,
-    `data/map_data_unified.geojson?v=${SHARED_UNIFIED_MAP_DATA_VERSION}`
-];
-
-function fetchFirstAvailableTextShared(paths) {
-    const tryAt = (index) => {
-        if (!Array.isArray(paths) || index >= paths.length) {
-            return Promise.reject(new Error('No data file found'));
-        }
-        return fetch(paths[index]).then((response) => {
-            if (!response.ok) return tryAt(index + 1);
-            return response.text();
-        });
-    };
-    return tryAt(0);
-}
-
-function fetchFirstAvailableJsonShared(paths) {
-    return fetchFirstAvailableTextShared(paths).then((text) => JSON.parse(text));
 }
 
 // Initialize banner carousel if elements exist
@@ -7153,7 +7186,7 @@ function initCatalogueTable() {
         return classFields.some((field) => normalize(row[field]) !== '');
     };
     const featureToCatalogueRows = (feature) => {
-        const props = feature && feature.properties ? feature.properties : null;
+        const props = feature && feature.properties ? feature.properties : (feature || null);
         if (!props) return [];
         const count = getSeriesCount(props);
         return Array.from({ length: count }, (_, index) => ({ ...props, __seriesIndex: index }));
@@ -7371,13 +7404,13 @@ function initCatalogueTable() {
         });
     });
 
-    fetchFirstAvailableJsonShared(SHARED_UNIFIED_MAP_DATA_PATHS)
-        .then((collection) => {
-            catalogueRecords = sortCatalogueRecords((Array.isArray(collection && collection.features) ? collection.features : [])
+    window.getCatalogueData()
+        .then((records) => {
+            catalogueRecords = sortCatalogueRecords((Array.isArray(records) ? records : [])
                 .flatMap(featureToCatalogueRows));
             if (!catalogueRecords.length) {
-                if (body) body.innerHTML = '<tr><td colspan="10">No catalogue rows found in GeoJSON data.</td></tr>';
-                if (list) list.innerHTML = '<p class="note">No catalogue rows found in GeoJSON data.</p>';
+                if (body) body.innerHTML = '<tr><td colspan="10">No catalogue rows found in catalogue data.</td></tr>';
+                if (list) list.innerHTML = '<p class="note">No catalogue rows found in catalogue data.</p>';
                 status.textContent = 'Catalogue loaded, but no data rows were found.';
                 return;
             }
@@ -7392,9 +7425,9 @@ function initCatalogueTable() {
                 : 'Catalogue loaded, but no displayable rows were found.';
         })
         .catch((error) => {
-            if (body) body.innerHTML = '<tr><td colspan="10">Could not load catalogue data from map_data_unified.geojson.</td></tr>';
-            if (list) list.innerHTML = '<p class="note">Could not load catalogue data from map_data_unified.geojson.</p>';
-            status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected GeoJSON in /data or ../data.'}`;
+            if (body) body.innerHTML = '<tr><td colspan="10">Could not load catalogue data.</td></tr>';
+            if (list) list.innerHTML = '<p class="note">Could not load catalogue data.</p>';
+            status.textContent = `Catalogue load failed: ${error && error.message ? error.message : 'Expected catalogue data in /data or ../data.'}`;
         });
 }
 
