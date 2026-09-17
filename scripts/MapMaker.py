@@ -90,12 +90,16 @@ def export_catalogue_outputs(unified_gdf, output_dir) -> str:
     and parsing the full map geometry.
     """
     catalogue_output_file = os.path.join(output_dir, "catalogue_data.json")
+    logger.info(f"Creating catalogue data file with {len(unified_gdf)} records...")
     catalogue_gdf = unified_gdf.drop(columns="geometry", errors="ignore")
     catalogue_gdf.to_json(
         catalogue_output_file,
         orient="records",
         force_ascii=False,
         date_format="iso",
+    )
+    logger.info(
+        f"  Catalogue saved in: {catalogue_output_file} ({len(catalogue_gdf)} records)"
     )
     return catalogue_output_file
 
