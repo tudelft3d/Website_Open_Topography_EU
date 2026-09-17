@@ -947,7 +947,6 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
             string_boundaries = None
 
         total_special = len(special_boudaries)
-        matched_before = len(matched_rows)
         skipped = 0
 
         for row in special_boudaries:
@@ -967,10 +966,10 @@ def match_names_and_export(gadm_gpkg, input_file, output_dir, special_dir):
                 country_lookup=country_lookup,
             )
 
-        matched_special = len(matched_rows) - matched_before
+        processed_special = total_special - skipped
         skipped_info = f" ({skipped} skipped)" if skipped else ""
         logger.info(
-            f"Special boundaries: {matched_special}/{total_special} processed{skipped_info}"
+            f"Special boundaries: {processed_special}/{total_special} processed{skipped_info}"
         )
 
 
