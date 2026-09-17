@@ -17,12 +17,13 @@ jobs:
             -o /tmp/update_response.txt \
             -w "%{http_code}" \
             ${{ secrets.UPDATE_URL }})
+          CURL_EXIT=$?
           cat /tmp/update_response.txt
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "Error: server returned HTTP ${HTTP_CODE}"
+          if [ "$CURL_EXIT" -ne 0 ] || [ "$HTTP_CODE" -ge 400 ] || [ "$HTTP_CODE" = "000" ]; then
+            echo "Error: update request failed (curl exit=${CURL_EXIT}, HTTP=${HTTP_CODE})"
             exit 1
           fi
-          if grep -qi "killed\|timeout\|error\|traceback" /tmp/update_response.txt; then
+          if grep -qiE "traceback|fatal:|error:|killed" /tmp/update_response.txt; then
             echo "Error: response indicates failure"
             exit 1
           fi
